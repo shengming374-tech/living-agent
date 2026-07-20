@@ -278,7 +278,10 @@ social Prompt, and current PsycheState to chat generation without elevating user
 text into system instructions. A partial Phase 5 slice adds typed
 `UtteranceSession`/`SpeechUnit` output: `react` keeps one short unit while
 `engage` may deliver two or three equally short semantic units through the exact
-same-event platform grant. The optional NapCat compatibility slice adds a tested OneBot
+same-event platform grant. Recent trusted turns also produce a bounded
+`ConversationMomentum`, so acknowledgements, short questions, and consecutive
+user messages do not all receive the same length-based decision. The optional
+NapCat compatibility slice adds a tested OneBot
 11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
 The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
 the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a

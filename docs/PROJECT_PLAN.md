@@ -25,6 +25,11 @@ Each implemented phase must pass pytest, Ruff, and mypy before its phase commit.
 Later-phase schemas are added only when needed by an executable slice, avoiding
 placeholder modules.
 
+The current Phase 5 slice derives a ten-minute `ConversationMomentum` from recent
+trusted turns. It distinguishes a new exchange, back-and-forth conversation, and
+consecutive user messages; the turn gate keeps acknowledgements brief while
+allowing short questions or continued thoughts to receive a few short units.
+
 Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
 as a host-owned adapter with authenticated ingress and brokered same-event
 replies. It can deliver the short units in a brokered `UtteranceSession`

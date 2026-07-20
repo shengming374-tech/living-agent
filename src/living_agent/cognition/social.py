@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from living_agent.execution.contracts import VerifiedTaskResult
+from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.models.conversation import SpeechUnit, TurnDecision, UtteranceSession
 from living_agent.models.events import TrustedEvent
@@ -14,8 +15,12 @@ class SocialCognition:
     def __init__(self, turn_gate: TurnGate) -> None:
         self._turn_gate = turn_gate
 
-    def decide_turn(self, event: TrustedEvent) -> TurnDecision:
-        return self._turn_gate.decide(event)
+    def decide_turn(
+        self,
+        event: TrustedEvent,
+        momentum: ConversationMomentum | None = None,
+    ) -> TurnDecision:
+        return self._turn_gate.decide(event, momentum)
 
     def render_model_text(self, text: str) -> str:
         """Return bounded model text; executive code never calls outbound adapters."""

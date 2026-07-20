@@ -11,6 +11,7 @@ from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
 from living_agent.execution.executor import CalculatorTaskExecutor
+from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope, SourceType, TrustedEvent
 from living_agent.providers.llm import LLMProvider, LLMProviderError
@@ -96,7 +97,12 @@ class AgentRuntime:
             )
         await self._event_bus.publish(event)
 
-        turn = self._social.decide_turn(event)
+        conversation_events = await self._conversation_events(event)
+        momentum = ConversationMomentum.from_history(
+            conversation_events,
+            now=event.created_at,
+        )
+        turn = self._social.decide_turn(event, momentum)
         await self._audit.append(
             action="turn.decided",
             actor_id="living-agent",
@@ -159,7 +165,7 @@ class AgentRuntime:
                 utterance=utterance,
             )
 
-        conversation_history = await self._conversation_history(event)
+        conversation_history = self._conversation_history(conversation_events)
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
@@ -170,6 +176,7 @@ class AgentRuntime:
                 "expected_units_max": turn.expected_units_max,
                 "target_chars_per_unit": 36,
                 "format": "newline_separated_plain_messages",
+                "momentum": momentum.model_dump(),
             },
             psyche_state={
                 "valence": psyche_state.valence,
@@ -263,14 +270,17 @@ class AgentRuntime:
             utterance=utterance,
         )
 
-    async def _conversation_history(self, event: TrustedEvent) -> list[dict[str, Any]]:
+    async def _conversation_events(self, event: TrustedEvent) -> list[TrustedEvent]:
         if event.conversation_id is None:
             return []
-        history = await self._events.recent_for_conversation(
+        return await self._events.recent_for_conversation(
             event.conversation_id,
             limit=8,
             exclude_event_id=event.event_id,
         )
+
+    @staticmethod
+    def _conversation_history(history: list[TrustedEvent]) -> list[dict[str, Any]]:
         return [
             {
                 "event_id": item.event_id,
