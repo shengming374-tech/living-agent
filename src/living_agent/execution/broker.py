@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from pydantic import BaseModel, ValidationError
@@ -26,6 +27,7 @@ class CapabilityDefinition:
     operations: frozenset[str]
     argument_model: type[BaseModel]
     sandbox_required: bool = False
+    scope_validator: Callable[[BaseModel, str], bool] | None = None
 
 
 class CapabilityBroker:
@@ -52,6 +54,14 @@ class CapabilityBroker:
 
     def add_grant(self, grant: CapabilityGrant) -> None:
         self._grants.append(grant)
+
+    def revoke_grant(self, grant: CapabilityGrant) -> None:
+        """Remove an unused host-issued grant after a denied adapter operation."""
+
+        for index, candidate in enumerate(self._grants):
+            if candidate is grant:
+                self._grants.pop(index)
+                return
 
     async def decide(
         self,
@@ -123,10 +133,19 @@ class CapabilityBroker:
                 request, "operation_not_declared", "Operation is absent from the capability schema."
             )
         try:
-            definition.argument_model.model_validate(request.arguments)
+            validated_arguments = definition.argument_model.model_validate(request.arguments)
         except ValidationError:
             return self._deny(
                 request, "invalid_arguments", "Arguments do not match the host schema."
+            )
+        if definition.scope_validator is not None and not definition.scope_validator(
+            validated_arguments,
+            request.resource_scope,
+        ):
+            return self._deny(
+                request,
+                "arguments_scope_mismatch",
+                "Arguments target a resource outside the requested scope.",
             )
 
         grant = self._matching_grant(request)

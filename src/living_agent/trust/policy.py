@@ -11,8 +11,19 @@ from living_agent.models.events import AuthorityLevel
 @dataclass(frozen=True, slots=True)
 class PolicyRuleSet:
     write_operations: frozenset[str] = frozenset(
-        {"write", "create", "update", "delete", "install", "enable", "disable", "send"}
+        {
+            "write",
+            "create",
+            "update",
+            "delete",
+            "install",
+            "enable",
+            "disable",
+            "send",
+            "reply",
+        }
     )
+    system_reply_operations: frozenset[str] = frozenset({"reply"})
     self_modification_capabilities: frozenset[str] = frozenset(
         {"config.modify", "persona.modify", "prompt.modify", "plugin.install"}
     )
@@ -29,6 +40,11 @@ class PolicyRuleSet:
         owner_id: str,
     ) -> DecisionOutcome | None:
         if self.operation_class(operation) != "write":
+            return None
+        if (
+            operation.lower() in self.system_reply_operations
+            and authority is AuthorityLevel.SYSTEM
+        ):
             return None
         if confirmed_by == owner_id:
             return None

@@ -108,6 +108,32 @@ To add a reviewed plugin:
 `GET /v1/plugins` lists discovery and enabled state. These management endpoints use
 the development owner header described under security limitations.
 
+## NapCat / OneBot 11 adapter
+
+An optional host-owned platform adapter accepts NapCat reverse WebSocket
+connections at `/v1/adapters/napcat/ws`. It supports authenticated private/group
+message ingestion, array and CQ-string normalization, group `@bot` participation,
+and `echo`-correlated plain-text replies over the same connection.
+
+Enable it with a shared token:
+
+```bash
+export LIVING_AGENT_NAPCAT_ENABLED=true
+export LIVING_AGENT_NAPCAT_ACCESS_TOKEN='replace-with-a-long-random-token'
+```
+
+Configure a NapCat WebSocket Client URL such as
+`ws://127.0.0.1:8000/v1/adapters/napcat/ws`, using the same token and preferably
+`messagePostFormat: array`. QQ identities and conversations are platform- and
+bot-namespaced; nicknames, group cards, and OneBot group roles never grant
+LivingAgent authority.
+
+Every outbound reply receives a one-time Capability Broker grant bound to the
+exact source event and conversation. Replies are encoded as a OneBot `text`
+segment, preventing CQ-looking model output from becoming a rich action. See
+[`docs/integrations/napcat.md`](docs/integrations/napcat.md) for the NapCat WebUI
+example, identity mapping, security model, limits, and official protocol sources.
+
 ## Permission model and prompt injection
 
 Authenticated adapter identity, never a nickname or message claim, determines
@@ -197,7 +223,8 @@ provenance, and usage history. Phase 3 also includes six-layer Persona managemen
 and eight-category Prompt management with staging, tests, recovery, and rollback.
 Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
 calculator activity evidence, restart recovery, state decay, and evidence-gated
-continuity claims.
+continuity claims. The optional NapCat compatibility slice adds a tested OneBot
+11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
 
 Partially implemented: activities currently describe calculator execution, not a
 general daily-activity system; continuity checks cover memory, prior-thought, and

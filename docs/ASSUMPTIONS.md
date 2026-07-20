@@ -29,3 +29,11 @@
 13. Psyche state and ThoughtRecord inspection/mutation are owner control-plane
     operations. `X-Actor-ID` is sufficient only in development and tests; a
     production deployment must authenticate those HTTP requests externally.
+14. NapCat integration uses OneBot 11 reverse WebSocket because it supports event
+    ingress and correlated API replies on one authenticated connection. QQ actor
+    and conversation IDs are namespaced by bot `self_id`; nickname, group card,
+    and group role remain untrusted display metadata.
+15. A LivingAgent-generated reply to the same authenticated source event is an
+    allowed system `reply`, not an unsolicited third-party `send`. It still needs
+    an exact, one-time Capability Grant. Unsolicited and cross-conversation sends
+    remain unimplemented.

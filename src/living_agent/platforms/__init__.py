@@ -1,0 +1,1 @@
+"""Host-owned platform adapters."""

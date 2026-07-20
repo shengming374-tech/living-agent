@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     prompt_root: Path = Path("prompts")
     root_prompt_second_factor_sha256: str | None = None
     psyche_decay_half_life_hours: float = Field(default=12.0, gt=0.0, le=720.0)
+    napcat_enabled: bool = False
+    napcat_access_token: SecretStr | None = None
+    napcat_action_timeout_seconds: float = Field(default=5.0, gt=0.0, le=30.0)
+    napcat_max_message_chars: int = Field(default=12000, ge=1, le=100000)
+    napcat_max_frame_bytes: int = Field(default=1048576, ge=1024, le=52428800)
+    napcat_max_in_flight_events: int = Field(default=16, ge=1, le=256)
 
     @classmethod
     def settings_customise_sources(
@@ -87,6 +93,14 @@ class Settings(BaseSettings):
         if re.fullmatch(r"[0-9a-f]{64}", normalized) is None:
             raise ValueError("root_prompt_second_factor_sha256 must be a SHA-256 hex digest")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_napcat_credentials(self) -> Self:
+        if self.napcat_enabled:
+            token = self.napcat_access_token
+            if token is None or not token.get_secret_value().strip():
+                raise ValueError("napcat_access_token is required when NapCat is enabled")
+        return self
 
 
 def load_settings() -> Settings:

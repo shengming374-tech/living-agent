@@ -33,6 +33,13 @@ from living_agent.memory.firewall import MemoryFirewall
 from living_agent.memory.repository import MemoryRepository
 from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
+from living_agent.platforms.napcat.adapter import NapCatAdapter
+from living_agent.platforms.napcat.api import router as napcat_router
+from living_agent.platforms.napcat.models import (
+    NAPCAT_REPLY_CAPABILITY,
+    NapCatReplyArguments,
+    napcat_reply_scope_matches,
+)
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
@@ -69,6 +76,14 @@ def create_app(
             operations=frozenset({"execute"}),
             argument_model=CalculatorArguments,
             sandbox_required=True,
+        )
+    )
+    broker.register_capability(
+        CapabilityDefinition(
+            name=NAPCAT_REPLY_CAPABILITY,
+            operations=frozenset({"reply"}),
+            argument_model=NapCatReplyArguments,
+            scope_validator=napcat_reply_scope_matches,
         )
     )
     plugin_registry = PluginRegistry(resolved_settings.plugin_root)
@@ -129,6 +144,17 @@ def create_app(
         psyche=psyche_service,
         continuity_critic=continuity_critic,
     )
+    napcat_adapter = NapCatAdapter(
+        enabled=resolved_settings.napcat_enabled,
+        access_token=resolved_settings.napcat_access_token,
+        runtime=runtime,
+        broker=broker,
+        audit=audit,
+        action_timeout_seconds=resolved_settings.napcat_action_timeout_seconds,
+        max_message_chars=resolved_settings.napcat_max_message_chars,
+        max_frame_bytes=resolved_settings.napcat_max_frame_bytes,
+        max_in_flight_events=resolved_settings.napcat_max_in_flight_events,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -161,6 +187,7 @@ def create_app(
     app.state.persona_manager = persona_manager
     app.state.prompt_manager = prompt_manager
     app.state.psyche_service = psyche_service
+    app.state.napcat_adapter = napcat_adapter
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(audit_router)
@@ -169,6 +196,7 @@ def create_app(
     app.include_router(persona_router)
     app.include_router(prompts_router)
     app.include_router(psyche_router)
+    app.include_router(napcat_router)
     return app
 
 

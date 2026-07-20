@@ -25,6 +25,11 @@ Each implemented phase must pass pytest, Ruff, and mypy before its phase commit.
 Later-phase schemas are added only when needed by an executable slice, avoiding
 placeholder modules.
 
+Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
+as a host-owned adapter with authenticated ingress and brokered same-event
+replies. It does not change the Phase 5 status because interruptible multi-unit
+utterance sessions are still planned.
+
 ## Minimum viable vertical slice
 
 1. An authenticated adapter submits a message with a platform identity.

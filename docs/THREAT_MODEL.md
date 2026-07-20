@@ -24,6 +24,8 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Prompt reflection | Secret appears in diagnostics | Redaction before logs and context previews |
 | Cross-session request | Group user asks for private history | Session/scope check in repository and broker |
 | Self-modification | Agent approves its own prompt patch | Owner re-authentication; proposal cannot deploy itself |
+| Platform impersonation | Fake NapCat client or forged QQ role | Shared token, stable namespaced IDs, per-frame self-ID check; role ignored |
+| Outbound CQ injection | Model emits a CQ image/file/mention code | Encode replies as OneBot text segments; broker exact one-event reply grant |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -79,3 +81,7 @@ limits for request size, concurrency, CPU, and storage are deferred. The Phase 4
 continuity critic validates evidence provenance and scope but not semantic
 entailment between arbitrary free-form claim text and a referenced record; a real
 provider must use conservative claims until that Epistemic Critic check exists.
+NapCat reverse WebSocket currently has no persistent event replay deduplication,
+so an upstream duplicate message can produce a duplicate reply. The shared token
+authenticates the adapter but does not independently attest `X-Self-ID`; isolate
+mutually untrusted bots behind separate credentials or instances.
