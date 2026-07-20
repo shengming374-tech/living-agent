@@ -94,6 +94,14 @@ function stableMessageId(event, context, content) {
   return createHash("sha256").update(identity).digest("hex");
 }
 
+function sessionIdentity(channelId, accountId, sessionKey) {
+  if (!sessionKey) return "";
+  const digest = createHash("sha256")
+    .update(JSON.stringify([channelId, accountId, sessionKey]))
+    .digest("hex");
+  return `session-${digest}`;
+}
+
 export function buildBridgeRequest(event, context, config) {
   const channelId = text(context?.channelId || event?.channel).trim();
   if (channelId !== config.channelId) return null;
@@ -101,11 +109,22 @@ export function buildBridgeRequest(event, context, config) {
   if (config.allowedAccountIds.size > 0 && !config.allowedAccountIds.has(accountId)) {
     return { rejected: "account_not_allowed" };
   }
-  const conversationId = text(context?.conversationId || event?.conversationId).trim();
-  const senderId = text(context?.senderId || event?.senderId).trim();
+  const sessionKey = text(context?.sessionKey || event?.sessionKey).trim();
+  const directFallback = sessionIdentity(channelId, accountId, sessionKey);
+  const explicitConversationId = text(
+    context?.conversationId || event?.conversationId,
+  ).trim();
+  const explicitSenderId = text(context?.senderId || event?.senderId).trim();
+  const conversationId = explicitConversationId || explicitSenderId || directFallback;
+  const senderId = explicitSenderId || explicitConversationId || directFallback;
   const content = text(event?.content || event?.body).trim();
-  if (!accountId || !conversationId || !senderId || !content) {
-    return { rejected: "required_field_missing" };
+  const missingFields = [];
+  if (!accountId) missingFields.push("account_id");
+  if (!conversationId) missingFields.push("conversation_id");
+  if (!senderId) missingFields.push("sender_id");
+  if (!content) missingFields.push("content");
+  if (missingFields.length > 0) {
+    return { rejected: "required_field_missing", missingFields };
   }
   if (content.length > config.maxMessageChars) {
     return { rejected: "message_too_large" };
@@ -125,7 +144,7 @@ export function buildBridgeRequest(event, context, config) {
       content,
       timestamp_ms: timestampMs,
       is_group: event?.isGroup === true,
-      session_key: text(context?.sessionKey || event?.sessionKey).slice(0, 500) || null,
+      session_key: sessionKey.slice(0, 500) || null,
       run_id: text(context?.runId).slice(0, 100) || null,
     },
   };
@@ -202,7 +221,10 @@ export function createBeforeDispatchHandler(options = {}) {
     if (built.rejected) {
       stats.rejected += 1;
       stats.lastErrorCode = built.rejected;
-      logger?.warn?.(`[${PLUGIN_ID}] inbound rejected: ${built.rejected}`);
+      const fields = built.missingFields?.length
+        ? ` fields=${built.missingFields.join(",")}`
+        : "";
+      logger?.warn?.(`[${PLUGIN_ID}] inbound rejected: ${built.rejected}${fields}`);
       return { handled: true };
     }
     try {

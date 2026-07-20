@@ -46,6 +46,9 @@
     restart may produce a second response until persistent event keys are added.
 18. Direct WeChat text is the initial compatibility target. Group chat, media,
     proactive sends, and alternate OpenClaw channels remain denied or unclaimed.
+    OpenClaw channels that omit typed sender/conversation IDs use a stable opaque
+    hash of authenticated channel/account/session routing as the direct identity;
+    missing all stable identity inputs remains a hard rejection.
 19. Embedding generation is initially an explicit owner control-plane operation.
     It never automatically exports chat history or committed memories. Remote
     calls are external sends requiring a one-time broker grant and owner

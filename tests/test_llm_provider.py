@@ -84,6 +84,7 @@ def test_cloud_model_configuration_requires_safe_endpoint_and_key() -> None:
         Settings(
             model_provider="openai_compatible",
             model_api_base_url="https://cloud.example/v1",
+            model_api_key=None,
         )
     with pytest.raises(ValidationError, match="cannot contain credentials"):
         Settings(
@@ -95,6 +96,7 @@ def test_cloud_model_configuration_requires_safe_endpoint_and_key() -> None:
     local = Settings(
         model_provider="openai_compatible",
         model_api_base_url="http://127.0.0.1:1234/v1",
+        model_api_key=None,
         model_name="local-model",
     )
     assert local.model_api_key is None

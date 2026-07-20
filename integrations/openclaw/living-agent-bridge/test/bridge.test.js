@@ -109,6 +109,35 @@ test("message id derivation is deterministic", () => {
   assert.equal(first.payload.message_id, second.payload.message_id);
 });
 
+test("derives stable opaque direct identity when typed hook omits sender fields", () => {
+  const sparseEvent = event({ senderId: undefined });
+  const sparseContext = context({
+    senderId: undefined,
+    conversationId: undefined,
+    sessionKey: "agent:main:openclaw-weixin:stable-user-route",
+  });
+
+  const first = buildBridgeRequest(sparseEvent, sparseContext, config());
+  const second = buildBridgeRequest(sparseEvent, sparseContext, config());
+
+  assert.match(first.payload.sender_id, /^session-[0-9a-f]{64}$/);
+  assert.equal(first.payload.conversation_id, first.payload.sender_id);
+  assert.equal(second.payload.sender_id, first.payload.sender_id);
+  assert.equal(first.payload.session_key, sparseContext.sessionKey);
+  assert.equal(first.payload.sender_id.includes("stable-user-route"), false);
+});
+
+test("rejects sparse hook input when no stable identity source exists", () => {
+  const result = buildBridgeRequest(
+    event({ senderId: undefined }),
+    context({ senderId: undefined, conversationId: undefined, sessionKey: undefined }),
+    config(),
+  );
+
+  assert.equal(result.rejected, "required_field_missing");
+  assert.deepEqual(result.missingFields, ["conversation_id", "sender_id"]);
+});
+
 test("account allowlist rejects before network access", async () => {
   let called = false;
   const counters = stats();

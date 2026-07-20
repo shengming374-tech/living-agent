@@ -111,6 +111,13 @@ actor:   openclaw:<channel>:<account>:user:<sender>
 direct:  openclaw:<channel>:<account>:direct:<conversation>
 ```
 
+OpenClaw 2026.6.10's typed `before_dispatch` contract does not guarantee that a
+channel projects its legacy `From`/`To` values into `senderId` and
+`conversationId`. When both are absent for a direct message, the bridge derives a
+stable opaque `session-<sha256>` identity from the authenticated channel, account,
+and OpenClaw session key. The raw session key and WeChat ID are not placed in that
+identity. If no explicit IDs or stable session key exist, the message fails closed.
+
 The shared token authenticates the installed bridge process, while channel and
 account allowlists constrain its scope. `senderId`, `conversationId`, and account
 metadata are supplied by the authenticated OpenClaw channel. Display names and
