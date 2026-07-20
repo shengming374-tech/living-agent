@@ -73,7 +73,7 @@ configuration tooling with these values:
   "token": "replace-with-the-same-dedicated-token",
   "channelId": "openclaw-weixin",
   "allowedAccountIds": ["your-weixin-account-id"],
-  "timeoutMs": 15000,
+  "timeoutMs": 90000,
   "maxMessageChars": 12000,
   "allowRemoteEndpoint": false
 }

@@ -7,7 +7,7 @@ const DEFAULTS = Object.freeze({
   tokenEnv: "LIVING_AGENT_OPENCLAW_BRIDGE_TOKEN",
   channelId: "openclaw-weixin",
   allowedAccountIds: [],
-  timeoutMs: 15000,
+  timeoutMs: 90000,
   maxMessageChars: 12000,
   allowRemoteEndpoint: false,
 });
@@ -69,7 +69,7 @@ export function normalizeConfig(raw = {}, environment = process.env) {
     tokenEnv,
     channelId,
     allowedAccountIds: new Set(allowedAccountIds),
-    timeoutMs: boundedInteger(value.timeoutMs, DEFAULTS.timeoutMs, 1000, 60000),
+    timeoutMs: boundedInteger(value.timeoutMs, DEFAULTS.timeoutMs, 1000, 120000),
     maxMessageChars: boundedInteger(
       value.maxMessageChars,
       DEFAULTS.maxMessageChars,

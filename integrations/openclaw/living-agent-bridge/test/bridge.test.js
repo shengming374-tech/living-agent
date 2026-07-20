@@ -109,6 +109,12 @@ test("message id derivation is deterministic", () => {
   assert.equal(first.payload.message_id, second.payload.message_id);
 });
 
+test("uses a model-aware bridge timeout with bounded overrides", () => {
+  assert.equal(config().timeoutMs, 90000);
+  assert.equal(config({ timeoutMs: 120000 }).timeoutMs, 120000);
+  assert.equal(config({ timeoutMs: 120001 }).timeoutMs, 90000);
+});
+
 test("derives stable opaque direct identity when typed hook omits sender fields", () => {
   const sparseEvent = event({ senderId: undefined });
   const sparseContext = context({
