@@ -43,6 +43,12 @@ validation, owner-only API access, and a brokered one-time external-send grant.
 Vector persistence, memory backfill, scope-first semantic ranking, index migration,
 and retrieval integration remain planned rather than implied by this slice.
 
+Cloud chat compatibility is implemented as a separate provider slice using
+OpenAI-compatible non-streaming Chat Completions. It preserves root/data context
+separation, validates bounded final text, isolates provider failures, and records
+only safe operational metadata. A real deployment remains configuration-dependent
+and requires an owner-supplied endpoint, model ID, and credential.
+
 ## Minimum viable vertical slice
 
 1. An authenticated adapter submits a message with a platform identity.

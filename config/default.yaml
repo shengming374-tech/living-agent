@@ -5,6 +5,15 @@ owner_id: owner-local
 admin_ids: []
 log_level: INFO
 model_provider: mock
+model_name: mock-chat-v1
+model_api_base_url: null
+model_api_key: null
+model_timeout_seconds: 60.0
+model_max_output_tokens: 1024
+model_temperature: 0.7
+model_max_context_chars: 100000
+model_max_response_bytes: 1048576
+model_allow_insecure_http: false
 embedding_provider: mock
 embedding_model: mock-hash-v1
 embedding_api_base_url: null

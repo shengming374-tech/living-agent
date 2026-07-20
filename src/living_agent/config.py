@@ -34,7 +34,16 @@ class Settings(BaseSettings):
     owner_id: str = "owner-local"
     admin_ids: list[str] = Field(default_factory=list)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
-    model_provider: Literal["mock"] = "mock"
+    model_provider: Literal["mock", "openai_compatible"] = "mock"
+    model_name: str = "mock-chat-v1"
+    model_api_base_url: str | None = None
+    model_api_key: SecretStr | None = None
+    model_timeout_seconds: float = Field(default=60.0, gt=0.0, le=300.0)
+    model_max_output_tokens: int = Field(default=1024, ge=1, le=32768)
+    model_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    model_max_context_chars: int = Field(default=100000, ge=1000, le=1000000)
+    model_max_response_bytes: int = Field(default=1048576, ge=1024, le=16777216)
+    model_allow_insecure_http: bool = False
     embedding_provider: Literal["mock", "openai_compatible"] = "mock"
     embedding_model: str = "mock-hash-v1"
     embedding_api_base_url: str | None = None
@@ -103,12 +112,12 @@ class Settings(BaseSettings):
             raise ValueError("owner_id cannot be empty")
         return normalized
 
-    @field_validator("embedding_model")
+    @field_validator("model_name", "embedding_model")
     @classmethod
-    def validate_embedding_model(cls, value: str) -> str:
+    def validate_model_name(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized or len(normalized) > 255:
-            raise ValueError("embedding_model must contain 1 to 255 characters")
+            raise ValueError("model names must contain 1 to 255 characters")
         return normalized
 
     @field_validator("root_prompt_second_factor_sha256")
@@ -123,12 +132,27 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_adapter_credentials(self) -> Self:
+        if self.model_provider == "openai_compatible":
+            if self.model_api_base_url is None:
+                raise ValueError("model_api_base_url is required for openai_compatible provider")
+            model_loopback = self._validate_external_api_url(
+                self.model_api_base_url,
+                setting_name="model_api_base_url",
+                allow_insecure_http=self.model_allow_insecure_http,
+            )
+            key = self.model_api_key
+            if not model_loopback and (key is None or not key.get_secret_value().strip()):
+                raise ValueError("model_api_key is required for a remote model API")
         if self.embedding_provider == "openai_compatible":
             if self.embedding_api_base_url is None:
                 raise ValueError(
                     "embedding_api_base_url is required for openai_compatible provider"
                 )
-            self._validate_embedding_api_url(self.embedding_api_base_url)
+            self._validate_external_api_url(
+                self.embedding_api_base_url,
+                setting_name="embedding_api_base_url",
+                allow_insecure_http=self.embedding_allow_insecure_http,
+            )
         if self.napcat_enabled:
             token = self.napcat_access_token
             if token is None or not token.get_secret_value().strip():
@@ -143,23 +167,28 @@ class Settings(BaseSettings):
                 raise ValueError("OpenClaw bridge requires at least one allowed channel")
         return self
 
-    def _validate_embedding_api_url(self, value: str) -> None:
+    @staticmethod
+    def _validate_external_api_url(
+        value: str,
+        *,
+        setting_name: str,
+        allow_insecure_http: bool,
+    ) -> bool:
         parsed = urlsplit(value)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-            raise ValueError("embedding_api_base_url must be an HTTP(S) URL")
+            raise ValueError(f"{setting_name} must be an HTTP(S) URL")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise ValueError(
-                "embedding_api_base_url cannot contain credentials, query, or fragment"
-            )
+            raise ValueError(f"{setting_name} cannot contain credentials, query, or fragment")
         hostname = parsed.hostname.lower()
         try:
             loopback = ip_address(hostname).is_loopback
         except ValueError:
             loopback = hostname == "localhost"
-        if parsed.scheme != "https" and not loopback and not self.embedding_allow_insecure_http:
+        if parsed.scheme != "https" and not loopback and not allow_insecure_http:
             raise ValueError(
-                "remote embedding_api_base_url requires HTTPS unless insecure HTTP is explicit"
+                f"remote {setting_name} requires HTTPS unless insecure HTTP is explicit"
             )
+        return loopback
 
 
 def load_settings() -> Settings:

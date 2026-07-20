@@ -53,3 +53,9 @@
 20. `openai_compatible` means the JSON `POST /embeddings` contract with optional
     Bearer authentication. Provider-specific authentication and payload variants
     require separate adapters rather than weakening response validation.
+21. The first cloud chat adapter targets OpenAI-compatible non-streaming
+    `/chat/completions`. The owner-selected endpoint/model/key are deployment
+    configuration and cannot be changed by chat, model output, or plugins.
+22. Cloud chat receives the trusted root as system content and all remaining
+    context as typed, taint-labelled user data. Provider-specific reasoning fields
+    are discarded; structured continuity evidence remains future work.

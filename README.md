@@ -78,8 +78,15 @@ Then request `GET /health` or submit an authenticated-adapter envelope to
 
 ## Model configuration
 
-Phase 1 uses a deterministic `MockLLMProvider`, requiring no credentials. A real
-provider will implement the same protocol and receive only redacted, typed context.
+The deterministic `MockLLMProvider` remains the default and requires no
+credentials. An `openai_compatible` provider can call a host-configured cloud
+`/chat/completions` API. `ROOT_POLICY` remains a system message; all social,
+memory, task, document, tool-result, and capability sections are sent as typed
+user-message JSON with provenance and taint labels. Responses are bounded and
+validated, hidden reasoning fields are ignored, and audit stores only provider,
+model, token counts, and bounded errors. See
+[`docs/integrations/cloud-model-api.md`](docs/integrations/cloud-model-api.md).
+
 Secrets belong in environment-backed settings and must never appear in prompt or
 audit previews.
 
@@ -262,6 +269,9 @@ second personality frontend.
 The embedding compatibility slice adds deterministic Mock and strict
 OpenAI-compatible providers plus an owner-only, brokered generation API. It does
 not yet add vector persistence or memory ranking.
+The cloud chat compatibility slice adds a strict OpenAI-compatible Chat
+Completions provider with typed context boundaries and isolated failure handling.
+It remains disabled until a deployment supplies its endpoint, model ID, and key.
 
 Partially implemented: activities currently describe calculator execution, not a
 general daily-activity system; continuity checks cover memory, prior-thought, and

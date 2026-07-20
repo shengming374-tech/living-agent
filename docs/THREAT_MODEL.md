@@ -32,6 +32,9 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Embedding data exfiltration | Chat or memory is silently sent to a model API | Owner-only explicit API, one-time `send` grant, no automatic memory embedding |
 | Malicious embedding API | Huge/malformed vectors or secret-bearing errors | Response-byte cap, strict schema/index/dimension/finite checks, generic errors |
 | Provider downgrade | Remote API configured over cleartext HTTP | HTTPS required remotely unless insecure transport is explicitly enabled |
+| Cloud prompt exfiltration | Secrets or cross-scope data enter model context | Context redaction, source compiler, explicit provider config, no automatic memory recall |
+| Cloud API manipulation | Error body or reasoning text is reflected to users | Strict final-text schema, bounded generic errors, ignore reasoning fields |
+| Model authority confusion | Injected user data is flattened into system prompt | Root-only system message; typed JSON data retains source and taint labels |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -102,3 +105,9 @@ LivingAgent disables redirects and proxy-environment inheritance, bounds request
 and responses, never audits text/vectors/error bodies, and does not automatically
 send long-term memory. A production control plane must authenticate the owner API;
 the development `X-Actor-ID` header alone is insufficient.
+Cloud chat providers receive the compiled current-event context and can retain or
+process it according to their own policies. LivingAgent enforces HTTPS by default,
+requires remote credentials, disables redirects/proxy inheritance, bounds context
+and response sizes, and never audits prompts, outputs, keys, reasoning fields, or
+upstream error bodies. These controls do not replace provider due diligence or
+regional/privacy review.

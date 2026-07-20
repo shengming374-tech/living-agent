@@ -59,7 +59,12 @@ from living_agent.providers.embeddings import (
     MockEmbeddingProvider,
     OpenAICompatibleEmbeddingProvider,
 )
-from living_agent.providers.llm import LLMProvider, MockLLMProvider
+from living_agent.providers.llm import (
+    ClosableLLMProvider,
+    LLMProvider,
+    MockLLMProvider,
+    OpenAICompatibleLLMProvider,
+)
 from living_agent.psyche.repository import PsycheRepository
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
@@ -180,6 +185,24 @@ def create_app(
         f"{prompt_manager.root_policy().strip()}\n\n"
         f"PERSONA IDENTITY:\n{persona_manager.identity_statement()}"
     )
+    if llm_provider is not None:
+        resolved_llm_provider = llm_provider
+    elif resolved_settings.model_provider == "mock":
+        resolved_llm_provider = MockLLMProvider(model=resolved_settings.model_name)
+    else:
+        model_base_url = resolved_settings.model_api_base_url
+        if model_base_url is None:
+            raise ValueError("model API base URL is not configured")
+        resolved_llm_provider = OpenAICompatibleLLMProvider(
+            base_url=model_base_url,
+            api_key=resolved_settings.model_api_key,
+            model=resolved_settings.model_name,
+            timeout_seconds=resolved_settings.model_timeout_seconds,
+            max_output_tokens=resolved_settings.model_max_output_tokens,
+            temperature=resolved_settings.model_temperature,
+            max_context_chars=resolved_settings.model_max_context_chars,
+            max_response_bytes=resolved_settings.model_max_response_bytes,
+        )
     task_executor = CalculatorTaskExecutor(
         registry=plugin_registry,
         process=PluginProcess(timeout_seconds=resolved_settings.plugin_timeout_seconds),
@@ -198,7 +221,7 @@ def create_app(
         executive=ExecutiveCognition(),
         task_executor=task_executor,
         context_compiler=context_compiler,
-        llm=llm_provider or MockLLMProvider(),
+        llm=resolved_llm_provider,
         root_policy=root_policy,
         psyche=psyche_service,
         continuity_critic=continuity_critic,
@@ -247,9 +270,13 @@ def create_app(
             yield
         finally:
             try:
-                await embedding_service.close()
+                if isinstance(resolved_llm_provider, ClosableLLMProvider):
+                    await resolved_llm_provider.close()
             finally:
-                await database.dispose()
+                try:
+                    await embedding_service.close()
+                finally:
+                    await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved_settings
@@ -257,6 +284,7 @@ def create_app(
     app.state.authority = authority
     app.state.audit = audit
     app.state.runtime = runtime
+    app.state.llm_provider = resolved_llm_provider
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry
     app.state.memory_service = memory_service

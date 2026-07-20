@@ -34,3 +34,6 @@ class SocialCognition:
 
     def render_continuity_block(self) -> str:
         return "I don't have a record that supports saying that."
+
+    def render_model_failure(self) -> str:
+        return "I couldn't reach my language model just now."

@@ -25,7 +25,10 @@ API_KEY = "embedding-provider-test-key"
 
 def test_embedding_configuration_validates_remote_transport() -> None:
     with pytest.raises(ValidationError, match="embedding_api_base_url is required"):
-        Settings(embedding_provider="openai_compatible")
+        Settings(
+            embedding_provider="openai_compatible",
+            embedding_api_base_url=None,
+        )
     with pytest.raises(ValidationError, match="requires HTTPS"):
         Settings(
             embedding_provider="openai_compatible",

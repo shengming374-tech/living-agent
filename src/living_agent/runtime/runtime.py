@@ -13,7 +13,7 @@ from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAc
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope
-from living_agent.providers.llm import LLMProvider
+from living_agent.providers.llm import LLMProvider, LLMProviderError
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
 from living_agent.storage.events import EventRepository
@@ -145,7 +145,40 @@ class AgentRuntime:
             return ChatResult(event=event, turn=turn, message=message)
 
         context = self._context_compiler.compile(event, root_policy=self._root_policy)
-        model_response = await self._llm.generate(context)
+        try:
+            model_response = await self._llm.generate(context)
+        except LLMProviderError as exc:
+            await self._audit.append(
+                action="model.called",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="failure",
+                details={
+                    "event_id": event.event_id,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                    "error_code": exc.code,
+                },
+            )
+            return ChatResult(
+                event=event,
+                turn=turn,
+                message=self._social.render_model_failure(),
+            )
+        await self._audit.append(
+            action="model.called",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome="success",
+            details={
+                "event_id": event.event_id,
+                "provider": model_response.provider,
+                "model": model_response.model,
+                "prompt_tokens": model_response.usage.prompt_tokens,
+                "completion_tokens": model_response.usage.completion_tokens,
+                "total_tokens": model_response.usage.total_tokens,
+            },
+        )
         continuity = await self._continuity_critic.evaluate(
             model_response.text,
             model_response.claim_evidence,
