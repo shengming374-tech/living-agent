@@ -28,7 +28,8 @@ placeholder modules.
 Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
 as a host-owned adapter with authenticated ingress and brokered same-event
 replies. It can deliver the short units in a brokered `UtteranceSession`
-sequentially; cancellation after a new inbound interruption remains unfinished.
+sequentially. A newer inbound message in the same conversation cancels any units
+that have not begun sending and records the interruption in the audit log.
 
 OpenClaw WeChat compatibility is implemented as a transport bridge using the
 typed `before_dispatch` synthetic-reply contract. It authenticates and namespaces

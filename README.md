@@ -298,12 +298,12 @@ and conversation scope; it does not yet independently prove semantic entailment
 between arbitrary free-form claim text and the referenced record.
 
 Not yet implemented: automatic memory extraction/vector retrieval, runtime-level
-replanning of interrupted speech, NapCat interruption cancellation, general
+replanning of interrupted speech, general
 multi-step executive planning, Control Studio,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
 OpenClaw group/media/proactive messaging and persistent bridge idempotency are
-also not implemented. The OpenClaw bridge does cancel unsent follow-up units when
-a newer inbound message reaches the same conversation.
+also not implemented. The OpenClaw and NapCat adapters cancel unsent follow-up
+units when a newer inbound message reaches the same conversation.
 This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations

@@ -66,6 +66,7 @@ class NapCatAdapter:
         self._max_message_chars = max_message_chars
         self._max_frame_bytes = max_frame_bytes
         self._max_in_flight_events = max_in_flight_events
+        self._active_utterances: dict[str, object] = {}
 
     async def serve(self, websocket: WebSocket) -> None:
         self_id = websocket.headers.get("x-self-id")
@@ -225,18 +226,43 @@ class NapCatAdapter:
             )
             return
 
-        result = await self._runtime.handle_chat(normalized.envelope)
-        if result.message is None:
-            return
-        for message in result.messages or [result.message]:
-            reply = normalized.reply.model_copy(update={"message": message})
-            await self._send_reply(
-                reply,
-                connection,
-                event_id=result.event.event_id,
-                conversation_id=result.event.conversation_id,
-                taint_labels=result.event.taint_labels,
-            )
+        conversation_id = normalized.envelope.conversation_id
+        if conversation_id is None:
+            raise ValueError("NapCat messages require a conversation")
+        utterance_token = object()
+        self._active_utterances[conversation_id] = utterance_token
+        try:
+            result = await self._runtime.handle_chat(normalized.envelope)
+            if result.message is None:
+                return
+            messages = result.messages or [result.message]
+            for index, message in enumerate(messages):
+                if self._active_utterances.get(conversation_id) is not utterance_token:
+                    await self._audit.append(
+                        action="utterance.interrupted",
+                        actor_id="living-agent",
+                        conversation_id=conversation_id,
+                        outcome="cancelled",
+                        details={
+                            "event_id": result.event.event_id,
+                            "platform": "napcat",
+                            "sent_count": index,
+                            "unsent_count": len(messages) - index,
+                            "reason_code": "new_inbound_message",
+                        },
+                    )
+                    return
+                reply = normalized.reply.model_copy(update={"message": message})
+                await self._send_reply(
+                    reply,
+                    connection,
+                    event_id=result.event.event_id,
+                    conversation_id=conversation_id,
+                    taint_labels=result.event.taint_labels,
+                )
+        finally:
+            if self._active_utterances.get(conversation_id) is utterance_token:
+                self._active_utterances.pop(conversation_id, None)
 
     async def _send_reply(
         self,

@@ -84,7 +84,7 @@ def test_openclaw_bridge_is_disabled_by_default(client: TestClient) -> None:
 
 def test_openclaw_enabled_configuration_requires_token() -> None:
     with pytest.raises(ValidationError, match="openclaw_bridge_access_token is required"):
-        Settings(openclaw_bridge_enabled=True)
+        Settings(openclaw_bridge_enabled=True, openclaw_bridge_access_token=None)
 
 
 def test_openclaw_bridge_requires_valid_bearer_token(openclaw_client: TestClient) -> None:

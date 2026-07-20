@@ -283,6 +283,39 @@ def test_engage_reply_sends_multiple_short_napcat_messages(settings: Settings) -
             close_websocket(websocket, client)
 
 
+def test_new_napcat_message_cancels_unsent_units_from_previous_turn(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.napcat_enabled = True
+    configured.napcat_access_token = SecretStr(NAPCAT_TOKEN)
+    provider = FixedLLMProvider("第一条短回复\n第二条短回复")
+    with TestClient(create_app(configured, llm_provider=provider)) as client:
+        with client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(
+                private_event("这是第一条需要正常参与的较长聊天消息", message_id=701)
+            )
+            old_first = websocket.receive_json()
+            assert old_first["params"]["message"][0]["data"]["text"] == "第一条短回复"
+
+            websocket.send_json(private_event("等等", message_id=702))
+            new_reply = websocket.receive_json()
+            assert new_reply["params"]["message"][0]["data"]["text"] == "第一条短回复"
+
+            websocket.send_json(action_success(old_first, message_id=9701))
+            websocket.send_json(action_success(new_reply, message_id=9702))
+            interrupted = wait_for_audit(
+                client,
+                lambda entry: entry["action"] == "utterance.interrupted"
+                and entry["outcome"] == "cancelled",
+            )
+            assert interrupted["details"]["platform"] == "napcat"
+            assert interrupted["details"]["sent_count"] == 1
+            assert interrupted["details"]["unsent_count"] == 1
+            assert interrupted["details"]["reason_code"] == "new_inbound_message"
+            close_websocket(websocket, client)
+
+
 def test_group_cq_string_detects_bot_mention_and_replies_to_group(
     napcat_client: TestClient,
 ) -> None:
@@ -441,7 +474,7 @@ def test_out_of_order_action_responses_are_correlated_by_echo(
 ) -> None:
     with napcat_client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
         websocket.send_json(private_event("Hello", message_id=401))
-        websocket.send_json(private_event("Hello again", message_id=402))
+        websocket.send_json(private_event("Hello again", user_id=20003, message_id=402))
         first_action = websocket.receive_json()
         second_action = websocket.receive_json()
         assert first_action["echo"] != second_action["echo"]
