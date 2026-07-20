@@ -12,6 +12,7 @@ from living_agent.providers.embeddings import EmbeddingService
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.trust.authority import AuthorityResolver
+from living_agent.users.service import UserService
 
 
 def get_runtime(request: Request) -> AgentRuntime:
@@ -52,3 +53,7 @@ def get_prompt_manager(request: Request) -> PromptManager:
 
 def get_psyche_service(request: Request) -> PsycheService:
     return request.app.state.psyche_service  # type: ignore[no-any-return]
+
+
+def get_user_service(request: Request) -> UserService:
+    return request.app.state.user_service  # type: ignore[no-any-return]

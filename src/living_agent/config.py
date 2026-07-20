@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     prompt_root: Path = Path("prompts")
     root_prompt_second_factor_sha256: str | None = None
     psyche_decay_half_life_hours: float = Field(default=12.0, gt=0.0, le=720.0)
+    social_engage_units_min: int = Field(default=2, ge=1, le=3)
+    social_engage_units_max: int = Field(default=3, ge=1, le=3)
+    social_group_auto_participation: bool = False
+    social_group_min_user_turns: int = Field(default=5, ge=1, le=100)
+    social_group_cooldown_seconds: float = Field(default=60.0, ge=0.0, le=86400.0)
     napcat_enabled: bool = False
     napcat_access_token: SecretStr | None = None
     napcat_action_timeout_seconds: float = Field(default=5.0, gt=0.0, le=30.0)
@@ -132,6 +137,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_adapter_credentials(self) -> Self:
+        if self.social_engage_units_min > self.social_engage_units_max:
+            raise ValueError("social_engage_units_min cannot exceed social_engage_units_max")
         if self.model_provider == "openai_compatible":
             if self.model_api_base_url is None:
                 raise ValueError("model_api_base_url is required for openai_compatible provider")

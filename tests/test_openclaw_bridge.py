@@ -136,6 +136,13 @@ def test_wechat_direct_message_becomes_namespaced_trusted_event_and_reply(
         "openclaw:openclaw-weixin:wechat-account:direct:wechat-conversation"
     )
     assert ingested["details"]["authority_level"] == "member"
+    registered = openclaw_client.get(
+        "/v1/users/openclaw:openclaw-weixin:wechat-account:user:wechat-user",
+        headers=OWNER_HEADERS,
+    )
+    assert registered.status_code == 200
+    assert registered.json()["display_name"] == "Owner"
+    assert registered.json()["message_count"] == 1
     assert any(
         entry["action"] == "capability.decision"
         and entry["outcome"] == "ALLOW_ONCE"

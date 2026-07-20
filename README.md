@@ -76,6 +76,22 @@ Then request `GET /health` or submit an authenticated-adapter envelope to
 `POST /v1/chat`. Configuration defaults live in `config/default.yaml`; copy
 `.env.example` values into the process environment for deployment overrides.
 
+Social participation is deterministic. Direct messages and explicit group
+mentions always receive a turn decision; unmentioned group participation is
+controlled by consecutive user turns and a cooldown rather than random silence:
+
+```bash
+LIVING_AGENT_SOCIAL_ENGAGE_UNITS_MIN=2
+LIVING_AGENT_SOCIAL_ENGAGE_UNITS_MAX=3
+LIVING_AGENT_SOCIAL_GROUP_AUTO_PARTICIPATION=true
+LIVING_AGENT_SOCIAL_GROUP_MIN_USER_TURNS=5
+LIVING_AGENT_SOCIAL_GROUP_COOLDOWN_SECONDS=60
+```
+
+An automatic unmentioned-group turn is a single short `react`. Suspected
+instruction text in group chat is always observed rather than used to trigger
+participation or an action.
+
 ## Model configuration
 
 The deterministic `MockLLMProvider` remains the default and requires no
@@ -183,6 +199,13 @@ so malicious social text, documents, memories, and tool/plugin results cannot by
 themselves grant permission or cross a data boundary. See
 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
+Authenticated direct and group messages also create or update a lightweight
+registered-user profile keyed by the stable, platform-namespaced identity.
+Profiles contain display metadata and first/last-seen counters, never authority.
+Only the configured owner can inspect them through `GET /v1/users` and
+`GET /v1/users/{user_id}`. Unauthenticated input, documents, tool results, and
+plugin output cannot register a user.
+
 ## Memory design
 
 Implemented memory nodes carry type, content, subject, source event IDs and trust,
@@ -282,7 +305,10 @@ text into system instructions. A partial Phase 5 slice adds typed
 `engage` may deliver two or three equally short semantic units through the exact
 same-event platform grant. Recent trusted turns also produce a bounded
 `ConversationMomentum`, so acknowledgements, short questions, and consecutive
-user messages do not all receive the same length-based decision. The optional
+user messages do not all receive the same length-based decision. Configurable
+group-turn and cooldown thresholds permit one short, unmentioned participation
+turn without probabilistic silence. Authenticated social identities are
+automatically registered as non-authoritative profiles. The optional
 NapCat compatibility slice adds a tested OneBot
 11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
 The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from

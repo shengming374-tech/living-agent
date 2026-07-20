@@ -8,6 +8,7 @@ from living_agent.execution.contracts import extract_calculation_expression
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.models.conversation import TurnDecision
 from living_agent.models.events import SourceType, TrustedEvent
+from living_agent.trust.taint import TaintLabel
 
 
 class TurnGate:
@@ -29,6 +30,25 @@ class TurnGate:
     )
     _trailing_punctuation: ClassVar[str] = "\u3002\uff01!\uff1f?~\uff5e "
 
+    def __init__(
+        self,
+        *,
+        engage_units_min: int = 2,
+        engage_units_max: int = 3,
+        group_auto_participation: bool = False,
+        group_min_user_turns: int = 5,
+        group_cooldown_seconds: float = 60.0,
+    ) -> None:
+        if engage_units_min < 1 or engage_units_max > 3 or engage_units_min > engage_units_max:
+            raise ValueError("engage unit bounds must satisfy 1 <= min <= max <= 3")
+        if group_min_user_turns < 1 or group_cooldown_seconds < 0:
+            raise ValueError("group participation thresholds must be non-negative")
+        self._engage_units_min = engage_units_min
+        self._engage_units_max = engage_units_max
+        self._group_auto_participation = group_auto_participation
+        self._group_min_user_turns = group_min_user_turns
+        self._group_cooldown_seconds = group_cooldown_seconds
+
     def decide(
         self,
         event: TrustedEvent,
@@ -42,8 +62,13 @@ class TurnGate:
         mentions_agent = isinstance(content, dict) and bool(content.get("mentions_agent", False))
         if not text.strip():
             return self._decision(event, "observe", 0.0, 0, 0, "empty_message")
+        if (
+            event.source_type is SourceType.GROUP_MESSAGE
+            and TaintLabel.SUSPECTED_INSTRUCTION.value in event.taint_labels
+        ):
+            return self._decision(event, "observe", 0.0, 0, 0, "group_tainted_observation")
         if event.source_type is SourceType.GROUP_MESSAGE and not mentions_agent:
-            return self._decision(event, "observe", 0.2, 0, 0, "group_observation")
+            return self._unmentioned_group_decision(event, momentum)
         if extract_calculation_expression(content) is not None:
             return self._decision(event, "act", 0.8, 1, 1, "calculator_task")
         normalized = text.strip()
@@ -51,13 +76,40 @@ class TurnGate:
         if plain in self._brief_acknowledgements:
             return self._decision(event, "react", 0.45, 1, 1, "brief_acknowledgement")
         if self._is_question(normalized):
-            return self._decision(event, "engage", 0.7, 2, 3, "direct_question")
+            return self._engage(event, 0.7, "direct_question")
         if momentum is not None and momentum.phase == "user_run":
-            return self._decision(event, "engage", 0.7, 2, 3, "continued_user_thought")
+            return self._engage(event, 0.7, "continued_user_thought")
         mode: Literal["react", "engage"] = "react" if len(normalized) <= 16 else "engage"
         if mode == "react":
             return self._decision(event, mode, 0.6, 1, 1, "direct_participation")
-        return self._decision(event, mode, 0.6, 2, 3, "direct_participation")
+        return self._engage(event, 0.6, "direct_participation")
+
+    def _unmentioned_group_decision(
+        self,
+        event: TrustedEvent,
+        momentum: ConversationMomentum | None,
+    ) -> TurnDecision:
+        if not self._group_auto_participation or momentum is None:
+            return self._decision(event, "observe", 0.2, 0, 0, "group_observation")
+        current_user_run = momentum.user_turns_since_agent + 1
+        if current_user_run < self._group_min_user_turns:
+            return self._decision(event, "observe", 0.2, 0, 0, "group_frequency_wait")
+        if (
+            momentum.seconds_since_last_agent is not None
+            and momentum.seconds_since_last_agent < self._group_cooldown_seconds
+        ):
+            return self._decision(event, "observe", 0.2, 0, 0, "group_cooldown")
+        return self._decision(event, "react", 0.35, 1, 1, "group_auto_participation")
+
+    def _engage(self, event: TrustedEvent, urgency: float, reason: str) -> TurnDecision:
+        return self._decision(
+            event,
+            "engage",
+            urgency,
+            self._engage_units_min,
+            self._engage_units_max,
+            reason,
+        )
 
     @staticmethod
     def _is_question(text: str) -> bool:

@@ -1,5 +1,8 @@
 from fastapi.testclient import TestClient
 
+from living_agent.app import create_app
+from living_agent.config import Settings
+
 
 def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
@@ -76,6 +79,35 @@ def test_chat_input_rejects_unknown_fields(client: TestClient) -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_configured_group_frequency_participates_after_user_turn_threshold(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(
+        update={
+            "social_group_auto_participation": True,
+            "social_group_min_user_turns": 3,
+            "social_group_cooldown_seconds": 60.0,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        modes = []
+        for index in range(3):
+            response = client.post(
+                "/v1/chat",
+                json={
+                    "content": f"群聊消息 {index}",
+                    "source_type": "group_message",
+                    "source_identity": f"member-{index}",
+                    "conversation_id": "group-frequency",
+                    "authenticated": True,
+                },
+            )
+            assert response.status_code == 200
+            modes.append(response.json()["turn"]["mode"])
+
+    assert modes == ["observe", "observe", "react"]
 
 
 def test_calculator_task_runs_through_broker_plugin_and_verifier(client: TestClient) -> None:

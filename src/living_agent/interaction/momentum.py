@@ -14,10 +14,11 @@ class ConversationMomentum(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phase: Literal["new", "back_and_forth", "user_run"]
-    recent_turn_count: int = Field(ge=0, le=8)
+    recent_turn_count: int = Field(ge=0, le=128)
     agent_spoke_last: bool
-    user_turns_since_agent: int = Field(ge=0, le=8)
+    user_turns_since_agent: int = Field(ge=0, le=128)
     recent_agent_unit_count: int = Field(ge=0, le=3)
+    seconds_since_last_agent: float | None = Field(default=None, ge=0.0)
 
     @classmethod
     def from_history(
@@ -35,9 +36,25 @@ class ConversationMomentum(BaseModel):
                 created_at = created_at.replace(tzinfo=cutoff.tzinfo)
             return created_at >= cutoff
 
+        bounded_history = history[-128:]
+        last_agent = next(
+            (
+                event
+                for event in reversed(bounded_history)
+                if event.source_type is SourceType.AGENT_MESSAGE
+            ),
+            None,
+        )
+        seconds_since_last_agent = None
+        if last_agent is not None:
+            last_agent_at = last_agent.created_at
+            if last_agent_at.tzinfo is None and now.tzinfo is not None:
+                last_agent_at = last_agent_at.replace(tzinfo=now.tzinfo)
+            seconds_since_last_agent = max(0.0, (now - last_agent_at).total_seconds())
+
         recent = [
             event
-            for event in history[-8:]
+            for event in bounded_history
             if is_active(event)
             and event.source_type
             in {
@@ -53,6 +70,7 @@ class ConversationMomentum(BaseModel):
                 agent_spoke_last=False,
                 user_turns_since_agent=0,
                 recent_agent_unit_count=0,
+                seconds_since_last_agent=seconds_since_last_agent,
             )
 
         agent_spoke_last = recent[-1].source_type is SourceType.AGENT_MESSAGE
@@ -62,13 +80,13 @@ class ConversationMomentum(BaseModel):
                 break
             user_turns_since_agent += 1
 
-        last_agent = next(
+        recent_last_agent = next(
             (event for event in reversed(recent) if event.source_type is SourceType.AGENT_MESSAGE),
             None,
         )
         recent_agent_unit_count = 0
-        if last_agent is not None:
-            content = last_agent.content
+        if recent_last_agent is not None:
+            content = recent_last_agent.content
             text = content if isinstance(content, str) else str(content.get("text", ""))
             session_id = content.get("utterance_session_id") if isinstance(content, dict) else None
             if isinstance(session_id, str) and session_id:
@@ -91,4 +109,5 @@ class ConversationMomentum(BaseModel):
             agent_spoke_last=agent_spoke_last,
             user_turns_since_agent=user_turns_since_agent,
             recent_agent_unit_count=recent_agent_unit_count,
+            seconds_since_last_agent=seconds_since_last_agent,
         )

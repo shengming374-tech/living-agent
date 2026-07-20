@@ -29,9 +29,20 @@ The current Phase 5 slice derives a ten-minute `ConversationMomentum` from recen
 trusted turns. It distinguishes a new exchange, back-and-forth conversation, and
 consecutive user messages; the turn gate keeps acknowledgements brief while
 allowing short questions or continued thoughts to receive a few short units.
+Direct messages and explicit mentions remain responsive. Optional unmentioned
+group participation uses a deterministic consecutive-user-turn threshold and
+time-since-last-agent cooldown, produces one short reaction, and cannot be
+triggered by a suspected instruction. The frequency calculation can inspect up to
+128 persisted turns while model context remains limited to the latest eight.
 `UtteranceSession.sent_count` and state advance only when a transport records
 delivery. Recent conversation history is built from those delivered units rather
 than the complete generated plan.
+
+Authenticated social events now auto-register a stable platform identity with
+display name, first/last seen timestamps, message count, and last conversation.
+Registration occurs after trust normalization and never stores authority.
+Owner-only read APIs expose profiles; unauthenticated and non-social sources are
+excluded.
 
 Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
 as a host-owned adapter with authenticated ingress and brokered same-event

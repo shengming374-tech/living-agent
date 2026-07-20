@@ -44,8 +44,8 @@ class TrustedEvent(BaseModel):
     event_type: str
     content: str | dict[str, Any]
     source_type: SourceType
-    source_identity: str | None
-    conversation_id: str | None
+    source_identity: str | None = Field(default=None, max_length=255)
+    conversation_id: str | None = Field(default=None, max_length=255)
     trust_level: TrustLevel
     authority_level: AuthorityLevel
     taint_labels: set[str] = Field(default_factory=set)
@@ -60,7 +60,7 @@ class IngressEnvelope(BaseModel):
     event_type: str = "message.received"
     content: str | dict[str, Any]
     source_type: SourceType
-    source_identity: str | None = None
-    display_name: str | None = None
-    conversation_id: str | None = None
+    source_identity: str | None = Field(default=None, max_length=255)
+    display_name: str | None = Field(default=None, max_length=200)
+    conversation_id: str | None = Field(default=None, max_length=255)
     authenticated: bool = False

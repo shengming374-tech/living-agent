@@ -18,6 +18,7 @@ from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
 from living_agent.api.prompts import router as prompts_router
 from living_agent.api.psyche import router as psyche_router
+from living_agent.api.users import router as users_router
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
 from living_agent.cognition.executive import ExecutiveCognition
@@ -76,6 +77,8 @@ from living_agent.storage.events import EventRepository
 from living_agent.storage.migrations import run_migrations
 from living_agent.trust.authority import AuthorityResolver
 from living_agent.trust.boundary import TrustBoundary
+from living_agent.users.repository import UserRepository
+from living_agent.users.service import UserService
 
 
 def create_app(
@@ -92,6 +95,10 @@ def create_app(
         admin_ids=frozenset(resolved_settings.admin_ids),
     )
     audit = AuditService(database.sessions)
+    user_service = UserService(
+        repository=UserRepository(database.sessions),
+        audit=audit,
+    )
     artifact_repository = ArtifactRepository(database.sessions)
     broker = CapabilityBroker(authority=authority, audit=audit)
     broker.register_capability(
@@ -234,7 +241,15 @@ def create_app(
         events=EventRepository(database.sessions),
         audit=audit,
         event_bus=EventBus(),
-        social=SocialCognition(TurnGate()),
+        social=SocialCognition(
+            TurnGate(
+                engage_units_min=resolved_settings.social_engage_units_min,
+                engage_units_max=resolved_settings.social_engage_units_max,
+                group_auto_participation=resolved_settings.social_group_auto_participation,
+                group_min_user_turns=resolved_settings.social_group_min_user_turns,
+                group_cooldown_seconds=resolved_settings.social_group_cooldown_seconds,
+            )
+        ),
         executive=ExecutiveCognition(),
         task_executor=task_executor,
         context_compiler=context_compiler,
@@ -243,6 +258,7 @@ def create_app(
         psyche=psyche_service,
         continuity_critic=continuity_critic,
         memories=memory_service,
+        users=user_service,
     )
     napcat_adapter = NapCatAdapter(
         enabled=resolved_settings.napcat_enabled,
@@ -310,6 +326,7 @@ def create_app(
     app.state.persona_manager = persona_manager
     app.state.prompt_manager = prompt_manager
     app.state.psyche_service = psyche_service
+    app.state.user_service = user_service
     app.state.napcat_adapter = napcat_adapter
     app.state.openclaw_bridge_adapter = openclaw_bridge_adapter
     app.include_router(health_router)
@@ -321,6 +338,7 @@ def create_app(
     app.include_router(persona_router)
     app.include_router(prompts_router)
     app.include_router(psyche_router)
+    app.include_router(users_router)
     app.include_router(napcat_router)
     app.include_router(openclaw_router)
     return app

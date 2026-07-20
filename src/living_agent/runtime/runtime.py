@@ -21,6 +21,7 @@ from living_agent.runtime.event_bus import EventBus
 from living_agent.storage.events import EventRepository
 from living_agent.trust.boundary import TrustBoundary
 from living_agent.trust.taint import TaintLabel
+from living_agent.users.service import UserService
 
 
 class AgentRuntime:
@@ -40,6 +41,7 @@ class AgentRuntime:
         psyche: PsycheService,
         continuity_critic: ContinuityCritic,
         memories: MemoryService,
+        users: UserService,
     ) -> None:
         self._boundary = boundary
         self._events = events
@@ -54,6 +56,7 @@ class AgentRuntime:
         self._psyche = psyche
         self._continuity_critic = continuity_critic
         self._memories = memories
+        self._users = users
 
     @property
     def root_policy_checksum(self) -> str:
@@ -77,6 +80,7 @@ class AgentRuntime:
     async def handle_chat(self, envelope: IngressEnvelope) -> ChatResult:
         event = self._boundary.normalize(envelope)
         await self._events.add(event)
+        await self._users.observe(envelope, event)
         await self._audit.append(
             action="event.ingested",
             actor_id=event.source_identity,
@@ -162,7 +166,7 @@ class AgentRuntime:
                 utterance=utterance,
             )
 
-        conversation_history = self._conversation_history(conversation_events)
+        conversation_history = self._conversation_history(conversation_events[-8:])
         recalled_memories = []
         if TaintLabel.SUSPECTED_INSTRUCTION.value not in event.taint_labels:
             recalled_memories = await self._memories.recall(
@@ -175,9 +179,7 @@ class AgentRuntime:
             event,
             root_policy=self._root_policy,
             conversation_history=conversation_history,
-            retrieved_memories=[
-                memory.model_dump(mode="json") for memory in recalled_memories
-            ],
+            retrieved_memories=[memory.model_dump(mode="json") for memory in recalled_memories],
             interaction_plan={
                 "mode": turn.mode,
                 "expected_units_min": turn.expected_units_min,
@@ -342,7 +344,7 @@ class AgentRuntime:
             return []
         return await self._events.recent_for_conversation(
             event.conversation_id,
-            limit=8,
+            limit=128,
             exclude_event_id=event.event_id,
         )
 

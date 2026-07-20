@@ -15,8 +15,9 @@
    native code; production requires containers, seccomp/App Sandbox, or a VM.
 8. `references/maibot/` is deliberately ignored by the main repository. Research
    provenance pins the inspected upstream revision without vendoring GPL code.
-9. Early chat responses are single units. Utterance sessions, interruption, and
-   dynamic multi-unit speech remain Phase 5 work and are not implied by the API.
+9. The Phase 5 slice supports one-unit reactions and configurable one-to-three-unit
+   engaged replies. Delivery-aware interruption is implemented in platform
+   adapters; runtime-level regeneration of cancelled units remains future work.
 10. Root prompt mutation is disabled when
     `LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256` is unset. Only the digest is
     configured; the raw second factor is supplied per privileged request.
@@ -71,3 +72,11 @@
     automatic permanent-memory commit. Long-term recall reads only committed,
     scope-accessible reality memories and uses local lexical ranking; it never
     turns the current message into a permanent memory.
+25. Speaking frequency is deterministic. Direct messages and explicit mentions
+    stay responsive; optional unmentioned group participation requires a configured
+    consecutive-user-turn threshold and cooldown, then emits one short reaction.
+    Random reply probabilities are not used.
+26. User auto-registration accepts only authenticated direct/group events and keys
+    profiles by stable platform identity. Display names are mutable metadata and
+    never establish owner/admin authority. Registration does not grant memory,
+    prompt, plugin, or capability access.

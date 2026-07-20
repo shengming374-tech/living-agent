@@ -24,6 +24,7 @@ from living_agent.psyche.models import (
 )
 from living_agent.storage.database import Base
 from living_agent.storage.models import TrustedEventORM
+from living_agent.users.models import RegisteredUserORM
 
 _ = (
     AuditRecordORM,
@@ -38,6 +39,7 @@ _ = (
     ThoughtRecordORM,
     TrustedEventORM,
     UnresolvedTopicORM,
+    RegisteredUserORM,
 )
 
 config = context.config
