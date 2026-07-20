@@ -355,3 +355,22 @@ def test_runtime_supplies_full_persona_social_policy_and_psyche_without_elevatin
         if section.kind is ContextKind.SOCIAL_CHAT
     )
     assert user_text == social
+
+
+def test_runtime_supplies_scoped_recent_user_and_assistant_turns(settings: Settings) -> None:
+    provider = _ContextRecordingProvider()
+    with TestClient(create_app(settings, llm_provider=provider)) as client:
+        first = send_chat(client, "先记住我们正在聊一个新点子")
+        second = send_chat(client, "接着说, 你刚才听到了什么?")
+
+    assert second["event"]["event_id"] != first["event"]["event_id"]
+    assert provider.context is not None
+    history = next(
+        section
+        for section in provider.context.sections
+        if section.kind is ContextKind.RECENT_CONVERSATION
+    )
+    assert first["event"]["event_id"] in history.source_event_ids
+    assert '"role": "user"' in history.content
+    assert '"role": "assistant"' in history.content
+    assert second["event"]["event_id"] not in history.source_event_ids

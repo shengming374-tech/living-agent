@@ -249,6 +249,11 @@ conversation; and action claims need completed activity or verified tool audit
 evidence. Unsupported claims are blocked and audited. Viewpoint-change claims are
 blocked until versioned viewpoint history exists.
 
+Chat generation also receives a bounded recent-conversation window containing the
+last user and LivingAgent turns for the same conversation only. These turns stay in
+the typed, taint-labelled data section and are not permanent memory; they provide
+short-term conversational continuity without widening memory scope or authority.
+
 ## Reference boundary
 
 MaiBot is used only as read-only mechanism research. It is not a dependency and

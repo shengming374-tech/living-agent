@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from living_agent.models.events import TrustedEvent
+from living_agent.models.events import AuthorityLevel, SourceType, TrustedEvent, TrustLevel
 from living_agent.storage.models import TrustedEventORM
 
 
@@ -39,6 +39,45 @@ class EventRepository:
             records = list((await session.scalars(statement)).all())
         by_id = {record.event_id: record for record in records}
         return [self._to_schema(by_id[event_id]) for event_id in event_ids if event_id in by_id]
+
+    async def recent_for_conversation(
+        self,
+        conversation_id: str,
+        *,
+        limit: int = 8,
+        exclude_event_id: str | None = None,
+    ) -> list[TrustedEvent]:
+        statement = (
+            select(TrustedEventORM)
+            .where(TrustedEventORM.conversation_id == conversation_id)
+            .order_by(TrustedEventORM.created_at.desc())
+            .limit(limit + (1 if exclude_event_id else 0))
+        )
+        async with self._sessions() as session:
+            records = list((await session.scalars(statement)).all())
+        if exclude_event_id is not None:
+            records = [record for record in records if record.event_id != exclude_event_id]
+        records.reverse()
+        return [self._to_schema(record) for record in records[:limit]]
+
+    async def add_agent_message(
+        self,
+        *,
+        conversation_id: str,
+        content: str,
+        source_event_id: str,
+    ) -> TrustedEvent:
+        event = TrustedEvent(
+            event_type="agent.response",
+            content={"text": content, "reply_to_event_id": source_event_id},
+            source_type=SourceType.AGENT_MESSAGE,
+            source_identity="living-agent",
+            conversation_id=conversation_id,
+            trust_level=TrustLevel.TRUSTED,
+            authority_level=AuthorityLevel.SYSTEM,
+        )
+        await self.add(event)
+        return event
 
     @staticmethod
     def _to_schema(record: TrustedEventORM) -> TrustedEvent:

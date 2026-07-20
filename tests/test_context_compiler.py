@@ -64,3 +64,41 @@ def test_psyche_state_is_separate_and_inherits_event_taint() -> None:
     psyche = context.sections[1]
     assert psyche.source_event_ids == [event.event_id]
     assert "host_derived_state" in psyche.taint_labels
+
+
+def test_recent_conversation_history_is_typed_and_tainted() -> None:
+    event = TrustBoundary(AuthorityResolver(owner_id="owner-1")).normalize(
+        IngressEnvelope(
+            content="Second message",
+            source_type=SourceType.DIRECT_MESSAGE,
+            source_identity="member-1",
+            conversation_id="chat-1",
+            authenticated=True,
+        )
+    )
+    context = ContextCompiler().compile(
+        event,
+        root_policy="root",
+        conversation_history=[
+            {
+                "event_id": "old-user",
+                "role": "user",
+                "content": "First message",
+                "taint_labels": ["external_data"],
+            },
+            {
+                "event_id": "old-agent",
+                "role": "assistant",
+                "content": "A prior reply",
+                "taint_labels": [],
+            },
+        ],
+    )
+
+    history = next(
+        section for section in context.sections if section.kind is ContextKind.RECENT_CONVERSATION
+    )
+    assert history.source_event_ids == ["old-user", "old-agent"]
+    assert history.taint_labels == {"conversation_history", "external_data"}
+    assert '"role": "assistant"' in history.content
+    assert "Second message" not in history.content

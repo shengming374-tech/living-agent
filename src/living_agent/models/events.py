@@ -18,6 +18,7 @@ class SourceType(StrEnum):
     TOOL_RESULT = "tool_result"
     PLUGIN_RESULT = "plugin_result"
     TIMER = "timer"
+    AGENT_MESSAGE = "agent_message"
 
 
 class TrustLevel(StrEnum):

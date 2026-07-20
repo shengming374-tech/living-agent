@@ -12,7 +12,7 @@ from living_agent.cognition.social import SocialCognition
 from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.models.conversation import ChatResult
-from living_agent.models.events import IngressEnvelope
+from living_agent.models.events import IngressEnvelope, SourceType, TrustedEvent
 from living_agent.providers.llm import LLMProvider, LLMProviderError
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
@@ -143,11 +143,19 @@ class AgentRuntime:
                     "errors": task_result.errors,
                 },
             )
+            if event.conversation_id is not None:
+                await self._events.add_agent_message(
+                    conversation_id=event.conversation_id,
+                    content=message,
+                    source_event_id=event.event_id,
+                )
             return ChatResult(event=event, turn=turn, message=message)
 
+        conversation_history = await self._conversation_history(event)
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
+            conversation_history=conversation_history,
             psyche_state={
                 "valence": psyche_state.valence,
                 "arousal": psyche_state.arousal,
@@ -220,4 +228,29 @@ class AgentRuntime:
                 "context_sections": [section.kind.value for section in context.sections],
             },
         )
+        if event.conversation_id is not None:
+            await self._events.add_agent_message(
+                conversation_id=event.conversation_id,
+                content=message,
+                source_event_id=event.event_id,
+            )
         return ChatResult(event=event, turn=turn, message=message)
+
+    async def _conversation_history(self, event: TrustedEvent) -> list[dict[str, Any]]:
+        if event.conversation_id is None:
+            return []
+        history = await self._events.recent_for_conversation(
+            event.conversation_id,
+            limit=8,
+            exclude_event_id=event.event_id,
+        )
+        return [
+            {
+                "event_id": item.event_id,
+                "role": "assistant" if item.source_type is SourceType.AGENT_MESSAGE else "user",
+                "content": item.content,
+                "created_at": item.created_at.isoformat(),
+                "taint_labels": sorted(item.taint_labels),
+            }
+            for item in history
+        ]
