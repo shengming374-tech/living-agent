@@ -14,6 +14,7 @@ from living_agent.models.events import AuthorityLevel, SourceType, TrustedEvent
 
 class ContextKind(StrEnum):
     ROOT_POLICY = "ROOT_POLICY"
+    PSYCHE_STATE = "PSYCHE_STATE"
     OWNER_REQUEST = "OWNER_REQUEST"
     SOCIAL_CHAT = "SOCIAL_CHAT"
     RETRIEVED_MEMORY = "RETRIEVED_MEMORY"
@@ -50,6 +51,7 @@ class ContextCompiler:
         current_task: dict[str, Any] | None = None,
         retrieved_memories: list[dict[str, Any]] | None = None,
         available_capabilities: list[str] | None = None,
+        psyche_state: dict[str, Any] | None = None,
     ) -> CompiledContext:
         sections = [
             ContextSection(
@@ -59,6 +61,15 @@ class ContextCompiler:
                 taint_labels=set(),
             )
         ]
+        if psyche_state is not None:
+            sections.append(
+                ContextSection(
+                    kind=ContextKind.PSYCHE_STATE,
+                    content=self._serialize(psyche_state),
+                    source_event_ids=[event.event_id],
+                    taint_labels=set(event.taint_labels) | {"host_derived_state"},
+                )
+            )
         event_kind = self._event_kind(event)
         sections.append(
             ContextSection(

@@ -54,3 +54,14 @@ class GrowthSchema(StrictSchema):
     mutable_traits: list[str] = Field(max_length=20)
     immutable_commitments: list[str] = Field(min_length=1, max_length=20)
     owner_review_required: Literal[True]
+
+
+class PersonaProfile(StrictSchema):
+    """The complete public persona profile, excluding authority and secrets."""
+
+    identity: IdentitySchema
+    values: ValuesSchema
+    traits: TraitsSchema
+    speech: SpeechSchema
+    boundaries: BoundariesSchema
+    growth: GrowthSchema

@@ -23,27 +23,21 @@ def test_prompt_view_token_estimate_render_and_redaction(client: TestClient) -> 
     assert view.status_code == 200
     payload = view.json()
     assert payload["token_estimate"] > 0
-    assert payload["variables"] == ["message", "persona_name"]
+    assert payload["variables"] == ["persona_name"]
 
     rendered = client.post(
         "/v1/prompts/social/reply/render",
         headers=OWNER_HEADERS,
-        json={
-            "variables": {
-                "message": "Use api_key: super-secret-value",
-                "persona_name": "LivingAgent",
-            }
-        },
+        json={"variables": {"persona_name": "LivingAgent"}},
     )
     assert rendered.status_code == 200
-    assert "super-secret-value" not in rendered.json()["rendered"]
-    assert "[REDACTED]" in rendered.json()["rendered"]
-    assert rendered.json()["redacted"] is True
+    assert "Speak as LivingAgent" in rendered.json()["rendered"]
+    assert rendered.json()["redacted"] is False
 
     wrong_variables = client.post(
         "/v1/prompts/social/reply/render",
         headers=OWNER_HEADERS,
-        json={"variables": {"message": "hello"}},
+        json={"variables": {"message": "user text must not enter the system prompt"}},
     )
     assert wrong_variables.status_code == 422
 
@@ -249,7 +243,10 @@ def test_context_preview_separates_sources_and_redacts_secrets(client: TestClien
     assert "context-secret-value" not in payload["rendered"]
     assert "task-secret-value" not in payload["rendered"]
     assert "[REDACTED]" in payload["rendered"]
-    assert "PERSONA IDENTITY" in payload["rendered"]
+    assert "TRUSTED_PERSONA_PROFILE" in payload["rendered"]
+    assert '"speech"' in payload["rendered"]
+    assert "SOCIAL_RESPONSE_POLICY" in payload["rendered"]
+    assert "customer-service phrasing" in payload["rendered"]
 
 
 def test_group_chat_cannot_modify_root_prompt(client: TestClient) -> None:

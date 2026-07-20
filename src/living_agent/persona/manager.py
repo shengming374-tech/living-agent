@@ -13,6 +13,7 @@ from living_agent.persona.schemas import (
     BoundariesSchema,
     GrowthSchema,
     IdentitySchema,
+    PersonaProfile,
     SpeechSchema,
     TraitsSchema,
     ValuesSchema,
@@ -92,9 +93,19 @@ class PersonaManager(ManagedArtifactService):
         return True
 
     def identity_statement(self) -> str:
-        payload = yaml.safe_load(self._read_file("identity.yaml"))
-        identity = IdentitySchema.model_validate(payload)
-        return identity.identity_statement
+        return self.public_profile().identity.identity_statement
+
+    def public_profile(self) -> PersonaProfile:
+        """Load and validate all public persona layers for model context."""
+
+        layers: dict[str, BaseModel] = {}
+        for artifact_path, schema in PERSONA_SCHEMAS.items():
+            payload = yaml.safe_load(self._read_file(artifact_path))
+            if not isinstance(payload, dict):
+                raise ValueError(f"persona layer must be a YAML object: {artifact_path}")
+            self._reject_forbidden_keys(payload)
+            layers[artifact_path.removesuffix(".yaml")] = schema.model_validate(payload)
+        return PersonaProfile.model_validate(layers)
 
     @classmethod
     def _reject_forbidden_keys(cls, value: Any) -> None:

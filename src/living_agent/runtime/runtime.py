@@ -105,6 +105,7 @@ class AgentRuntime:
             details={"event_id": event.event_id, "reason_code": turn.reason_code},
         )
         await self._psyche.appraise(event, turn)
+        psyche_state = await self._psyche.state()
         if turn.mode == "observe":
             return ChatResult(event=event, turn=turn, message=None)
 
@@ -144,7 +145,17 @@ class AgentRuntime:
             )
             return ChatResult(event=event, turn=turn, message=message)
 
-        context = self._context_compiler.compile(event, root_policy=self._root_policy)
+        context = self._context_compiler.compile(
+            event,
+            root_policy=self._root_policy,
+            psyche_state={
+                "valence": psyche_state.valence,
+                "arousal": psyche_state.arousal,
+                "current_focus": psyche_state.current_focus,
+                "focus_salience": psyche_state.focus_salience,
+                "current_activity_id": psyche_state.current_activity_id,
+            },
+        )
         try:
             model_response = await self._llm.generate(context)
         except LLMProviderError as exc:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -181,9 +182,23 @@ def create_app(
         audit=audit,
         bootstrap_actor=resolved_settings.owner_id,
     )
+    persona_profile = persona_manager.public_profile()
+    persona_context = json.dumps(
+        persona_profile.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    social_policy = prompt_manager.social_reply_policy(
+        persona_name=persona_profile.identity.name,
+    )
     root_policy = (
         f"{prompt_manager.root_policy().strip()}\n\n"
-        f"PERSONA IDENTITY:\n{persona_manager.identity_statement()}"
+        "<TRUSTED_PERSONA_PROFILE>\n"
+        f"{persona_context}\n"
+        "</TRUSTED_PERSONA_PROFILE>\n\n"
+        "<SOCIAL_RESPONSE_POLICY>\n"
+        f"{social_policy}\n"
+        "</SOCIAL_RESPONSE_POLICY>"
     )
     if llm_provider is not None:
         resolved_llm_provider = llm_provider

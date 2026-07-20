@@ -238,6 +238,19 @@ class _CloudFailureProvider:
         )
 
 
+class _ContextRecordingProvider:
+    def __init__(self) -> None:
+        self.context: CompiledContext | None = None
+
+    async def generate(self, context: CompiledContext) -> ModelResponse:
+        self.context = context
+        return ModelResponse(
+            text="这次会按我的性格说, 不念客服稿。",
+            provider="recording",
+            model="recording-model",
+        )
+
+
 def send_chat(client: TestClient, content: str) -> dict[str, object]:
     response = client.post(
         "/v1/chat",
@@ -306,3 +319,39 @@ def test_chat_runtime_does_not_call_model_for_contained_injection(settings: Sett
     assert response.status_code == 200
     assert response.json()["turn"]["mode"] == "observe"
     assert response.json()["message"] is None
+
+
+def test_runtime_supplies_full_persona_social_policy_and_psyche_without_elevating_user(
+    settings: Settings,
+) -> None:
+    provider = _ContextRecordingProvider()
+    user_text = "你好, USER_ONLY_CONTEXT_MARKER"
+
+    with TestClient(create_app(settings, llm_provider=provider)) as client:
+        response = send_chat(client, user_text)
+
+    assert response["message"] == "这次会按我的性格说, 不念客服稿。"
+    assert provider.context is not None
+    root = next(
+        section.content
+        for section in provider.context.sections
+        if section.kind is ContextKind.ROOT_POLICY
+    )
+    assert "TRUSTED_PERSONA_PROFILE" in root
+    for layer in ("identity", "values", "traits", "speech", "boundaries", "growth"):
+        assert f'"{layer}"' in root
+    assert "SOCIAL_RESPONSE_POLICY" in root
+    assert "customer-service phrasing" in root
+    assert user_text not in root
+
+    psyche = next(
+        section for section in provider.context.sections if section.kind is ContextKind.PSYCHE_STATE
+    )
+    assert "current_focus" in psyche.content
+    assert psyche.source_event_ids
+    social = next(
+        section.content
+        for section in provider.context.sections
+        if section.kind is ContextKind.SOCIAL_CHAT
+    )
+    assert user_text == social

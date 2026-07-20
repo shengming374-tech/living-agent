@@ -24,7 +24,7 @@ PROMPT_SPECS: dict[str, PromptSpec] = {
     "host/root.txt": PromptSpec(root_policy=True),
     "interaction/turn.txt": PromptSpec(allowed_variables={"event"}),
     "psyche/appraisal.txt": PromptSpec(allowed_variables={"event", "current_state"}),
-    "social/reply.txt": PromptSpec(allowed_variables={"message", "persona_name"}),
+    "social/reply.txt": PromptSpec(allowed_variables={"persona_name"}),
     "executive/task.txt": PromptSpec(allowed_variables={"goal", "constraints"}),
     "speech/render.txt": PromptSpec(allowed_variables={"content", "persona_name"}),
     "memory/candidate.txt": PromptSpec(allowed_variables={"observation", "source"}),
@@ -126,6 +126,14 @@ class PromptManager(ManagedArtifactService):
 
     def root_policy(self) -> str:
         return self._read_file("host/root.txt")
+
+    def social_reply_policy(self, *, persona_name: str) -> str:
+        """Render the trusted social behavior policy without user-controlled input."""
+
+        artifact_path = "social/reply.txt"
+        content = self._read_file(artifact_path)
+        self.validate(artifact_path, content)
+        return content.format(persona_name=persona_name).strip()
 
     @staticmethod
     def estimate_tokens(content: str) -> int:

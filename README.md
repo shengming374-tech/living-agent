@@ -208,6 +208,13 @@ APIs implement edit, diff, validate, stage, test, deploy, immutable history,
 rollback, and audit. Deployments use optimistic versions and return their recovery
 version; stale or untested stages cannot deploy.
 
+At startup the runtime validates all six deployed persona layers and compiles them
+with the deployed social-response Prompt into trusted model instructions. The
+social Prompt accepts only the validated persona name; user message text remains
+in its typed request section and is never interpolated into system instructions.
+The current PsycheState is supplied separately as `PSYCHE_STATE`, with source and
+taint metadata preserved.
+
 Root-policy stage/deploy/rollback additionally requires the owner and
 `X-Second-Factor`. Configure only its digest:
 
@@ -261,7 +268,9 @@ provenance, and usage history. Phase 3 also includes six-layer Persona managemen
 and eight-category Prompt management with staging, tests, recovery, and rollback.
 Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
 calculator activity evidence, restart recovery, state decay, and evidence-gated
-continuity claims. The optional NapCat compatibility slice adds a tested OneBot
+continuity claims. The runtime also supplies the six-layer persona, deployed
+social Prompt, and current PsycheState to chat generation without elevating user
+text into system instructions. The optional NapCat compatibility slice adds a tested OneBot
 11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
 The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
 the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a
