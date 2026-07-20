@@ -31,3 +31,6 @@ class SocialCognition:
         if "plugin_crashed" in result.errors:
             return "I couldn't finish that calculation because the calculator stopped."
         return "I couldn't verify a reliable result for that calculation."
+
+    def render_continuity_block(self) -> str:
+        return "I don't have a record that supports saying that."

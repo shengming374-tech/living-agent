@@ -79,3 +79,16 @@ class AuditService:
         async with self._sessions() as session:
             records = list((await session.scalars(statement)).all())
         return [AuditEntry.model_validate(record) for record in records]
+
+    async def get_entries(self, audit_ids: list[str]) -> list[AuditEntry]:
+        if not audit_ids:
+            return []
+        statement = select(AuditRecordORM).where(AuditRecordORM.audit_id.in_(audit_ids))
+        async with self._sessions() as session:
+            records = list((await session.scalars(statement)).all())
+        by_id = {record.audit_id: record for record in records}
+        return [
+            AuditEntry.model_validate(by_id[audit_id])
+            for audit_id in audit_ids
+            if audit_id in by_id
+        ]

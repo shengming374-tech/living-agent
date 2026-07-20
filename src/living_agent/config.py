@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     persona_root: Path = Path("personas/default")
     prompt_root: Path = Path("prompts")
     root_prompt_second_factor_sha256: str | None = None
+    psyche_decay_half_life_hours: float = Field(default=12.0, gt=0.0, le=720.0)
 
     @classmethod
     def settings_customise_sources(

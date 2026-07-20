@@ -9,10 +9,12 @@ from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import CompiledContext, ContextCompiler
 from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
+from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope
 from living_agent.providers.llm import LLMProvider
+from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
 from living_agent.storage.events import EventRepository
 from living_agent.trust.boundary import TrustBoundary
@@ -33,6 +35,8 @@ class AgentRuntime:
         context_compiler: ContextCompiler,
         llm: LLMProvider,
         root_policy: str,
+        psyche: PsycheService,
+        continuity_critic: ContinuityCritic,
     ) -> None:
         self._boundary = boundary
         self._events = events
@@ -44,6 +48,8 @@ class AgentRuntime:
         self._context_compiler = context_compiler
         self._llm = llm
         self._root_policy = root_policy
+        self._psyche = psyche
+        self._continuity_critic = continuity_critic
 
     @property
     def root_policy_checksum(self) -> str:
@@ -98,12 +104,31 @@ class AgentRuntime:
             outcome=turn.mode,
             details={"event_id": event.event_id, "reason_code": turn.reason_code},
         )
+        await self._psyche.appraise(event, turn)
         if turn.mode == "observe":
             return ChatResult(event=event, turn=turn, message=None)
 
         proposal = self._executive.propose(event)
         if proposal is not None:
-            task_result = await self._task_executor.execute(proposal)
+            activity = await self._psyche.start_activity(
+                kind="calculator_task",
+                summary=f"Executing verified task {proposal.task.task_id}.",
+                source_event_ids=[event.event_id],
+            )
+            try:
+                task_result = await self._task_executor.execute(proposal)
+            except Exception:
+                await self._psyche.finish_activity(
+                    activity.activity_id,
+                    success=False,
+                    evidence_ids=[],
+                )
+                raise
+            await self._psyche.finish_activity(
+                activity.activity_id,
+                success=task_result.success,
+                evidence_ids=[proposal.task.task_id] if task_result.success else [],
+            )
             message = self._social.render_task_result(task_result)
             await self._audit.append(
                 action="task.completed",
@@ -121,7 +146,25 @@ class AgentRuntime:
 
         context = self._context_compiler.compile(event, root_policy=self._root_policy)
         model_response = await self._llm.generate(context)
-        message = self._social.render_model_text(model_response.text)
+        continuity = await self._continuity_critic.evaluate(
+            model_response.text,
+            model_response.claim_evidence,
+            conversation_id=event.conversation_id,
+        )
+        if continuity.action is CriticAction.APPROVE:
+            message = self._social.render_model_text(model_response.text)
+        else:
+            message = self._social.render_continuity_block()
+            await self._audit.append(
+                action="continuity.blocked",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="blocked",
+                details={
+                    "event_id": event.event_id,
+                    "reason_codes": continuity.reason_codes,
+                },
+            )
         await self._audit.append(
             action="response.generated",
             actor_id="living-agent",

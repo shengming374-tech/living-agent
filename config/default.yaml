@@ -14,3 +14,4 @@ plugin_timeout_seconds: 2.0
 persona_root: personas/default
 prompt_root: prompts
 root_prompt_second_factor_sha256: null
+psyche_decay_half_life_hours: 12.0

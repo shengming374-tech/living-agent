@@ -4,9 +4,10 @@ LivingAgent is a greenfield runtime for a persistent digital persona with natura
 social participation and reliable, policy-controlled task execution. It is not a
 claim of consciousness and does not fabricate a biological body or life history.
 
-The project currently starts with the trust and execution foundation. Long-term
-memory, psyche state, interruptible speech, and management UI are staged features
-and are listed explicitly as unimplemented until their tested slices land.
+The implemented foundation includes trusted ingress, brokered execution,
+source-aware long-term memory, managed Persona/Prompt versions, and persistent
+psyche evidence. Interruptible speech, general planning, and the management UI
+remain staged features and are listed explicitly below.
 
 ## Goals
 
@@ -156,6 +157,27 @@ no Persona or Prompt mutation route, and an agent proposal cannot approve itself
 `POST /v1/prompts/context-preview` shows the actual currently loaded typed context
 with secrets redacted.
 
+## Persistent psyche and continuity evidence
+
+One persistent PsycheState stores bounded valence, arousal, current focus,
+focus salience, unresolved-topic IDs, and the current activity. Values decay
+toward neutral using `LIVING_AGENT_PSYCHE_DECAY_HALF_LIFE_HOURS`; historical
+ThoughtRecords are not rewritten by decay. Runtime appraisal creates a safe,
+structured `reaction` or `suppressed_reply` summary for every ingested chat event
+without storing model chain of thought.
+
+Owner-only `/v1/psyche` APIs expose state, safe ThoughtRecords, unresolved topics,
+and activity evidence. Source event IDs must exist before a thought, topic, or
+activity can be recorded. Calculator work creates a running activity, finishes it
+as completed or failed, attaches evidence IDs, and clears current activity.
+
+The Continuity Critic checks observable model claims before Social Cognition may
+render them. “I remember” needs an accessible committed memory; “I thought about
+that earlier” needs an earlier ThoughtRecord whose source belongs to the same
+conversation; and action claims need completed activity or verified tool audit
+evidence. Unsupported claims are blocked and audited. Viewpoint-change claims are
+blocked until versioned viewpoint history exists.
+
 ## Reference boundary
 
 MaiBot is used only as read-only mechanism research. It is not a dependency and
@@ -173,10 +195,20 @@ verification, social reporting, and audit evidence. The Phase 3 memory slice add
 candidates, a source/factuality firewall, scoped versioned nodes, lifecycle APIs,
 provenance, and usage history. Phase 3 also includes six-layer Persona management
 and eight-category Prompt management with staging, tests, recovery, and rollback.
+Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
+calculator activity evidence, restart recovery, state decay, and evidence-gated
+continuity claims.
 
-Not yet implemented: automatic memory extraction/vector retrieval, persistent
-psyche, utterance interruption, general multi-step executive planning, Control
-Studio, arbitrary third-party plugin installation, and dream/activity features.
+Partially implemented: activities currently describe calculator execution, not a
+general daily-activity system; continuity checks cover memory, prior-thought, and
+execution claims, while viewpoint changes remain blocked without viewpoint
+versions. The critic validates evidence existence, accessibility, time, status,
+and conversation scope; it does not yet independently prove semantic entailment
+between arbitrary free-form claim text and the referenced record.
+
+Not yet implemented: automatic memory extraction/vector retrieval, utterance
+sessions and interruption, general multi-step executive planning, Control Studio,
+arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
 This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations

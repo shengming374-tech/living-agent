@@ -16,6 +16,12 @@ from living_agent.memory.models import (
     MemoryUsageORM,
     MemoryVersionORM,
 )
+from living_agent.psyche.models import (
+    ActivityRecordORM,
+    PsycheStateORM,
+    ThoughtRecordORM,
+    UnresolvedTopicORM,
+)
 from living_agent.storage.database import Base
 from living_agent.storage.models import TrustedEventORM
 
@@ -23,11 +29,15 @@ _ = (
     AuditRecordORM,
     ArtifactStageORM,
     ArtifactVersionORM,
+    ActivityRecordORM,
     MemoryCandidateORM,
     MemoryNodeORM,
     MemoryUsageORM,
     MemoryVersionORM,
+    PsycheStateORM,
+    ThoughtRecordORM,
     TrustedEventORM,
+    UnresolvedTopicORM,
 )
 
 config = context.config

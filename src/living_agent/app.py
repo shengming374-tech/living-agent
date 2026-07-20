@@ -15,11 +15,13 @@ from living_agent.api.memories import router as memories_router
 from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
 from living_agent.api.prompts import router as prompts_router
+from living_agent.api.psyche import router as psyche_router
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
 from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.config import Settings, load_settings
+from living_agent.evaluation.continuity_critic import ContinuityCritic
 from living_agent.evaluation.task_verifier import CalculatorTaskVerifier
 from living_agent.execution.broker import CapabilityBroker, CapabilityDefinition
 from living_agent.execution.contracts import CALCULATOR_CAPABILITY, CalculatorArguments
@@ -34,7 +36,9 @@ from living_agent.persona.manager import PersonaManager
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
-from living_agent.providers.llm import MockLLMProvider
+from living_agent.providers.llm import LLMProvider, MockLLMProvider
+from living_agent.psyche.repository import PsycheRepository
+from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.storage.database import Database
@@ -44,7 +48,11 @@ from living_agent.trust.authority import AuthorityResolver
 from living_agent.trust.boundary import TrustBoundary
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    llm_provider: LLMProvider | None = None,
+) -> FastAPI:
     resolved_settings = settings or load_settings()
     configure_logging(resolved_settings.log_level)
     database = Database(resolved_settings.database_url)
@@ -69,6 +77,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository=MemoryRepository(database.sessions),
         events=EventRepository(database.sessions),
         firewall=MemoryFirewall(),
+        audit=audit,
+    )
+    psyche_service = PsycheService(
+        repository=PsycheRepository(database.sessions),
+        events=EventRepository(database.sessions),
+        audit=audit,
+        decay_half_life_hours=resolved_settings.psyche_decay_half_life_hours,
+    )
+    continuity_critic = ContinuityCritic(
+        psyche=psyche_service,
+        memories=memory_service,
         audit=audit,
     )
     persona_manager = PersonaManager(
@@ -105,8 +124,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         executive=ExecutiveCognition(),
         task_executor=task_executor,
         context_compiler=context_compiler,
-        llm=MockLLMProvider(),
+        llm=llm_provider or MockLLMProvider(),
         root_policy=root_policy,
+        psyche=psyche_service,
+        continuity_critic=continuity_critic,
     )
 
     @asynccontextmanager
@@ -114,6 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await asyncio.to_thread(run_migrations, resolved_settings.database_url)
         await persona_manager.initialize()
         await prompt_manager.initialize()
+        await psyche_service.initialize()
         await audit.append(
             action="runtime.started",
             actor_id="living-agent",
@@ -138,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.memory_service = memory_service
     app.state.persona_manager = persona_manager
     app.state.prompt_manager = prompt_manager
+    app.state.psyche_service = psyche_service
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(audit_router)
@@ -145,6 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(memories_router)
     app.include_router(persona_router)
     app.include_router(prompts_router)
+    app.include_router(psyche_router)
     return app
 
 

@@ -8,6 +8,7 @@ from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
+from living_agent.psyche.service import PsycheService
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.trust.authority import AuthorityResolver
 
@@ -42,3 +43,7 @@ def get_persona_manager(request: Request) -> PersonaManager:
 
 def get_prompt_manager(request: Request) -> PromptManager:
     return request.app.state.prompt_manager  # type: ignore[no-any-return]
+
+
+def get_psyche_service(request: Request) -> PsycheService:
+    return request.app.state.psyche_service  # type: ignore[no-any-return]

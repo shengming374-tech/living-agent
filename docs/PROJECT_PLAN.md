@@ -15,7 +15,7 @@ Every external effect crosses a code-enforced capability broker.
 | 1 | Trusted event to audited chat response | Complete |
 | 2 | Brokered calculator plugin in an isolated process | Complete |
 | 3 | Managed memory, persona, and prompt APIs | Complete |
-| 4 | Persistent psyche and safe thought records | Planned |
+| 4 | Persistent psyche and safe thought records | Complete |
 | 5 | Momentum, utterance sessions, interruption | Planned |
 | 6 | Multi-step executive kernel and verification | Planned |
 | 7 | Control Studio | Planned |
@@ -67,9 +67,10 @@ placeholder modules.
 
 ## Later milestones
 
-Phase 3 adds a source-aware memory firewall and management/version APIs before
-any long-term recall claims are enabled. Phase 4 adds persistent safe thought
-summaries and continuity constraints. Phase 5 adds interruptible speech. Phase 6
-adds general task planning and evidence verification. Phases 7 and 8 remain last
-because administration and dream/activity features must rest on mature security
-and persistence semantics.
+Phase 3 added a source-aware memory firewall and management/version APIs before
+long-term recall claims were enabled. Phase 4 added persistent safe thought
+summaries, psyche state decay, unresolved topics, task activities, and continuity
+evidence constraints. Phase 5 adds interruptible speech. Phase 6 adds general task
+planning and evidence verification. Phases 7 and 8 remain last because
+administration and dream/activity features must rest on mature security and
+persistence semantics.

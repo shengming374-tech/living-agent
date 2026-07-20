@@ -75,4 +75,7 @@ it behind an authenticated local control plane or implement platform-signed
 adapters. SQLite audit rows are application-append-only, not tamper-evident to an
 OS administrator. Model privacy depends on the selected provider. Subprocess
 plugins need OS sandboxing before accepting third-party code. Denial-of-service
-limits for request size, concurrency, CPU, and storage are deferred.
+limits for request size, concurrency, CPU, and storage are deferred. The Phase 4
+continuity critic validates evidence provenance and scope but not semantic
+entailment between arbitrary free-form claim text and a referenced record; a real
+provider must use conservative claims until that Epistemic Critic check exists.

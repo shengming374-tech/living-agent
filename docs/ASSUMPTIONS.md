@@ -23,3 +23,9 @@
 11. Managed Persona and Prompt files are single-process resources. The repository
     prevents stale-version deployment, but multi-instance production deployment
     also needs an external deployment lock or single control-plane writer.
+12. Phase 4 has one `primary` PsycheState for the single LivingAgent persona.
+    Thought and activity evidence remains source-bound, and continuity claims may
+    only use evidence whose source events belong to the active conversation.
+13. Psyche state and ThoughtRecord inspection/mutation are owner control-plane
+    operations. `X-Actor-ID` is sufficient only in development and tests; a
+    production deployment must authenticate those HTTP requests externally.

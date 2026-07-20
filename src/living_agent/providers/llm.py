@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from living_agent.cognition.context_compiler import CompiledContext, ContextKind
+from living_agent.models.claims import ClaimEvidence
 
 
 class ModelResponse(BaseModel):
@@ -14,6 +15,7 @@ class ModelResponse(BaseModel):
 
     text: str
     provider: str
+    claim_evidence: ClaimEvidence = Field(default_factory=ClaimEvidence)
 
 
 class LLMProvider(Protocol):
