@@ -121,11 +121,19 @@ themselves grant permission or cross a data boundary. See
 
 ## Memory design
 
-Planned memory nodes carry type, content, subject, source event IDs and trust,
+Implemented memory nodes carry type, content, subject, source event IDs and trust,
 factuality, confidence, importance, scope, timestamps, status, and version.
-External observations pass candidate validation, factuality classification, and
-conflict checks before commit. Authority, credentials, policies, plugin approval,
-dream facts, and role-play identities can never auto-enter core memory.
+External observations are persisted as candidates and pass source validation,
+factuality classification, scope enforcement, and conflict checks before an owner
+commit. Authority, credentials, policies, plugin approval, privileged phrases,
+dream facts, and role-play identities cannot auto-enter core memory.
+
+`/v1/memories` supports scope-first search and management. Private scope is bound
+to a stable actor ID; conversation scope is visible only with the matching
+conversation ID; global candidates require owner-authored source events. Owner
+operations support version-checked edits, soft delete/restore, merge, and split.
+Source event, version, and response-usage endpoints preserve provenance. Automatic
+model extraction and semantic/vector retrieval are not implemented.
 
 ## Persona and prompt changes
 
@@ -149,12 +157,16 @@ Implemented: Phase 0 research and architecture; Phase 1 secure runtime; and the
 Phase 2 native plugin slice. The latter includes manifest discovery, owner enable
 state, isolated per-call subprocesses, JSON-RPC, timeout/crash handling, one-time
 broker grants, Calculator, structured task contracts, independent result
-verification, social reporting, and audit evidence.
+verification, social reporting, and audit evidence. The Phase 3 memory slice adds
+candidates, a source/factuality firewall, scoped versioned nodes, lifecycle APIs,
+provenance, and usage history.
 
-Not yet implemented: managed long-term memory, persistent psyche, utterance
-interruption, general multi-step executive planning, Control Studio, arbitrary
-third-party plugin installation, and dream/activity features. This section is
-updated only after executable, tested vertical slices land.
+Partially implemented: Phase 3 has memory controls but not Persona or Prompt APIs.
+
+Not yet implemented: automatic memory extraction/vector retrieval, persistent
+psyche, utterance interruption, general multi-step executive planning, Control
+Studio, arbitrary third-party plugin installation, and dream/activity features.
+This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations
 

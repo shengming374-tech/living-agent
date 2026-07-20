@@ -9,14 +9,27 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from living_agent.audit.models import AuditRecordORM
+from living_agent.memory.models import (
+    MemoryCandidateORM,
+    MemoryNodeORM,
+    MemoryUsageORM,
+    MemoryVersionORM,
+)
 from living_agent.storage.database import Base
 from living_agent.storage.models import TrustedEventORM
 
-_ = (AuditRecordORM, TrustedEventORM)
+_ = (
+    AuditRecordORM,
+    MemoryCandidateORM,
+    MemoryNodeORM,
+    MemoryUsageORM,
+    MemoryVersionORM,
+    TrustedEventORM,
+)
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

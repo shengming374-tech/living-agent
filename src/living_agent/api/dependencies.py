@@ -3,6 +3,7 @@
 from fastapi import Request
 
 from living_agent.audit.service import AuditService
+from living_agent.memory.service import MemoryService
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.trust.authority import AuthorityResolver
@@ -22,3 +23,7 @@ def get_authority(request: Request) -> AuthorityResolver:
 
 def get_plugin_registry(request: Request) -> PluginRegistry:
     return request.app.state.plugin_registry  # type: ignore[no-any-return]
+
+
+def get_memory_service(request: Request) -> MemoryService:
+    return request.app.state.memory_service  # type: ignore[no-any-return]

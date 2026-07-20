@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from living_agent.api.audit import router as audit_router
 from living_agent.api.chat import router as chat_router
 from living_agent.api.health import router as health_router
+from living_agent.api.memories import router as memories_router
 from living_agent.api.plugins import router as plugins_router
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
@@ -23,6 +24,9 @@ from living_agent.execution.contracts import CALCULATOR_CAPABILITY, CalculatorAr
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.logging import configure_logging
+from living_agent.memory.firewall import MemoryFirewall
+from living_agent.memory.repository import MemoryRepository
+from living_agent.memory.service import MemoryService
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.providers.llm import MockLLMProvider
@@ -55,6 +59,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     plugin_registry = PluginRegistry(resolved_settings.plugin_root)
     plugin_registry.discover()
+    memory_service = MemoryService(
+        repository=MemoryRepository(database.sessions),
+        events=EventRepository(database.sessions),
+        firewall=MemoryFirewall(),
+        audit=audit,
+    )
     task_executor = CalculatorTaskExecutor(
         registry=plugin_registry,
         process=PluginProcess(timeout_seconds=resolved_settings.plugin_timeout_seconds),
@@ -98,10 +108,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.runtime = runtime
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry
+    app.state.memory_service = memory_service
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(audit_router)
     app.include_router(plugins_router)
+    app.include_router(memories_router)
     return app
 
 

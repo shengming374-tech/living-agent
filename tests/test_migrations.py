@@ -17,4 +17,12 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         table_names = await connection.run_sync(lambda sync: inspect(sync).get_table_names())
     await database.dispose()
 
-    assert {"alembic_version", "audit_records", "trusted_events"} <= set(table_names)
+    assert {
+        "alembic_version",
+        "audit_records",
+        "trusted_events",
+        "memory_candidates",
+        "memory_nodes",
+        "memory_versions",
+        "memory_usages",
+    } <= set(table_names)
