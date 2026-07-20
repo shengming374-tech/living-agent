@@ -1,0 +1,1 @@
+"""Standalone calculator plugin package."""

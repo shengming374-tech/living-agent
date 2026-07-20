@@ -11,13 +11,20 @@ from fastapi import FastAPI
 from living_agent.api.audit import router as audit_router
 from living_agent.api.chat import router as chat_router
 from living_agent.api.health import router as health_router
+from living_agent.api.plugins import router as plugins_router
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
+from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.config import Settings, load_settings
-from living_agent.execution.broker import CapabilityBroker
+from living_agent.evaluation.task_verifier import CalculatorTaskVerifier
+from living_agent.execution.broker import CapabilityBroker, CapabilityDefinition
+from living_agent.execution.contracts import CALCULATOR_CAPABILITY, CalculatorArguments
+from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.logging import configure_logging
+from living_agent.plugins.process import PluginProcess
+from living_agent.plugins.registry import PluginRegistry
 from living_agent.providers.llm import MockLLMProvider
 from living_agent.runtime.event_bus import EventBus
 from living_agent.runtime.runtime import AgentRuntime
@@ -37,16 +44,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin_ids=frozenset(resolved_settings.admin_ids),
     )
     audit = AuditService(database.sessions)
+    broker = CapabilityBroker(authority=authority, audit=audit)
+    broker.register_capability(
+        CapabilityDefinition(
+            name=CALCULATOR_CAPABILITY,
+            operations=frozenset({"execute"}),
+            argument_model=CalculatorArguments,
+            sandbox_required=True,
+        )
+    )
+    plugin_registry = PluginRegistry(resolved_settings.plugin_root)
+    plugin_registry.discover()
+    task_executor = CalculatorTaskExecutor(
+        registry=plugin_registry,
+        process=PluginProcess(timeout_seconds=resolved_settings.plugin_timeout_seconds),
+        broker=broker,
+        audit=audit,
+        verifier=CalculatorTaskVerifier(),
+    )
     runtime = AgentRuntime(
         boundary=TrustBoundary(authority),
         events=EventRepository(database.sessions),
         audit=audit,
         event_bus=EventBus(),
         social=SocialCognition(TurnGate()),
+        executive=ExecutiveCognition(),
+        task_executor=task_executor,
         context_compiler=ContextCompiler(),
         llm=MockLLMProvider(),
     )
-    broker = CapabilityBroker(authority=authority, audit=audit)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -57,6 +83,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             outcome="success",
             details={"environment": resolved_settings.environment},
         )
+        for plugin_id in resolved_settings.enabled_plugins:
+            await plugin_registry.enable(
+                plugin_id, actor_id=resolved_settings.owner_id, audit=audit
+            )
         yield
         await database.dispose()
 
@@ -67,9 +97,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.audit = audit
     app.state.runtime = runtime
     app.state.broker = broker
+    app.state.plugin_registry = plugin_registry
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(audit_router)
+    app.include_router(plugins_router)
     return app
 
 

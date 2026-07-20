@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     model_provider: Literal["mock"] = "mock"
     audit_page_size: int = Field(default=100, ge=1, le=1000)
     test_disable_delays: bool = False
+    plugin_root: Path = Path("plugins/examples")
+    enabled_plugins: list[str] = Field(default_factory=lambda: ["com.livingagent.calculator"])
+    plugin_timeout_seconds: float = Field(default=2.0, gt=0.0, le=30.0)
 
     @classmethod
     def settings_customise_sources(

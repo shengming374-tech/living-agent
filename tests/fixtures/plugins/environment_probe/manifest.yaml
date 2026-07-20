@@ -1,0 +1,14 @@
+manifest_version: 1
+id: test.plugin.environment-probe
+name: Environment Probe Test Plugin
+version: 0.1.0
+entrypoint: plugin.main
+plugin_type: tool
+risk_level: low
+capabilities: {}
+operations: {}
+hooks: []
+background_tasks: []
+data_policy:
+  stores_data: false
+  sends_data_external: false

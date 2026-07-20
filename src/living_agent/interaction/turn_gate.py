@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from living_agent.execution.contracts import extract_calculation_expression
 from living_agent.models.conversation import TurnDecision
 from living_agent.models.events import SourceType, TrustedEvent
 
@@ -20,6 +21,8 @@ class TurnGate:
             return self._decision(event, "observe", 0.0, 0, 0, "empty_message")
         if event.source_type is SourceType.GROUP_MESSAGE and not mentions_agent:
             return self._decision(event, "observe", 0.2, 0, 0, "group_observation")
+        if extract_calculation_expression(content) is not None:
+            return self._decision(event, "act", 0.8, 1, 1, "calculator_task")
         mode: Literal["react", "engage"] = "react" if len(text.strip()) <= 16 else "engage"
         return self._decision(event, mode, 0.6, 1, 1, "direct_participation")
 

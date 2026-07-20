@@ -1,0 +1,47 @@
+manifest_version: 1
+id: com.livingagent.calculator
+name: Calculator
+version: 0.1.0
+entrypoint: plugin.main
+plugin_type: tool
+risk_level: low
+capabilities:
+  calculator.evaluate:
+    operations:
+      - execute
+    scopes:
+      - calculator/arithmetic
+operations:
+  calculate:
+    description: Evaluate bounded arithmetic without eval or shell access.
+    capability: calculator.evaluate
+    broker_operation: execute
+    resource_scope: calculator/arithmetic
+    input_schema:
+      type: object
+      additionalProperties: false
+      required:
+        - expression
+      properties:
+        expression:
+          type: string
+          minLength: 1
+          maxLength: 200
+    output_schema:
+      type: object
+      additionalProperties: false
+      required:
+        - expression
+        - value
+      properties:
+        expression:
+          type: string
+        value:
+          type:
+            - integer
+            - number
+hooks: []
+background_tasks: []
+data_policy:
+  stores_data: false
+  sends_data_external: false

@@ -7,3 +7,7 @@ log_level: INFO
 model_provider: mock
 audit_page_size: 100
 test_disable_delays: false
+plugin_root: plugins/examples
+enabled_plugins:
+  - com.livingagent.calculator
+plugin_timeout_seconds: 2.0

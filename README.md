@@ -84,11 +84,28 @@ audit previews.
 
 ## Native plugins
 
-The Phase 2 design uses a strict manifest and JSON-RPC to a separate Python
-subprocess. Plugins receive no filesystem, network, chat-history, memory, send,
-persona, prompt, or hook permission by default. Every invocation carries a
-temporary, minimal capability grant. Plugin free text is untrusted data. MCP may
-later be implemented as an optional connector adapter; it is not a core dependency.
+The native host discovers strict manifests and invokes each plugin call in a new
+isolated Python subprocess using JSON-RPC over stdio. Plugins receive no Agent,
+database, chat-history, memory, prompt, persona, or host environment object. Every
+invocation carries a temporary, minimal capability grant, and plugin output is
+tainted as untrusted until independently verified. MCP may later be implemented as
+an optional connector adapter; it is not a core dependency.
+
+The calculator at `plugins/examples/calculator/` is the reference implementation.
+To add a reviewed plugin:
+
+1. Add `plugins/examples/<plugin>/manifest.yaml` and the declared entrypoint module.
+2. Declare each operation's capability, broker operation, exact resource scope,
+   input schema, output schema, hooks, background tasks, and data policy.
+3. Expose one `invoke(params) -> dict` function. Do not import LivingAgent or expect
+   host objects, secrets, installation hooks, or shell access.
+4. Register host-owned Pydantic argument/output validation and policy for any new
+   capability. A manifest declaration alone never creates a grant.
+5. Add crash, timeout, schema, permission, taint, and verifier tests, then enable it
+   as the owner through `POST /v1/plugins/{id}/enable`.
+
+`GET /v1/plugins` lists discovery and enabled state. These management endpoints use
+the development owner header described under security limitations.
 
 ## Permission model and prompt injection
 
@@ -128,15 +145,16 @@ no code or prompts were borrowed.
 
 ## Implementation status
 
-Implemented: Phase 0 research and architecture; Phase 1 configuration, migrations,
-trusted ingress, stable-ID authority, taint propagation, typed context compilation,
-one-time capability grants and decisions, host-owned audit, event bus, Mock LLM,
-turn gating, health/chat/audit APIs, and a biomimetic evaluation scaffold.
+Implemented: Phase 0 research and architecture; Phase 1 secure runtime; and the
+Phase 2 native plugin slice. The latter includes manifest discovery, owner enable
+state, isolated per-call subprocesses, JSON-RPC, timeout/crash handling, one-time
+broker grants, Calculator, structured task contracts, independent result
+verification, social reporting, and audit evidence.
 
-Not yet implemented: subprocess plugins, managed long-term memory, persistent
-psyche, utterance interruption, general executive planning, Control Studio, and
-dream/activity features. This section is updated only after executable, tested
-vertical slices land.
+Not yet implemented: managed long-term memory, persistent psyche, utterance
+interruption, general multi-step executive planning, Control Studio, arbitrary
+third-party plugin installation, and dream/activity features. This section is
+updated only after executable, tested vertical slices land.
 
 ## Security limitations
 
@@ -146,4 +164,6 @@ are not supplied by the current runtime. `/v1/chat` is an adapter ingress and it
 `authenticated` identity flag is only trustworthy behind an authenticated adapter
 or gateway. The development `X-Actor-ID` audit header is not production-grade
 authentication. Never run unreviewed plugin code merely because process isolation
-exists.
+exists. The subprocess boundary minimizes data and contains crashes/timeouts, but
+it is not an OS sandbox against hostile Python file or network syscalls; production
+third-party plugins require a container, platform sandbox, or VM.

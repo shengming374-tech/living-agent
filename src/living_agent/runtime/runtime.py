@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
+from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
+from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope
 from living_agent.providers.llm import LLMProvider
@@ -28,6 +30,8 @@ class AgentRuntime:
         audit: AuditService,
         event_bus: EventBus,
         social: SocialCognition,
+        executive: ExecutiveCognition,
+        task_executor: CalculatorTaskExecutor,
         context_compiler: ContextCompiler,
         llm: LLMProvider,
     ) -> None:
@@ -36,6 +40,8 @@ class AgentRuntime:
         self._audit = audit
         self._event_bus = event_bus
         self._social = social
+        self._executive = executive
+        self._task_executor = task_executor
         self._context_compiler = context_compiler
         self._llm = llm
 
@@ -75,6 +81,24 @@ class AgentRuntime:
         )
         if turn.mode == "observe":
             return ChatResult(event=event, turn=turn, message=None)
+
+        proposal = self._executive.propose(event)
+        if proposal is not None:
+            task_result = await self._task_executor.execute(proposal)
+            message = self._social.render_task_result(task_result)
+            await self._audit.append(
+                action="task.completed",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="success" if task_result.success else "failure",
+                details={
+                    "event_id": event.event_id,
+                    "task_id": proposal.task.task_id,
+                    "evidence_count": len(task_result.evidence),
+                    "errors": task_result.errors,
+                },
+            )
+            return ChatResult(event=event, turn=turn, message=message)
 
         context = self._context_compiler.compile(event, root_policy=ROOT_POLICY)
         model_response = await self._llm.generate(context)
