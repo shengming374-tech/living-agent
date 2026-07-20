@@ -14,6 +14,7 @@ from living_agent.platforms.openclaw.models import OPENCLAW_REPLY_CAPABILITY
 from living_agent.providers.llm import ModelResponse
 
 OPENCLAW_PATH = "/v1/adapters/openclaw/messages"
+DELIVERY_PATH = "/v1/adapters/openclaw/deliveries"
 BRIDGE_TOKEN = "openclaw-bridge-test-token"
 AUTH_HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
 OWNER_HEADERS = {"X-Actor-ID": "owner-1"}
@@ -130,9 +131,7 @@ def test_wechat_direct_message_becomes_namespaced_trusted_event_and_reply(
 
     audit = audit_entries(openclaw_client)
     ingested = next(entry for entry in audit if entry["action"] == "event.ingested")
-    assert ingested["actor_id"] == (
-        "openclaw:openclaw-weixin:wechat-account:user:wechat-user"
-    )
+    assert ingested["actor_id"] == ("openclaw:openclaw-weixin:wechat-account:user:wechat-user")
     assert ingested["conversation_id"] == (
         "openclaw:openclaw-weixin:wechat-account:direct:wechat-conversation"
     )
@@ -143,9 +142,7 @@ def test_wechat_direct_message_becomes_namespaced_trusted_event_and_reply(
         and entry["details"]["capability"] == OPENCLAW_REPLY_CAPABILITY
         for entry in audit
     )
-    delegated = next(
-        entry for entry in audit if entry["action"] == "openclaw.reply_delegated"
-    )
+    delegated = next(entry for entry in audit if entry["action"] == "openclaw.reply_delegated")
     assert delegated["outcome"] == "authorized"
 
 
@@ -154,25 +151,117 @@ def test_openclaw_bridge_authorizes_multiple_short_units(settings: Settings) -> 
     configured.openclaw_bridge_enabled = True
     configured.openclaw_bridge_access_token = SecretStr(BRIDGE_TOKEN)
     configured.openclaw_bridge_allowed_account_ids = ["wechat-account"]
-    with TestClient(
-        create_app(configured, llm_provider=MultiUnitLLMProvider())
-    ) as client:
+    with TestClient(create_app(configured, llm_provider=MultiUnitLLMProvider())) as client:
         response = client.post(
             OPENCLAW_PATH,
             headers=AUTH_HEADERS,
             json=bridge_payload(content="这是一个需要正常参与的较长聊天消息"),
         )
+        body = response.json()
+        session_id = body["utterance_session_id"]
+        before_receipts = audit_entries(client)
+        first_receipt = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": session_id,
+                "unit_index": 1,
+            },
+        )
+        replay_receipt = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": session_id,
+                "unit_index": 1,
+            },
+        )
+        final_receipt = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": session_id,
+                "unit_index": 2,
+            },
+        )
         audit = audit_entries(client)
 
     assert response.status_code == 200
-    assert response.json()["turn"]["mode"] == "engage"
-    assert response.json()["messages"] == [
+    assert body["turn"]["mode"] == "engage"
+    assert body["messages"] == [
         "第一条短回复",
         "第二条短回复",
         "第三条短回复",
     ]
+    assert isinstance(session_id, str)
+    delivered_before_receipts = [
+        entry for entry in before_receipts if entry["action"] == "response.delivered"
+    ]
+    assert [entry["details"]["unit_index"] for entry in delivered_before_receipts] == [0]
+    assert first_receipt.json()["reason_code"] == "delivery_recorded"
+    assert replay_receipt.json()["reason_code"] == "delivery_already_recorded"
+    assert final_receipt.json()["reason_code"] == "delivery_recorded"
+    delivered = [entry for entry in audit if entry["action"] == "response.delivered"]
+    assert {entry["details"]["unit_index"] for entry in delivered} == {0, 1, 2}
     delegated = next(entry for entry in audit if entry["action"] == "openclaw.reply_delegated")
     assert delegated["details"]["unit_count"] == 3
+
+
+def test_openclaw_delivery_receipt_is_scoped_to_issued_utterance(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.openclaw_bridge_enabled = True
+    configured.openclaw_bridge_access_token = SecretStr(BRIDGE_TOKEN)
+    configured.openclaw_bridge_allowed_account_ids = ["wechat-account"]
+    with TestClient(create_app(configured, llm_provider=MultiUnitLLMProvider())) as client:
+        response = client.post(
+            OPENCLAW_PATH,
+            headers=AUTH_HEADERS,
+            json=bridge_payload(content="这是另一个需要正常参与的较长聊天消息"),
+        )
+        session_id = response.json()["utterance_session_id"]
+        wrong_scope = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "different-conversation",
+                "utterance_session_id": session_id,
+                "unit_index": 1,
+            },
+        )
+        unknown_session = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": "unknown-session",
+                "unit_index": 1,
+            },
+        )
+
+    assert wrong_scope.status_code == 403
+    assert wrong_scope.json()["detail"] == "delivery_scope_mismatch"
+    assert unknown_session.status_code == 403
+    assert unknown_session.json()["detail"] == "utterance_session_not_found"
 
 
 def test_message_replay_is_suppressed_without_second_runtime_turn(
@@ -215,9 +304,7 @@ def test_reused_message_id_with_different_content_is_conflict(
 
     assert first.status_code == 200
     assert conflict.status_code == 409
-    assert sum(
-        entry["action"] == "event.ingested" for entry in audit_entries(openclaw_client)
-    ) == 1
+    assert sum(entry["action"] == "event.ingested" for entry in audit_entries(openclaw_client)) == 1
 
 
 @pytest.mark.parametrize(
@@ -275,9 +362,7 @@ def test_injected_wechat_message_cannot_authorize_synthetic_reply(
         and entry["details"]["capability"] == OPENCLAW_REPLY_CAPABILITY
     )
     assert permission["details"]["reason_code"] == "tainted_write_denied"
-    delegated = next(
-        entry for entry in audit if entry["action"] == "openclaw.reply_delegated"
-    )
+    delegated = next(entry for entry in audit if entry["action"] == "openclaw.reply_delegated")
     assert delegated["outcome"] == "denied"
 
 

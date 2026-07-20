@@ -151,12 +151,6 @@ class AgentRuntime:
                     "errors": task_result.errors,
                 },
             )
-            if event.conversation_id is not None:
-                await self._events.add_agent_message(
-                    conversation_id=event.conversation_id,
-                    content="\n".join(messages),
-                    source_event_id=event.event_id,
-                )
             return ChatResult(
                 event=event,
                 turn=turn,
@@ -256,12 +250,6 @@ class AgentRuntime:
                 "context_sections": [section.kind.value for section in context.sections],
             },
         )
-        if event.conversation_id is not None:
-            await self._events.add_agent_message(
-                conversation_id=event.conversation_id,
-                content="\n".join(messages),
-                source_event_id=event.event_id,
-            )
         return ChatResult(
             event=event,
             turn=turn,
@@ -269,6 +257,49 @@ class AgentRuntime:
             messages=messages,
             utterance=utterance,
         )
+
+    async def record_delivery(
+        self,
+        result: ChatResult,
+        *,
+        unit_index: int,
+        platform: str,
+    ) -> TrustedEvent:
+        conversation_id = result.event.conversation_id
+        messages = result.messages or ([result.message] if result.message is not None else [])
+        if conversation_id is None or not messages:
+            raise ValueError("delivered replies require a conversation and visible message")
+        if unit_index < 0 or unit_index >= len(messages):
+            raise ValueError("delivered reply unit index is outside the generated utterance")
+        session_id = result.utterance.session_id if result.utterance is not None else None
+        delivered = await self._events.add_agent_message(
+            conversation_id=conversation_id,
+            content=messages[unit_index],
+            source_event_id=result.event.event_id,
+            utterance_session_id=session_id,
+            unit_index=unit_index,
+            delivery_platform=platform,
+        )
+        if result.utterance is not None:
+            result.utterance.sent_count = max(result.utterance.sent_count, unit_index + 1)
+            result.utterance.state = (
+                "completed"
+                if result.utterance.sent_count >= len(result.utterance.units)
+                else "sending"
+            )
+        await self._audit.append(
+            action="response.delivered",
+            actor_id="living-agent",
+            conversation_id=conversation_id,
+            outcome="success",
+            details={
+                "event_id": result.event.event_id,
+                "utterance_session_id": session_id,
+                "unit_index": unit_index,
+                "platform": platform,
+            },
+        )
+        return delivered
 
     async def _conversation_events(self, event: TrustedEvent) -> list[TrustedEvent]:
         if event.conversation_id is None:

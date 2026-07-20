@@ -25,6 +25,9 @@ const STATE = {
     followupFailures: 0,
     followupsCancelled: 0,
     staleResponses: 0,
+    deliveryReceipts: 0,
+    deliveryReceiptFailures: 0,
+    lastReceiptErrorCode: null,
     observed: 0,
     rejected: 0,
     failures: 0,
@@ -171,6 +174,12 @@ function validResponse(value) {
     value?.message === null
       ? messages.length === 0
       : primaryMessage !== null && messages.length > 0 && messages[0] === primaryMessage;
+  const utteranceSessionValid =
+    value?.utterance_session_id === undefined ||
+    value.utterance_session_id === null ||
+    (typeof value.utterance_session_id === "string" &&
+      value.utterance_session_id.length > 0 &&
+      value.utterance_session_id.length <= 255);
   return (
     value &&
     typeof value === "object" &&
@@ -180,6 +189,8 @@ function validResponse(value) {
     explicitMessagesValid &&
     primaryMatches &&
     messages.length <= 3 &&
+    utteranceSessionValid &&
+    (messages.length <= 1 || typeof value.utterance_session_id === "string") &&
     typeof value.reason_code === "string"
   );
 }
@@ -227,6 +238,41 @@ async function postToLivingAgent(payload, config, fetchImpl) {
   }
 }
 
+async function postDeliveryToLivingAgent(payload, config, fetchImpl) {
+  if (!config.token) throw new Error("token_missing");
+  const endpoint = new URL(config.endpoint);
+  endpoint.pathname = endpoint.pathname.replace(/\/messages\/?$/, "/deliveries");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  timeout.unref?.();
+  try {
+    const response = await fetchImpl(endpoint.toString(), {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.token}`,
+        "content-type": "application/json",
+        "x-living-agent-bridge-version": "1",
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`delivery_http_${response.status}`);
+    const raw = await response.text();
+    if (raw.length > 4096) throw new Error("delivery_response_too_large");
+    let decoded;
+    try {
+      decoded = JSON.parse(raw);
+    } catch {
+      throw new Error("delivery_response_invalid_json");
+    }
+    if (decoded?.accepted !== true || typeof decoded.reason_code !== "string") {
+      throw new Error("delivery_response_schema_invalid");
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function safeErrorCode(error) {
   if (error && typeof error.message === "string" && /^[a-z0-9_]+$/i.test(error.message)) {
     return error.message.slice(0, 80);
@@ -241,6 +287,8 @@ export function createBeforeDispatchHandler(options = {}) {
   const stats = options.stats || STATE.stats;
   const logger = options.logger || STATE.logger;
   const sendFollowup = options.sendFollowup;
+  const reportDelivery =
+    options.reportDelivery || ((payload, config) => postDeliveryToLivingAgent(payload, config, fetchImpl));
   const scheduleImpl = options.scheduleImpl || ((callback, delayMs) => setTimeout(callback, delayMs));
   const clearScheduleImpl = options.clearScheduleImpl || ((timer) => clearTimeout(timer));
   const pendingByConversation = new Map();
@@ -315,6 +363,27 @@ export function createBeforeDispatchHandler(options = {}) {
                   text: message,
                 });
                 stats.followupsSent = (stats.followupsSent || 0) + 1;
+                try {
+                  await reportDelivery(
+                    {
+                      protocol_version: 1,
+                      channel_id: built.payload.channel_id,
+                      account_id: built.payload.account_id,
+                      conversation_id: built.payload.conversation_id,
+                      utterance_session_id: response.utterance_session_id,
+                      unit_index: index + 1,
+                    },
+                    config,
+                  );
+                  stats.deliveryReceipts = (stats.deliveryReceipts || 0) + 1;
+                  stats.lastReceiptErrorCode = null;
+                } catch (receiptError) {
+                  stats.deliveryReceiptFailures = (stats.deliveryReceiptFailures || 0) + 1;
+                  stats.lastReceiptErrorCode = safeErrorCode(receiptError);
+                  logger?.error?.(
+                    `[${PLUGIN_ID}] delivery receipt failed: ${stats.lastReceiptErrorCode}`,
+                  );
+                }
               } catch (error) {
                 stats.followupFailures = (stats.followupFailures || 0) + 1;
                 stats.lastErrorCode = safeErrorCode(error);

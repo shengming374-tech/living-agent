@@ -13,7 +13,7 @@ NOW = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
 
 
 def event(
-    content: str,
+    content: str | dict[str, object],
     source_type: SourceType,
     *,
     created_at: datetime = NOW,
@@ -61,6 +61,20 @@ def test_momentum_expires_old_conversation_activity() -> None:
 
     assert momentum.phase == "new"
     assert momentum.recent_turn_count == 0
+
+
+def test_momentum_groups_individually_delivered_units_by_session() -> None:
+    history = [
+        event(
+            {"text": f"第{index}条", "utterance_session_id": "session-1"},
+            SourceType.AGENT_MESSAGE,
+        )
+        for index in range(1, 4)
+    ]
+
+    momentum = ConversationMomentum.from_history(history, now=NOW)
+
+    assert momentum.recent_agent_unit_count == 3
 
 
 def test_turn_gate_keeps_acknowledgement_short_even_during_user_run() -> None:

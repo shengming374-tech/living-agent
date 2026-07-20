@@ -29,6 +29,9 @@ The current Phase 5 slice derives a ten-minute `ConversationMomentum` from recen
 trusted turns. It distinguishes a new exchange, back-and-forth conversation, and
 consecutive user messages; the turn gate keeps acknowledgements brief while
 allowing short questions or continued thoughts to receive a few short units.
+`UtteranceSession.sent_count` and state advance only when a transport records
+delivery. Recent conversation history is built from those delivered units rather
+than the complete generated plan.
 
 Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
 as a host-owned adapter with authenticated ingress and brokered same-event

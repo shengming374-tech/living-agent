@@ -157,8 +157,7 @@ def close_websocket(websocket: WebSocketTestSession, client: TestClient) -> None
     websocket.close()
     wait_for_audit(
         client,
-        lambda entry: entry["action"] == "napcat.connection"
-        and entry["outcome"] == "disconnected",
+        lambda entry: entry["action"] == "napcat.connection" and entry["outcome"] == "disconnected",
     )
 
 
@@ -210,8 +209,9 @@ def test_napcat_accepts_access_token_query_parameter(napcat_client: TestClient) 
         )
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.connection"
-            and entry["outcome"] == "connected",
+            lambda entry: (
+                entry["action"] == "napcat.connection" and entry["outcome"] == "connected"
+            ),
         )
         close_websocket(websocket, napcat_client)
 
@@ -240,8 +240,7 @@ def test_private_message_round_trip_uses_broker_and_plain_text_segment(
         websocket.send_json(action_success(action))
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.outbound"
-            and entry["outcome"] == "success",
+            lambda entry: entry["action"] == "napcat.outbound" and entry["outcome"] == "success",
         )
         close_websocket(websocket, napcat_client)
 
@@ -255,8 +254,7 @@ def test_private_message_round_trip_uses_broker_and_plain_text_segment(
         for entry in audit
     )
     assert any(
-        entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
-        for entry in audit
+        entry["action"] == "napcat.outbound" and entry["outcome"] == "success" for entry in audit
     )
 
 
@@ -276,8 +274,9 @@ def test_engage_reply_sends_multiple_short_napcat_messages(settings: Settings) -
             websocket.send_json(action_success(second, message_id=9102))
             wait_for_audit_count(
                 client,
-                lambda entry: entry["action"] == "napcat.outbound"
-                and entry["outcome"] == "success",
+                lambda entry: (
+                    entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
+                ),
                 2,
             )
             close_websocket(websocket, client)
@@ -306,13 +305,21 @@ def test_new_napcat_message_cancels_unsent_units_from_previous_turn(
             websocket.send_json(action_success(new_reply, message_id=9702))
             interrupted = wait_for_audit(
                 client,
-                lambda entry: entry["action"] == "utterance.interrupted"
-                and entry["outcome"] == "cancelled",
+                lambda entry: (
+                    entry["action"] == "utterance.interrupted" and entry["outcome"] == "cancelled"
+                ),
             )
             assert interrupted["details"]["platform"] == "napcat"
             assert interrupted["details"]["sent_count"] == 1
             assert interrupted["details"]["unsent_count"] == 1
             assert interrupted["details"]["reason_code"] == "new_inbound_message"
+            old_deliveries = [
+                entry
+                for entry in audit_entries(client)
+                if entry["action"] == "response.delivered"
+                and entry["details"]["event_id"] == interrupted["details"]["event_id"]
+            ]
+            assert [entry["details"]["unit_index"] for entry in old_deliveries] == [0]
             close_websocket(websocket, client)
 
 
@@ -332,8 +339,7 @@ def test_group_cq_string_detects_bot_mention_and_replies_to_group(
         websocket.send_json(action_success(action))
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.outbound"
-            and entry["outcome"] == "success",
+            lambda entry: entry["action"] == "napcat.outbound" and entry["outcome"] == "success",
         )
         close_websocket(websocket, napcat_client)
 
@@ -356,8 +362,7 @@ def test_unmentioned_group_message_is_observed_without_outbound_action(
         )
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "turn.decided"
-            and entry["outcome"] == "observe",
+            lambda entry: entry["action"] == "turn.decided" and entry["outcome"] == "observe",
         )
         close_websocket(websocket, napcat_client)
 
@@ -374,8 +379,7 @@ def test_injected_message_cannot_authorize_outbound_write(napcat_client: TestCli
         )
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.outbound"
-            and entry["outcome"] == "denied",
+            lambda entry: entry["action"] == "napcat.outbound" and entry["outcome"] == "denied",
         )
         close_websocket(websocket, napcat_client)
 
@@ -396,15 +400,16 @@ def test_mismatched_bot_id_is_rejected_before_trusted_event(napcat_client: TestC
         websocket.send_json(private_event("Hello", self_id=99999))
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.frame"
-            and entry["details"].get("reason_code") == "self_id_mismatch",
+            lambda entry: (
+                entry["action"] == "napcat.frame"
+                and entry["details"].get("reason_code") == "self_id_mismatch"
+            ),
         )
         close_websocket(websocket, napcat_client)
 
     audit = audit_entries(napcat_client)
     assert any(
-        entry["action"] == "napcat.frame"
-        and entry["details"]["reason_code"] == "self_id_mismatch"
+        entry["action"] == "napcat.frame" and entry["details"]["reason_code"] == "self_id_mismatch"
         for entry in audit
     )
     assert not any(entry["action"] == "event.ingested" for entry in audit)
@@ -429,8 +434,7 @@ def test_failed_action_is_isolated_without_logging_untrusted_wording(
         )
         wait_for_audit(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.outbound"
-            and entry["outcome"] == "failure",
+            lambda entry: entry["action"] == "napcat.outbound" and entry["outcome"] == "failure",
         )
         close_websocket(websocket, napcat_client)
 
@@ -463,8 +467,9 @@ def test_model_cq_code_is_sent_as_plain_text_segment(settings: Settings) -> None
             websocket.send_json(action_success(action))
             wait_for_audit(
                 client,
-                lambda entry: entry["action"] == "napcat.outbound"
-                and entry["outcome"] == "success",
+                lambda entry: (
+                    entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
+                ),
             )
             close_websocket(websocket, client)
 
@@ -483,8 +488,7 @@ def test_out_of_order_action_responses_are_correlated_by_echo(
         websocket.send_json(action_success(first_action, message_id=9401))
         successes = wait_for_audit_count(
             napcat_client,
-            lambda entry: entry["action"] == "napcat.outbound"
-            and entry["outcome"] == "success",
+            lambda entry: entry["action"] == "napcat.outbound" and entry["outcome"] == "success",
             2,
         )
         assert {entry["details"]["message_id"] for entry in successes} == {"9401", "9402"}
@@ -503,8 +507,10 @@ def test_action_timeout_does_not_break_runtime(settings: Settings) -> None:
             assert action["action"] == "send_private_msg"
             wait_for_audit(
                 client,
-                lambda entry: entry["action"] == "napcat.outbound"
-                and entry["details"].get("error_code") == "action_timeout",
+                lambda entry: (
+                    entry["action"] == "napcat.outbound"
+                    and entry["details"].get("error_code") == "action_timeout"
+                ),
             )
             close_websocket(websocket, client)
 

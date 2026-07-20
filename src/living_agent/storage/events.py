@@ -66,10 +66,19 @@ class EventRepository:
         conversation_id: str,
         content: str,
         source_event_id: str,
+        utterance_session_id: str | None = None,
+        unit_index: int | None = None,
+        delivery_platform: str | None = None,
     ) -> TrustedEvent:
         event = TrustedEvent(
             event_type="agent.response",
-            content={"text": content, "reply_to_event_id": source_event_id},
+            content={
+                "text": content,
+                "reply_to_event_id": source_event_id,
+                "utterance_session_id": utterance_session_id,
+                "unit_index": unit_index,
+                "delivery_platform": delivery_platform,
+            },
             source_type=SourceType.AGENT_MESSAGE,
             source_identity="living-agent",
             conversation_id=conversation_id,

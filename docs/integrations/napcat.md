@@ -12,6 +12,8 @@ connection.
 - OneBot 11 private and group `message` events.
 - Array messages and CQ-code string messages.
 - Group `@bot` detection for the existing LivingAgent TurnGate.
+- Per-unit delivery recording only after a successful OneBot action response.
+- Cancellation of unsent units when a newer message reaches the same conversation.
 - Lifecycle and heartbeat frame validation without cognitive ingestion.
 - Concurrent event handling and `echo`-correlated action responses.
 - `send_private_msg` and `send_group_msg` replies through the same WebSocket.

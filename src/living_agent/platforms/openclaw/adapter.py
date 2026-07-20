@@ -6,6 +6,8 @@ import asyncio
 import hashlib
 import hmac
 from collections import OrderedDict
+from dataclasses import dataclass, field
+from typing import NoReturn
 
 from pydantic import SecretStr
 
@@ -16,10 +18,13 @@ from living_agent.models.capabilities import (
     CapabilityRequest,
     DecisionOutcome,
 )
+from living_agent.models.conversation import ChatResult
 from living_agent.platforms.openclaw.models import (
     OPENCLAW_REPLY_CAPABILITY,
     OpenClawBridgeRequest,
     OpenClawBridgeResponse,
+    OpenClawDeliveryReceipt,
+    OpenClawDeliveryResponse,
     normalize_openclaw_message,
 )
 from living_agent.runtime.runtime import AgentRuntime
@@ -47,6 +52,15 @@ class OpenClawBridgeConflictError(RuntimeError):
     pass
 
 
+@dataclass
+class _IssuedUtterance:
+    result: ChatResult
+    channel_id: str
+    account_id: str
+    conversation_id: str
+    delivered_indices: set[int] = field(default_factory=lambda: {0})
+
+
 class OpenClawBridgeAdapter:
     def __init__(
         self,
@@ -62,9 +76,7 @@ class OpenClawBridgeAdapter:
         audit: AuditService,
     ) -> None:
         self._enabled = enabled
-        self._access_token = (
-            access_token.get_secret_value() if access_token is not None else None
-        )
+        self._access_token = access_token.get_secret_value() if access_token is not None else None
         self._allowed_channels = frozenset(allowed_channels)
         self._allowed_account_ids = frozenset(allowed_account_ids)
         self._max_message_chars = max_message_chars
@@ -73,11 +85,12 @@ class OpenClawBridgeAdapter:
         self._broker = broker
         self._audit = audit
         self._cache_lock = asyncio.Lock()
-        self._completed: OrderedDict[
-            tuple[str, str, str], tuple[str, OpenClawBridgeResponse]
-        ] = OrderedDict()
+        self._completed: OrderedDict[tuple[str, str, str], tuple[str, OpenClawBridgeResponse]] = (
+            OrderedDict()
+        )
         self._key_locks: dict[tuple[str, str, str], asyncio.Lock] = {}
         self._key_lock_users: dict[tuple[str, str, str], int] = {}
+        self._issued_utterances: OrderedDict[str, _IssuedUtterance] = OrderedDict()
 
     async def authenticate(self, authorization: str | None) -> None:
         reason_code = self._authentication_error(authorization)
@@ -120,6 +133,53 @@ class OpenClawBridgeAdapter:
                 return response
         finally:
             await self._release_key_lock(key, key_lock)
+
+    async def record_delivery(
+        self,
+        receipt: OpenClawDeliveryReceipt,
+    ) -> OpenClawDeliveryResponse:
+        async with self._cache_lock:
+            issued = self._issued_utterances.get(receipt.utterance_session_id)
+            if issued is None:
+                await self._reject_delivery(receipt, "utterance_session_not_found")
+            if (
+                receipt.channel_id != issued.channel_id
+                or receipt.account_id != issued.account_id
+                or receipt.conversation_id != issued.conversation_id
+            ):
+                await self._reject_delivery(receipt, "delivery_scope_mismatch")
+            messages = issued.result.messages
+            if receipt.unit_index >= len(messages):
+                await self._reject_delivery(receipt, "delivery_unit_not_issued")
+            if receipt.unit_index in issued.delivered_indices:
+                return OpenClawDeliveryResponse(reason_code="delivery_already_recorded")
+            await self._runtime.record_delivery(
+                issued.result,
+                unit_index=receipt.unit_index,
+                platform="openclaw",
+            )
+            issued.delivered_indices.add(receipt.unit_index)
+            self._issued_utterances.move_to_end(receipt.utterance_session_id)
+            return OpenClawDeliveryResponse(reason_code="delivery_recorded")
+
+    async def _reject_delivery(
+        self,
+        receipt: OpenClawDeliveryReceipt,
+        reason_code: str,
+    ) -> NoReturn:
+        await self._audit.append(
+            action="openclaw.delivery",
+            actor_id=None,
+            outcome="rejected",
+            details={
+                "reason_code": reason_code,
+                "channel_id": receipt.channel_id,
+                "account_id": receipt.account_id,
+                "utterance_session_id": receipt.utterance_session_id,
+                "unit_index": receipt.unit_index,
+            },
+        )
+        raise OpenClawBridgePolicyError(reason_code)
 
     def _authentication_error(self, authorization: str | None) -> str | None:
         if not self._enabled:
@@ -220,11 +280,25 @@ class OpenClawBridgeAdapter:
                 "unit_count": len(reply_messages),
             },
         )
+        await self._runtime.record_delivery(result, unit_index=0, platform="openclaw")
+        utterance_session_id = result.utterance.session_id if result.utterance is not None else None
+        if utterance_session_id is not None and len(reply_messages) > 1:
+            async with self._cache_lock:
+                self._issued_utterances[utterance_session_id] = _IssuedUtterance(
+                    result=result,
+                    channel_id=request.channel_id,
+                    account_id=request.account_id,
+                    conversation_id=request.conversation_id,
+                )
+                self._issued_utterances.move_to_end(utterance_session_id)
+                while len(self._issued_utterances) > self._idempotency_entries:
+                    self._issued_utterances.popitem(last=False)
         return OpenClawBridgeResponse(
             event_id=result.event.event_id,
             turn=result.turn,
             message=reply_messages[0],
             messages=reply_messages,
+            utterance_session_id=utterance_session_id,
             reason_code="reply_authorized",
         )
 

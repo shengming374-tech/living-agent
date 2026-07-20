@@ -28,6 +28,12 @@ def test_minimal_chat_api_creates_trusted_event_and_response(client: TestClient)
     assert payload["message"] == "Hello. What is on your mind?"
     assert payload["messages"] == ["Hello. What is on your mind?"]
     assert payload["utterance"]["units"][0]["function"] == "reaction"
+    assert payload["utterance"]["sent_count"] == 1
+    assert payload["utterance"]["state"] == "completed"
+    audit = client.get("/v1/audit", headers={"X-Actor-ID": "owner-1"}).json()
+    delivered = next(entry for entry in audit if entry["action"] == "response.delivered")
+    assert delivered["details"]["unit_index"] == 0
+    assert delivered["details"]["platform"] == "chat_api"
 
 
 def test_group_system_impersonation_is_observed_and_audited(client: TestClient) -> None:

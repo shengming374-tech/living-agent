@@ -75,7 +75,36 @@ class OpenClawBridgeResponse(BaseModel):
     turn: TurnDecision | None
     message: str | None
     messages: list[ShortReply] = Field(default_factory=list, max_length=3)
+    utterance_session_id: str | None = None
     reason_code: str
+
+
+class OpenClawDeliveryReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocol_version: Literal[1]
+    channel_id: str
+    account_id: str
+    conversation_id: str
+    utterance_session_id: str
+    unit_index: int = Field(ge=1, le=2)
+
+    @field_validator(
+        "channel_id",
+        "account_id",
+        "conversation_id",
+        "utterance_session_id",
+    )
+    @classmethod
+    def validate_identifier(cls, value: str) -> str:
+        return _stable_identifier(value)
+
+
+class OpenClawDeliveryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted: Literal[True] = True
+    reason_code: Literal["delivery_recorded", "delivery_already_recorded"]
 
 
 class NormalizedOpenClawMessage(BaseModel):
@@ -119,7 +148,6 @@ def openclaw_reply_scope_matches(arguments: BaseModel, resource_scope: str) -> b
     if not isinstance(arguments, OpenClawReplyArguments):
         return False
     conversation = (
-        f"openclaw:{arguments.channel_id}:{arguments.account_id}"
-        f":direct:{arguments.conversation_id}"
+        f"openclaw:{arguments.channel_id}:{arguments.account_id}:direct:{arguments.conversation_id}"
     )
     return resource_scope.startswith(f"{conversation}/event:")

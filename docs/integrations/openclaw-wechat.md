@@ -83,6 +83,10 @@ configuration tooling with these values:
 When a newer inbound message reaches the same conversation, the bridge cancels
 any still-pending follow-up units from the older response. It also suppresses an
 older model response if that response completes after the newer inbound arrived.
+After each follow-up `sendText` succeeds, the plugin posts an authenticated
+delivery receipt to `/v1/adapters/openclaw/deliveries`. LivingAgent then records
+only that unit as spoken. Receipt state is process-local and bounded; after a
+LivingAgent restart, late receipts for sessions issued before restart are rejected.
 
 Restart the Gateway after changing plugin configuration:
 

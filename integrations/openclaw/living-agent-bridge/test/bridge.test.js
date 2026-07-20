@@ -44,6 +44,9 @@ function stats() {
     followupFailures: 0,
     followupsCancelled: 0,
     staleResponses: 0,
+    deliveryReceipts: 0,
+    deliveryReceiptFailures: 0,
+    lastReceiptErrorCode: null,
     observed: 0,
     rejected: 0,
     failures: 0,
@@ -110,6 +113,7 @@ test("returns the first unit and schedules later units to the same conversation"
   const counters = stats();
   const scheduled = [];
   const followups = [];
+  const receipts = [];
   const handler = createBeforeDispatchHandler({
     configProvider: () => config({ followupDelayMs: 250 }),
     stats: counters,
@@ -118,8 +122,14 @@ test("returns the first unit and schedules later units to the same conversation"
       return { unref() {} };
     },
     sendFollowup: async (payload) => followups.push(payload),
-    fetchImpl: async () =>
-      new Response(
+    fetchImpl: async (url, options) => {
+      if (url.endsWith("/deliveries")) {
+        receipts.push(JSON.parse(options.body));
+        return new Response(
+          JSON.stringify({ accepted: true, reason_code: "delivery_recorded" }),
+        );
+      }
+      return new Response(
         JSON.stringify({
           protocol_version: 1,
           handled: true,
@@ -127,9 +137,11 @@ test("returns the first unit and schedules later units to the same conversation"
           turn: null,
           message: "First",
           messages: ["First", "Second", "Third"],
+          utterance_session_id: "utterance-1",
           reason_code: "reply_authorized",
         }),
-      ),
+      );
+    },
   });
 
   const result = await handler(event(), context());
@@ -146,6 +158,12 @@ test("returns the first unit and schedules later units to the same conversation"
   );
   assert.ok(followups.every((item) => item.to === "wechat-conversation"));
   assert.equal(counters.followupsSent, 2);
+  assert.deepEqual(
+    receipts.map((item) => item.unit_index),
+    [1, 2],
+  );
+  assert.ok(receipts.every((item) => item.utterance_session_id === "utterance-1"));
+  assert.equal(counters.deliveryReceipts, 2);
 });
 
 test("new inbound message cancels unsent follow-ups in the same conversation", async () => {
@@ -164,6 +182,9 @@ test("new inbound message cancels unsent follow-ups in the same conversation", a
     },
     clearScheduleImpl: (timer) => cleared.push(timer),
     sendFollowup: async (payload) => followups.push(payload),
+    reportDelivery: async () => {
+      throw new Error("unexpected_receipt");
+    },
     fetchImpl: async () => {
       requestCount += 1;
       return new Response(
@@ -174,6 +195,7 @@ test("new inbound message cancels unsent follow-ups in the same conversation", a
           turn: null,
           message: requestCount === 1 ? "First" : "New",
           messages: requestCount === 1 ? ["First", "Second", "Third"] : ["New"],
+          utterance_session_id: requestCount === 1 ? "utterance-old" : null,
           reason_code: "reply_authorized",
         }),
       );
@@ -230,6 +252,7 @@ test("newer inbound suppresses an older model response that finishes late", asyn
         turn: null,
         message: "Old",
         messages: ["Old", "Old follow-up"],
+        utterance_session_id: "utterance-old",
         reason_code: "reply_authorized",
       }),
     ),

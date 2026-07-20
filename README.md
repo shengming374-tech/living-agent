@@ -286,6 +286,12 @@ NapCat compatibility slice adds a tested OneBot
 The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
 the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a
 second personality frontend.
+
+Generated speech and delivered speech are tracked separately. Direct Chat API
+responses record each returned unit, NapCat records a unit only after a successful
+OneBot action response, and OpenClaw records follow-up units through authenticated
+delivery receipts. Cancelled or failed units do not enter recent conversation
+history as things the persona said.
 The embedding compatibility slice adds deterministic Mock and strict
 OpenAI-compatible providers plus an owner-only, brokered generation API. It does
 not yet add vector persistence or memory ranking.

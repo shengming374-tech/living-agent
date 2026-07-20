@@ -56,9 +56,7 @@ class NapCatAdapter:
         max_in_flight_events: int,
     ) -> None:
         self._enabled = enabled
-        self._access_token = (
-            access_token.get_secret_value() if access_token is not None else None
-        )
+        self._access_token = access_token.get_secret_value() if access_token is not None else None
         self._runtime = runtime
         self._broker = broker
         self._audit = audit
@@ -253,13 +251,19 @@ class NapCatAdapter:
                     )
                     return
                 reply = normalized.reply.model_copy(update={"message": message})
-                await self._send_reply(
+                delivered = await self._send_reply(
                     reply,
                     connection,
                     event_id=result.event.event_id,
                     conversation_id=conversation_id,
                     taint_labels=result.event.taint_labels,
                 )
+                if delivered:
+                    await self._runtime.record_delivery(
+                        result,
+                        unit_index=index,
+                        platform="napcat",
+                    )
         finally:
             if self._active_utterances.get(conversation_id) is utterance_token:
                 self._active_utterances.pop(conversation_id, None)
@@ -272,7 +276,7 @@ class NapCatAdapter:
         event_id: str,
         conversation_id: str | None,
         taint_labels: set[str],
-    ) -> None:
+    ) -> bool:
         if conversation_id is None:
             raise ValueError("NapCat replies require a conversation")
         resource_scope = f"{conversation_id}/event:{event_id}"
@@ -307,7 +311,7 @@ class NapCatAdapter:
                 outcome="denied",
                 details={"event_id": event_id, "reason_code": decision.reason_code},
             )
-            return
+            return False
 
         action, params = onebot_reply_action(reply)
         try:
@@ -320,7 +324,7 @@ class NapCatAdapter:
                 action,
                 "action_timeout",
             )
-            return
+            return False
         except (NapCatConnectionError, ValidationError):
             await self._audit_outbound_failure(
                 conversation_id,
@@ -328,7 +332,7 @@ class NapCatAdapter:
                 action,
                 "invalid_or_disconnected_response",
             )
-            return
+            return False
 
         if response.status != "ok" or response.retcode != 0:
             await self._audit_outbound_failure(
@@ -338,7 +342,7 @@ class NapCatAdapter:
                 "napcat_action_failed",
                 retcode=response.retcode,
             )
-            return
+            return False
         message_id = response.data.get("message_id") if response.data is not None else None
         await self._audit.append(
             action="napcat.outbound",
@@ -351,6 +355,7 @@ class NapCatAdapter:
                 "message_id": str(message_id)[:64] if message_id is not None else None,
             },
         )
+        return True
 
     async def _audit_self_id_mismatch(self, self_id: str) -> None:
         await self._audit.append(

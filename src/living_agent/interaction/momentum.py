@@ -70,7 +70,20 @@ class ConversationMomentum(BaseModel):
         if last_agent is not None:
             content = last_agent.content
             text = content if isinstance(content, str) else str(content.get("text", ""))
-            recent_agent_unit_count = min(3, len([line for line in text.splitlines() if line]))
+            session_id = content.get("utterance_session_id") if isinstance(content, dict) else None
+            if isinstance(session_id, str) and session_id:
+                recent_agent_unit_count = min(
+                    3,
+                    sum(
+                        1
+                        for event in reversed(recent)
+                        if event.source_type is SourceType.AGENT_MESSAGE
+                        and isinstance(event.content, dict)
+                        and event.content.get("utterance_session_id") == session_id
+                    ),
+                )
+            else:
+                recent_agent_unit_count = min(3, len([line for line in text.splitlines() if line]))
 
         return cls(
             phase="back_and_forth" if agent_spoke_last else "user_run",
