@@ -21,3 +21,10 @@ napcat_action_timeout_seconds: 5.0
 napcat_max_message_chars: 12000
 napcat_max_frame_bytes: 1048576
 napcat_max_in_flight_events: 16
+openclaw_bridge_enabled: false
+openclaw_bridge_access_token: null
+openclaw_bridge_allowed_channels:
+  - openclaw-weixin
+openclaw_bridge_allowed_account_ids: []
+openclaw_bridge_max_message_chars: 12000
+openclaw_bridge_idempotency_entries: 2048

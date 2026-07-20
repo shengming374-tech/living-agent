@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     napcat_max_message_chars: int = Field(default=12000, ge=1, le=100000)
     napcat_max_frame_bytes: int = Field(default=1048576, ge=1024, le=52428800)
     napcat_max_in_flight_events: int = Field(default=16, ge=1, le=256)
+    openclaw_bridge_enabled: bool = False
+    openclaw_bridge_access_token: SecretStr | None = None
+    openclaw_bridge_allowed_channels: list[str] = Field(
+        default_factory=lambda: ["openclaw-weixin"]
+    )
+    openclaw_bridge_allowed_account_ids: list[str] = Field(default_factory=list)
+    openclaw_bridge_max_message_chars: int = Field(default=12000, ge=1, le=100000)
+    openclaw_bridge_idempotency_entries: int = Field(default=2048, ge=1, le=100000)
 
     @classmethod
     def settings_customise_sources(
@@ -95,11 +103,19 @@ class Settings(BaseSettings):
         return normalized
 
     @model_validator(mode="after")
-    def validate_napcat_credentials(self) -> Self:
+    def validate_adapter_credentials(self) -> Self:
         if self.napcat_enabled:
             token = self.napcat_access_token
             if token is None or not token.get_secret_value().strip():
                 raise ValueError("napcat_access_token is required when NapCat is enabled")
+        if self.openclaw_bridge_enabled:
+            token = self.openclaw_bridge_access_token
+            if token is None or not token.get_secret_value().strip():
+                raise ValueError(
+                    "openclaw_bridge_access_token is required when OpenClaw bridge is enabled"
+                )
+            if not self.openclaw_bridge_allowed_channels:
+                raise ValueError("OpenClaw bridge requires at least one allowed channel")
         return self
 
 

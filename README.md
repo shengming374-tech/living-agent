@@ -134,6 +134,27 @@ segment, preventing CQ-looking model output from becoming a rich action. See
 [`docs/integrations/napcat.md`](docs/integrations/napcat.md) for the NapCat WebUI
 example, identity mapping, security model, limits, and official protocol sources.
 
+## OpenClaw WeChat bridge
+
+An optional OpenClaw plugin connects the `openclaw-weixin` channel to LivingAgent
+through `POST /v1/adapters/openclaw/messages`. OpenClaw handles WeChat login and
+delivery; LivingAgent remains the only personality, cognition runtime, memory
+owner, and permission authority. Claimed messages are handled before OpenClaw's
+model dispatch and never fall back to another OpenClaw personality.
+
+The bridge uses a dedicated bearer token, exact channel/account allowlists,
+platform-namespaced identities, bounded in-memory replay suppression, strict
+schemas, and a one-time Capability Broker grant for the exact source-event reply.
+It defaults to loopback and direct text only. Install the included plugin with:
+
+```bash
+openclaw plugins install --link ./integrations/openclaw/living-agent-bridge
+```
+
+See [`docs/integrations/openclaw-wechat.md`](docs/integrations/openclaw-wechat.md)
+for LivingAgent/OpenClaw configuration, identity mapping, validation commands,
+security behavior, current limits, and protocol references.
+
 ## Permission model and prompt injection
 
 Authenticated adapter identity, never a nickname or message claim, determines
@@ -225,6 +246,9 @@ Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
 calculator activity evidence, restart recovery, state decay, and evidence-gated
 continuity claims. The optional NapCat compatibility slice adds a tested OneBot
 11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
+The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
+the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a
+second personality frontend.
 
 Partially implemented: activities currently describe calculator execution, not a
 general daily-activity system; continuity checks cover memory, prior-thought, and
@@ -236,6 +260,8 @@ between arbitrary free-form claim text and the referenced record.
 Not yet implemented: automatic memory extraction/vector retrieval, utterance
 sessions and interruption, general multi-step executive planning, Control Studio,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
+OpenClaw group/media/proactive messaging and persistent bridge idempotency are
+also not implemented.
 This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations

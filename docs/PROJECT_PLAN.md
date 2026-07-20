@@ -30,6 +30,13 @@ as a host-owned adapter with authenticated ingress and brokered same-event
 replies. It does not change the Phase 5 status because interruptible multi-unit
 utterance sessions are still planned.
 
+OpenClaw WeChat compatibility is implemented as a transport bridge using the
+typed `before_dispatch` synthetic-reply contract. It authenticates and namespaces
+ingress, applies channel/account allowlists, brokers exact same-event replies, and
+fails closed without delegating personality or permissions to OpenClaw. Direct
+text is implemented; group/media/proactive messaging and persistent replay keys
+remain future work.
+
 ## Minimum viable vertical slice
 
 1. An authenticated adapter submits a message with a platform identity.

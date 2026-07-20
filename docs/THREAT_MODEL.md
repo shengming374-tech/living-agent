@@ -26,6 +26,9 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Self-modification | Agent approves its own prompt patch | Owner re-authentication; proposal cannot deploy itself |
 | Platform impersonation | Fake NapCat client or forged QQ role | Shared token, stable namespaced IDs, per-frame self-ID check; role ignored |
 | Outbound CQ injection | Model emits a CQ image/file/mention code | Encode replies as OneBot text segments; broker exact one-event reply grant |
+| OpenClaw bridge impersonation | Process posts forged WeChat identities | Dedicated bearer token plus exact channel/account allowlists and loopback default |
+| Personality fallback | Bridge failure lets another agent answer | Claimed OpenClaw messages fail closed with no OpenClaw-agent fallback |
+| Synthetic reply escalation | Model requests arbitrary channel send | Typed same-event reply arguments and exact one-time broker grant |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -85,3 +88,8 @@ NapCat reverse WebSocket currently has no persistent event replay deduplication,
 so an upstream duplicate message can produce a duplicate reply. The shared token
 authenticates the adapter but does not independently attest `X-Self-ID`; isolate
 mutually untrusted bots behind separate credentials or instances.
+The OpenClaw bridge also uses a shared bearer token rather than process
+attestation. Its replay cache is bounded but not persistent, and the current
+OpenClaw `before_dispatch` contract requires deriving a fallback message ID from
+stable metadata. Keep the bridge loopback-only where possible, rotate its token,
+and use authenticated TLS plus network policy if a remote endpoint is enabled.

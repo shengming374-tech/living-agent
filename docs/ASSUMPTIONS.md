@@ -37,3 +37,12 @@
     allowed system `reply`, not an unsolicited third-party `send`. It still needs
     an exact, one-time Capability Grant. Unsolicited and cross-conversation sends
     remain unimplemented.
+16. The OpenClaw integration uses the typed `before_dispatch` hook available in
+    OpenClaw 2026.6.10. OpenClaw owns WeChat login and delivery only; LivingAgent
+    remains the sole personality, cognition runtime, memory owner, and capability
+    authority. Claimed messages never fall back to the OpenClaw agent.
+17. OpenClaw bridge replay suppression is deliberately in-memory for the first
+    vertical slice. A LivingAgent restart clears it, so upstream retries after a
+    restart may produce a second response until persistent event keys are added.
+18. Direct WeChat text is the initial compatibility target. Group chat, media,
+    proactive sends, and alternate OpenClaw channels remain denied or unclaimed.

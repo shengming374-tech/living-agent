@@ -1,0 +1,58 @@
+{
+  "id": "living-agent-bridge",
+  "name": "LivingAgent Channel Bridge",
+  "version": "0.1.0",
+  "description": "Routes selected OpenClaw channel messages to LivingAgent before OpenClaw agent dispatch.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "description": "LivingAgent OpenClaw bridge endpoint."
+      },
+      "token": {
+        "type": "string",
+        "description": "Shared LivingAgent bridge token. Prefer tokenEnv for managed deployments."
+      },
+      "tokenEnv": {
+        "type": "string",
+        "description": "Environment variable containing the shared bridge token."
+      },
+      "channelId": {
+        "type": "string",
+        "description": "OpenClaw channel id to claim."
+      },
+      "allowedAccountIds": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Optional exact OpenClaw account allowlist."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 60000
+      },
+      "maxMessageChars": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000
+      },
+      "allowRemoteEndpoint": {
+        "type": "boolean",
+        "description": "Allow a non-loopback HTTPS LivingAgent endpoint."
+      }
+    }
+  },
+  "uiHints": {
+    "token": {
+      "label": "Bridge token",
+      "sensitive": true
+    }
+  }
+}

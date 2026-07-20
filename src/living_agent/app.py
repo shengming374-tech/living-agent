@@ -40,6 +40,13 @@ from living_agent.platforms.napcat.models import (
     NapCatReplyArguments,
     napcat_reply_scope_matches,
 )
+from living_agent.platforms.openclaw.adapter import OpenClawBridgeAdapter
+from living_agent.platforms.openclaw.api import router as openclaw_router
+from living_agent.platforms.openclaw.models import (
+    OPENCLAW_REPLY_CAPABILITY,
+    OpenClawReplyArguments,
+    openclaw_reply_scope_matches,
+)
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
@@ -76,6 +83,14 @@ def create_app(
             operations=frozenset({"execute"}),
             argument_model=CalculatorArguments,
             sandbox_required=True,
+        )
+    )
+    broker.register_capability(
+        CapabilityDefinition(
+            name=OPENCLAW_REPLY_CAPABILITY,
+            operations=frozenset({"reply"}),
+            argument_model=OpenClawReplyArguments,
+            scope_validator=openclaw_reply_scope_matches,
         )
     )
     broker.register_capability(
@@ -155,6 +170,17 @@ def create_app(
         max_frame_bytes=resolved_settings.napcat_max_frame_bytes,
         max_in_flight_events=resolved_settings.napcat_max_in_flight_events,
     )
+    openclaw_bridge_adapter = OpenClawBridgeAdapter(
+        enabled=resolved_settings.openclaw_bridge_enabled,
+        access_token=resolved_settings.openclaw_bridge_access_token,
+        allowed_channels=resolved_settings.openclaw_bridge_allowed_channels,
+        allowed_account_ids=resolved_settings.openclaw_bridge_allowed_account_ids,
+        max_message_chars=resolved_settings.openclaw_bridge_max_message_chars,
+        idempotency_entries=resolved_settings.openclaw_bridge_idempotency_entries,
+        runtime=runtime,
+        broker=broker,
+        audit=audit,
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -188,6 +214,7 @@ def create_app(
     app.state.prompt_manager = prompt_manager
     app.state.psyche_service = psyche_service
     app.state.napcat_adapter = napcat_adapter
+    app.state.openclaw_bridge_adapter = openclaw_bridge_adapter
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(audit_router)
@@ -197,6 +224,7 @@ def create_app(
     app.include_router(prompts_router)
     app.include_router(psyche_router)
     app.include_router(napcat_router)
+    app.include_router(openclaw_router)
     return app
 
 
