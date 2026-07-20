@@ -341,7 +341,7 @@ def test_runtime_supplies_full_persona_social_policy_and_psyche_without_elevatin
     for layer in ("identity", "values", "traits", "speech", "boundaries", "growth"):
         assert f'"{layer}"' in root
     assert "SOCIAL_RESPONSE_POLICY" in root
-    assert "customer-service phrasing" in root
+    assert "客服措辞" in root
     assert user_text not in root
 
     psyche = next(

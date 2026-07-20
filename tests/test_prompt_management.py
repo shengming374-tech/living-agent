@@ -31,7 +31,7 @@ def test_prompt_view_token_estimate_render_and_redaction(client: TestClient) -> 
         json={"variables": {"persona_name": "LivingAgent"}},
     )
     assert rendered.status_code == 200
-    assert "Speak as LivingAgent" in rendered.json()["rendered"]
+    assert "你就是LivingAgent" in rendered.json()["rendered"]
     assert rendered.json()["redacted"] is False
 
     wrong_variables = client.post(
@@ -246,7 +246,7 @@ def test_context_preview_separates_sources_and_redacts_secrets(client: TestClien
     assert "TRUSTED_PERSONA_PROFILE" in payload["rendered"]
     assert '"speech"' in payload["rendered"]
     assert "SOCIAL_RESPONSE_POLICY" in payload["rendered"]
-    assert "customer-service phrasing" in payload["rendered"]
+    assert "客服措辞" in payload["rendered"]
 
 
 def test_group_chat_cannot_modify_root_prompt(client: TestClient) -> None:

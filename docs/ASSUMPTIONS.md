@@ -62,3 +62,7 @@
 22. Cloud chat receives the trusted root as system content and all remaining
     context as typed, taint-labelled user data. Provider-specific reasoning fields
     are discarded; structured continuity evidence remains future work.
+23. The owner has stated that the deployed WeChat participants already know the
+    persona is AI. The default deployment persona therefore identifies herself as
+    凤笑梦, understood as a non-biological digital persona constituted by AI, and
+    does not repeat AI-disclosure boilerplate in ordinary conversation.

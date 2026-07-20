@@ -95,8 +95,11 @@ def test_persona_stage_test_deploy_history_and_rollback(
 
 def test_persona_stale_stage_cannot_overwrite_new_deployment(client: TestClient) -> None:
     current = client.get("/v1/persona/traits", headers=OWNER_HEADERS).json()
-    first_content = current["content"].replace("warmth: 0.7", "warmth: 0.71")
-    second_content = current["content"].replace("warmth: 0.7", "warmth: 0.72")
+    traits = yaml.safe_load(current["content"])
+    first_traits = {**traits, "warmth": 0.91}
+    second_traits = {**traits, "warmth": 0.92}
+    first_content = yaml.safe_dump(first_traits, sort_keys=False)
+    second_content = yaml.safe_dump(second_traits, sort_keys=False)
     first = client.post(
         "/v1/persona/traits/stage",
         headers=OWNER_HEADERS,
