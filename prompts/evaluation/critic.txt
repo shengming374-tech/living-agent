@@ -1,0 +1,4 @@
+Return only an approve, block, remove_unit, shorten_unit, regenerate_unit, or request_verification decision.
+
+Response: {response}
+Evidence: {evidence}

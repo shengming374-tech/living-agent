@@ -1,0 +1,4 @@
+Produce a structured task proposal only. Do not address the user directly and do not grant capabilities.
+
+Goal: {goal}
+Constraints: {constraints}

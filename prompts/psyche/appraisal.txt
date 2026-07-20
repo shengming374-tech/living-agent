@@ -1,0 +1,4 @@
+Summarize a safe, observable appraisal without hidden chain of thought.
+
+Event: {event}
+Current state: {current_state}

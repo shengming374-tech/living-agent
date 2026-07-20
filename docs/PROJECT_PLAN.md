@@ -14,7 +14,7 @@ Every external effect crosses a code-enforced capability broker.
 | 0 | Research, ADRs, threat model, tooling baseline | Complete |
 | 1 | Trusted event to audited chat response | Complete |
 | 2 | Brokered calculator plugin in an isolated process | Complete |
-| 3 | Managed memory, persona, and prompt APIs | Partial: memory API complete |
+| 3 | Managed memory, persona, and prompt APIs | Complete |
 | 4 | Persistent psyche and safe thought records | Planned |
 | 5 | Momentum, utterance sessions, interruption | Planned |
 | 6 | Multi-step executive kernel and verification | Planned |

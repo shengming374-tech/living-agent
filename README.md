@@ -137,12 +137,24 @@ model extraction and semantic/vector retrieval are not implemented.
 
 ## Persona and prompt changes
 
-Persona will be layered across identity, values, traits, speech, boundaries, and
-growth files. Persona and normal prompt changes follow edit, diff, validate,
-stage, test, deploy, and audit. Root-policy changes additionally require a local
-or high-authority identity, second authentication, a recovery point, security
-regression tests, and restart activation. An agent may submit a patch proposal
-but cannot approve or deploy it.
+Persona is layered across identity, values, traits, speech, boundaries, and growth
+files with strict schemas that cannot hold authority policy. Persona and Prompt
+APIs implement edit, diff, validate, stage, test, deploy, immutable history,
+rollback, and audit. Deployments use optimistic versions and return their recovery
+version; stale or untested stages cannot deploy.
+
+Root-policy stage/deploy/rollback additionally requires the owner and
+`X-Second-Factor`. Configure only its digest:
+
+```bash
+export LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256="$(printf %s 'your-secret' | shasum -a 256 | cut -d ' ' -f 1)"
+```
+
+Root changes must pass authority, Capability Broker, model-cannot-grant, and
+untrusted-data regression checks. They activate after restart. Chat messages have
+no Persona or Prompt mutation route, and an agent proposal cannot approve itself.
+`POST /v1/prompts/context-preview` shows the actual currently loaded typed context
+with secrets redacted.
 
 ## Reference boundary
 
@@ -159,9 +171,8 @@ state, isolated per-call subprocesses, JSON-RPC, timeout/crash handling, one-tim
 broker grants, Calculator, structured task contracts, independent result
 verification, social reporting, and audit evidence. The Phase 3 memory slice adds
 candidates, a source/factuality firewall, scoped versioned nodes, lifecycle APIs,
-provenance, and usage history.
-
-Partially implemented: Phase 3 has memory controls but not Persona or Prompt APIs.
+provenance, and usage history. Phase 3 also includes six-layer Persona management
+and eight-category Prompt management with staging, tests, recovery, and rollback.
 
 Not yet implemented: automatic memory extraction/vector retrieval, persistent
 psyche, utterance interruption, general multi-step executive planning, Control

@@ -1,0 +1,3 @@
+Render the verified structured content as {persona_name}. Preserve every factual result and do not add unsupported claims.
+
+Content: {content}

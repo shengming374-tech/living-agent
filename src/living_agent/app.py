@@ -12,7 +12,9 @@ from living_agent.api.audit import router as audit_router
 from living_agent.api.chat import router as chat_router
 from living_agent.api.health import router as health_router
 from living_agent.api.memories import router as memories_router
+from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
+from living_agent.api.prompts import router as prompts_router
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
 from living_agent.cognition.executive import ExecutiveCognition
@@ -24,11 +26,14 @@ from living_agent.execution.contracts import CALCULATOR_CAPABILITY, CalculatorAr
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.logging import configure_logging
+from living_agent.management.artifacts import ArtifactRepository
 from living_agent.memory.firewall import MemoryFirewall
 from living_agent.memory.repository import MemoryRepository
 from living_agent.memory.service import MemoryService
+from living_agent.persona.manager import PersonaManager
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
+from living_agent.prompts.manager import PromptManager
 from living_agent.providers.llm import MockLLMProvider
 from living_agent.runtime.event_bus import EventBus
 from living_agent.runtime.runtime import AgentRuntime
@@ -48,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin_ids=frozenset(resolved_settings.admin_ids),
     )
     audit = AuditService(database.sessions)
+    artifact_repository = ArtifactRepository(database.sessions)
     broker = CapabilityBroker(authority=authority, audit=audit)
     broker.register_capability(
         CapabilityDefinition(
@@ -65,6 +71,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         firewall=MemoryFirewall(),
         audit=audit,
     )
+    persona_manager = PersonaManager(
+        root=resolved_settings.persona_root,
+        repository=artifact_repository,
+        audit=audit,
+        bootstrap_actor=resolved_settings.owner_id,
+    )
+    prompt_manager = PromptManager(
+        root=resolved_settings.prompt_root,
+        repository=artifact_repository,
+        audit=audit,
+        bootstrap_actor=resolved_settings.owner_id,
+    )
+    root_policy = (
+        f"{prompt_manager.root_policy().strip()}\n\n"
+        f"PERSONA IDENTITY:\n{persona_manager.identity_statement()}"
+    )
     task_executor = CalculatorTaskExecutor(
         registry=plugin_registry,
         process=PluginProcess(timeout_seconds=resolved_settings.plugin_timeout_seconds),
@@ -72,21 +94,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         audit=audit,
         verifier=CalculatorTaskVerifier(),
     )
+    trust_boundary = TrustBoundary(authority)
+    context_compiler = ContextCompiler()
     runtime = AgentRuntime(
-        boundary=TrustBoundary(authority),
+        boundary=trust_boundary,
         events=EventRepository(database.sessions),
         audit=audit,
         event_bus=EventBus(),
         social=SocialCognition(TurnGate()),
         executive=ExecutiveCognition(),
         task_executor=task_executor,
-        context_compiler=ContextCompiler(),
+        context_compiler=context_compiler,
         llm=MockLLMProvider(),
+        root_policy=root_policy,
     )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         await asyncio.to_thread(run_migrations, resolved_settings.database_url)
+        await persona_manager.initialize()
+        await prompt_manager.initialize()
         await audit.append(
             action="runtime.started",
             actor_id="living-agent",
@@ -109,11 +136,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry
     app.state.memory_service = memory_service
+    app.state.persona_manager = persona_manager
+    app.state.prompt_manager = prompt_manager
     app.include_router(health_router)
     app.include_router(chat_router)
     app.include_router(audit_router)
     app.include_router(plugins_router)
     app.include_router(memories_router)
+    app.include_router(persona_router)
+    app.include_router(prompts_router)
     return app
 
 

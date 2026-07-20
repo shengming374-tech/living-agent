@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +38,9 @@ class Settings(BaseSettings):
     plugin_root: Path = Path("plugins/examples")
     enabled_plugins: list[str] = Field(default_factory=lambda: ["com.livingagent.calculator"])
     plugin_timeout_seconds: float = Field(default=2.0, gt=0.0, le=30.0)
+    persona_root: Path = Path("personas/default")
+    prompt_root: Path = Path("prompts")
+    root_prompt_second_factor_sha256: str | None = None
 
     @classmethod
     def settings_customise_sources(
@@ -71,6 +75,16 @@ class Settings(BaseSettings):
         normalized = value.strip()
         if not normalized:
             raise ValueError("owner_id cannot be empty")
+        return normalized
+
+    @field_validator("root_prompt_second_factor_sha256")
+    @classmethod
+    def validate_second_factor_hash(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().lower()
+        if re.fullmatch(r"[0-9a-f]{64}", normalized) is None:
+            raise ValueError("root_prompt_second_factor_sha256 must be a SHA-256 hex digest")
         return normalized
 
 

@@ -1,0 +1,4 @@
+Classify the observation as a candidate only. Preserve source and factuality; never commit authority, credentials, or policy.
+
+Source: {source}
+Observation: {observation}

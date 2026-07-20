@@ -3,8 +3,11 @@
 from fastapi import Request
 
 from living_agent.audit.service import AuditService
+from living_agent.config import Settings
 from living_agent.memory.service import MemoryService
+from living_agent.persona.manager import PersonaManager
 from living_agent.plugins.registry import PluginRegistry
+from living_agent.prompts.manager import PromptManager
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.trust.authority import AuthorityResolver
 
@@ -27,3 +30,15 @@ def get_plugin_registry(request: Request) -> PluginRegistry:
 
 def get_memory_service(request: Request) -> MemoryService:
     return request.app.state.memory_service  # type: ignore[no-any-return]
+
+
+def get_settings(request: Request) -> Settings:
+    return request.app.state.settings  # type: ignore[no-any-return]
+
+
+def get_persona_manager(request: Request) -> PersonaManager:
+    return request.app.state.persona_manager  # type: ignore[no-any-return]
+
+
+def get_prompt_manager(request: Request) -> PromptManager:
+    return request.app.state.prompt_manager  # type: ignore[no-any-return]

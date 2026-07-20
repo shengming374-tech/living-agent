@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from living_agent.audit.service import redact
+from living_agent.audit.service import redact, redact_text
 from living_agent.models.events import AuthorityLevel, SourceType, TrustedEvent
 
 
@@ -111,7 +111,7 @@ class ContextCompiler:
     def _serialize(content: Any) -> str:
         redacted = redact(content)
         if isinstance(redacted, str):
-            return redacted
+            return redact_text(redacted)
         return json.dumps(redacted, ensure_ascii=True, sort_keys=True)
 
     @staticmethod

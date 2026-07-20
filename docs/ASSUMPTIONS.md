@@ -17,3 +17,9 @@
    provenance pins the inspected upstream revision without vendoring GPL code.
 9. Early chat responses are single units. Utterance sessions, interruption, and
    dynamic multi-unit speech remain Phase 5 work and are not implied by the API.
+10. Root prompt mutation is disabled when
+    `LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256` is unset. Only the digest is
+    configured; the raw second factor is supplied per privileged request.
+11. Managed Persona and Prompt files are single-process resources. The repository
+    prevents stale-version deployment, but multi-instance production deployment
+    also needs an external deployment lock or single control-plane writer.

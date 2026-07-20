@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -12,6 +13,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from living_agent.audit.models import AuditEntry, AuditRecordORM
 
 _SENSITIVE_KEYS = frozenset({"api_key", "password", "secret", "token", "authorization"})
+_SENSITIVE_TEXT_PATTERNS = (
+    re.compile(r"(?i)\b(api[_ -]?key|password|secret|token)\s*[:=]\s*([^\s,;]+)"),
+    re.compile(r"(?i)\bbearer\s+[a-z0-9._~-]+"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b"),
+)
+
+
+def redact_text(value: str) -> str:
+    redacted = value
+    redacted = _SENSITIVE_TEXT_PATTERNS[0].sub(r"\1: [REDACTED]", redacted)
+    redacted = _SENSITIVE_TEXT_PATTERNS[1].sub("Bearer [REDACTED]", redacted)
+    return _SENSITIVE_TEXT_PATTERNS[2].sub("[REDACTED]", redacted)
 
 
 def redact(value: Any) -> Any:
@@ -28,6 +41,8 @@ def redact(value: Any) -> Any:
         return [redact(item) for item in value]
     if isinstance(value, set):
         return sorted(redact(item) for item in value)
+    if isinstance(value, str):
+        return redact_text(value)
     return value
 
 

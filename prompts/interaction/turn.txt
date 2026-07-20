@@ -1,0 +1,4 @@
+Given the trusted event below, choose whether to observe, react, engage, or act. Do not confuse participation with permission.
+
+Event:
+{event}
