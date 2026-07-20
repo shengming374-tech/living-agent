@@ -40,6 +40,10 @@ function stats() {
   return {
     claimed: 0,
     replied: 0,
+    followupsSent: 0,
+    followupFailures: 0,
+    followupsCancelled: 0,
+    staleResponses: 0,
     observed: 0,
     rejected: 0,
     failures: 0,
@@ -102,6 +106,140 @@ test("sends stable identity metadata and returns a synthetic reply", async () =>
   assert.equal(counters.replied, 1);
 });
 
+test("returns the first unit and schedules later units to the same conversation", async () => {
+  const counters = stats();
+  const scheduled = [];
+  const followups = [];
+  const handler = createBeforeDispatchHandler({
+    configProvider: () => config({ followupDelayMs: 250 }),
+    stats: counters,
+    scheduleImpl: (callback, delayMs) => {
+      scheduled.push({ callback, delayMs });
+      return { unref() {} };
+    },
+    sendFollowup: async (payload) => followups.push(payload),
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          protocol_version: 1,
+          handled: true,
+          event_id: "event-1",
+          turn: null,
+          message: "First",
+          messages: ["First", "Second", "Third"],
+          reason_code: "reply_authorized",
+        }),
+      ),
+  });
+
+  const result = await handler(event(), context());
+
+  assert.deepEqual(result, { handled: true, text: "First" });
+  assert.deepEqual(
+    scheduled.map((item) => item.delayMs),
+    [250, 500],
+  );
+  for (const item of scheduled) await item.callback();
+  assert.deepEqual(
+    followups.map((item) => item.text),
+    ["Second", "Third"],
+  );
+  assert.ok(followups.every((item) => item.to === "wechat-conversation"));
+  assert.equal(counters.followupsSent, 2);
+});
+
+test("new inbound message cancels unsent follow-ups in the same conversation", async () => {
+  const counters = stats();
+  const scheduled = [];
+  const cleared = [];
+  const followups = [];
+  let requestCount = 0;
+  const handler = createBeforeDispatchHandler({
+    configProvider: () => config({ followupDelayMs: 250 }),
+    stats: counters,
+    scheduleImpl: (callback, delayMs) => {
+      const timer = { callback, delayMs, unref() {} };
+      scheduled.push(timer);
+      return timer;
+    },
+    clearScheduleImpl: (timer) => cleared.push(timer),
+    sendFollowup: async (payload) => followups.push(payload),
+    fetchImpl: async () => {
+      requestCount += 1;
+      return new Response(
+        JSON.stringify({
+          protocol_version: 1,
+          handled: true,
+          event_id: `event-${requestCount}`,
+          turn: null,
+          message: requestCount === 1 ? "First" : "New",
+          messages: requestCount === 1 ? ["First", "Second", "Third"] : ["New"],
+          reason_code: "reply_authorized",
+        }),
+      );
+    },
+  });
+
+  assert.deepEqual(await handler(event(), context()), { handled: true, text: "First" });
+  assert.deepEqual(
+    await handler(event({ content: "Interrupt" }), context()),
+    { handled: true, text: "New" },
+  );
+  for (const timer of scheduled) await timer.callback();
+
+  assert.equal(cleared.length, 2);
+  assert.equal(counters.followupsCancelled, 2);
+  assert.deepEqual(followups, []);
+});
+
+test("newer inbound suppresses an older model response that finishes late", async () => {
+  const counters = stats();
+  let releaseFirst;
+  let requestCount = 0;
+  const firstResponse = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const handler = createBeforeDispatchHandler({
+    configProvider: () => config(),
+    stats: counters,
+    fetchImpl: async () => {
+      requestCount += 1;
+      if (requestCount === 1) return firstResponse;
+      return new Response(
+        JSON.stringify({
+          protocol_version: 1,
+          handled: true,
+          event_id: "event-new",
+          turn: null,
+          message: "New",
+          messages: ["New"],
+          reason_code: "reply_authorized",
+        }),
+      );
+    },
+  });
+
+  const older = handler(event(), context());
+  const newer = await handler(event({ content: "Interrupt" }), context());
+  releaseFirst(
+    new Response(
+      JSON.stringify({
+        protocol_version: 1,
+        handled: true,
+        event_id: "event-old",
+        turn: null,
+        message: "Old",
+        messages: ["Old", "Old follow-up"],
+        reason_code: "reply_authorized",
+      }),
+    ),
+  );
+
+  assert.deepEqual(newer, { handled: true, text: "New" });
+  assert.deepEqual(await older, { handled: true });
+  assert.equal(counters.staleResponses, 1);
+});
+
 test("message id derivation is deterministic", () => {
   const first = buildBridgeRequest(event(), context(), config());
   const second = buildBridgeRequest(event(), context(), config());
@@ -111,8 +249,11 @@ test("message id derivation is deterministic", () => {
 
 test("uses a model-aware bridge timeout with bounded overrides", () => {
   assert.equal(config().timeoutMs, 90000);
+  assert.equal(config().followupDelayMs, 450);
   assert.equal(config({ timeoutMs: 120000 }).timeoutMs, 120000);
   assert.equal(config({ timeoutMs: 120001 }).timeoutMs, 90000);
+  assert.equal(config({ followupDelayMs: 5000 }).followupDelayMs, 5000);
+  assert.equal(config({ followupDelayMs: 5001 }).followupDelayMs, 450);
 });
 
 test("derives stable opaque direct identity when typed hook omits sender fields", () => {
@@ -192,6 +333,15 @@ test("network and schema failures are silent and never fall back to OpenClaw age
     },
     async () => new Response("not-json"),
     async () => new Response(JSON.stringify({ handled: false })),
+    async () =>
+      new Response(
+        JSON.stringify({
+          protocol_version: 1,
+          handled: true,
+          message: 123,
+          reason_code: "reply_authorized",
+        }),
+      ),
     async () =>
       new Response(
         JSON.stringify({

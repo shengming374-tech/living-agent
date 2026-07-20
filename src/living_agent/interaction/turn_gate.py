@@ -24,7 +24,9 @@ class TurnGate:
         if extract_calculation_expression(content) is not None:
             return self._decision(event, "act", 0.8, 1, 1, "calculator_task")
         mode: Literal["react", "engage"] = "react" if len(text.strip()) <= 16 else "engage"
-        return self._decision(event, mode, 0.6, 1, 1, "direct_participation")
+        if mode == "react":
+            return self._decision(event, mode, 0.6, 1, 1, "direct_participation")
+        return self._decision(event, mode, 0.6, 2, 3, "direct_participation")
 
     @staticmethod
     def _decision(

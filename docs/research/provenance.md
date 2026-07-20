@@ -21,6 +21,9 @@
 | `src/maisaka/chat_loop_service.py` | Planner context/tool loop and hook placement |
 | `src/chat/replyer/replyer_manager.py` | Per-session reply generator ownership |
 | `src/chat/replyer/maisaka_generator.py` | Dedicated reply-generation layer |
+| `src/chat/replyer/maisaka_generator_base.py` | Reply-only output boundary and real-history filtering |
+| `prompts/zh-CN/maisaka_replyer.prompt` | Colloquial visible-response objective; prompt text was not copied |
+| `src/chat/utils/utils.py` | Bounded post-generation message-count concept; algorithm was not copied |
 | `src/maisaka/builtin_tool/reply.py` | Planner-to-expression handoff and segmented send concept |
 | `src/maisaka/memory/mid_term.py` | Compact summaries and recall cues |
 | `src/maisaka/memory/heuristic_injector.py` | Scoped, rate-limited memory recall |

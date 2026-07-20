@@ -275,7 +275,10 @@ Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
 calculator activity evidence, restart recovery, state decay, and evidence-gated
 continuity claims. The runtime also supplies the six-layer persona, deployed
 social Prompt, and current PsycheState to chat generation without elevating user
-text into system instructions. The optional NapCat compatibility slice adds a tested OneBot
+text into system instructions. A partial Phase 5 slice adds typed
+`UtteranceSession`/`SpeechUnit` output: `react` keeps one short unit while
+`engage` may deliver two or three equally short semantic units through the exact
+same-event platform grant. The optional NapCat compatibility slice adds a tested OneBot
 11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
 The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
 the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a
@@ -294,11 +297,13 @@ versions. The critic validates evidence existence, accessibility, time, status,
 and conversation scope; it does not yet independently prove semantic entailment
 between arbitrary free-form claim text and the referenced record.
 
-Not yet implemented: automatic memory extraction/vector retrieval, utterance
-sessions and interruption, general multi-step executive planning, Control Studio,
+Not yet implemented: automatic memory extraction/vector retrieval, runtime-level
+replanning of interrupted speech, NapCat interruption cancellation, general
+multi-step executive planning, Control Studio,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
 OpenClaw group/media/proactive messaging and persistent bridge idempotency are
-also not implemented.
+also not implemented. The OpenClaw bridge does cancel unsent follow-up units when
+a newer inbound message reaches the same conversation.
 This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations

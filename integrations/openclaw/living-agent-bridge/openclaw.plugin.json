@@ -38,6 +38,12 @@
         "minimum": 1000,
         "maximum": 120000
       },
+      "followupDelayMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 5000,
+        "description": "Delay between additional LivingAgent speech units."
+      },
       "maxMessageChars": {
         "type": "integer",
         "minimum": 1,

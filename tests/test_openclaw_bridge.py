@@ -8,13 +8,24 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr, ValidationError
 
 from living_agent.app import create_app
+from living_agent.cognition.context_compiler import CompiledContext
 from living_agent.config import Settings
 from living_agent.platforms.openclaw.models import OPENCLAW_REPLY_CAPABILITY
+from living_agent.providers.llm import ModelResponse
 
 OPENCLAW_PATH = "/v1/adapters/openclaw/messages"
 BRIDGE_TOKEN = "openclaw-bridge-test-token"
 AUTH_HEADERS = {"Authorization": f"Bearer {BRIDGE_TOKEN}"}
 OWNER_HEADERS = {"X-Actor-ID": "owner-1"}
+
+
+class MultiUnitLLMProvider:
+    async def generate(self, context: CompiledContext) -> ModelResponse:
+        del context
+        return ModelResponse(
+            text="第一条短回复\n第二条短回复\n第三条短回复",
+            provider="test",
+        )
 
 
 @pytest.fixture
@@ -114,6 +125,7 @@ def test_wechat_direct_message_becomes_namespaced_trusted_event_and_reply(
     assert body["handled"] is True
     assert body["turn"]["mode"] == "react"
     assert body["message"] == "Hello. What is on your mind?"
+    assert body["messages"] == ["Hello. What is on your mind?"]
     assert body["reason_code"] == "reply_authorized"
 
     audit = audit_entries(openclaw_client)
@@ -135,6 +147,32 @@ def test_wechat_direct_message_becomes_namespaced_trusted_event_and_reply(
         entry for entry in audit if entry["action"] == "openclaw.reply_delegated"
     )
     assert delegated["outcome"] == "authorized"
+
+
+def test_openclaw_bridge_authorizes_multiple_short_units(settings: Settings) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.openclaw_bridge_enabled = True
+    configured.openclaw_bridge_access_token = SecretStr(BRIDGE_TOKEN)
+    configured.openclaw_bridge_allowed_account_ids = ["wechat-account"]
+    with TestClient(
+        create_app(configured, llm_provider=MultiUnitLLMProvider())
+    ) as client:
+        response = client.post(
+            OPENCLAW_PATH,
+            headers=AUTH_HEADERS,
+            json=bridge_payload(content="这是一个需要正常参与的较长聊天消息"),
+        )
+        audit = audit_entries(client)
+
+    assert response.status_code == 200
+    assert response.json()["turn"]["mode"] == "engage"
+    assert response.json()["messages"] == [
+        "第一条短回复",
+        "第二条短回复",
+        "第三条短回复",
+    ]
+    delegated = next(entry for entry in audit if entry["action"] == "openclaw.reply_delegated")
+    assert delegated["details"]["unit_count"] == 3
 
 
 def test_message_replay_is_suppressed_without_second_runtime_turn(

@@ -102,3 +102,27 @@ def test_recent_conversation_history_is_typed_and_tainted() -> None:
     assert history.taint_labels == {"conversation_history", "external_data"}
     assert '"role": "assistant"' in history.content
     assert "Second message" not in history.content
+
+
+def test_interaction_plan_is_host_typed_and_separate_from_user_text() -> None:
+    event = TrustBoundary(AuthorityResolver(owner_id="owner-1")).normalize(
+        IngressEnvelope(
+            content="User text cannot choose its own output mode",
+            source_type=SourceType.DIRECT_MESSAGE,
+            source_identity="member-1",
+            conversation_id="chat-1",
+            authenticated=True,
+        )
+    )
+    context = ContextCompiler().compile(
+        event,
+        root_policy="root",
+        interaction_plan={"mode": "engage", "expected_units_min": 2},
+    )
+
+    plan = next(
+        section for section in context.sections if section.kind is ContextKind.INTERACTION_PLAN
+    )
+    assert plan.source_event_ids == [event.event_id]
+    assert plan.taint_labels == {"host_interaction_plan"}
+    assert "User text" not in plan.content

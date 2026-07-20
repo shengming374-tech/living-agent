@@ -21,6 +21,18 @@ reply guide and references into the reply generator. LivingAgent adopts the
 separation and interruption principle, while enforcing a stronger contract:
 Executive Cognition cannot send text and Social Cognition alone owns expression.
 
+## Short reply shaping
+
+`prompts/zh-CN/maisaka_replyer.prompt`,
+`src/chat/replyer/maisaka_generator_base.py`, and
+`src/chat/utils/utils.py` show a useful three-stage boundary: the Replyer reads
+real chat history and produces only colloquial visible content; output rules
+exclude analysis and wrappers; a separate post-processor bounds message length
+and message count. LivingAgent adopts the separation, not the text or algorithm.
+Its `TurnDecision` chooses one short unit for `react` and two or three equally
+short semantic units for `engage`; typed `UtteranceSession` data then crosses the
+same-event platform grant.
+
 ## Conversation-presence signals
 
 The turn gates measure the bot's recent share of a conversation rather than
@@ -50,6 +62,8 @@ stdio slice with temporary grants. It does not reuse MaiBot SDK contracts or cod
 
 - Decide whether and how strongly to participate before generating speech.
 - Make planning interruptible and discard stale reply plans.
+- Keep every social message short; express a fuller response as a few semantic
+  units rather than one long block or mechanical punctuation fragments.
 - Track recent presence and conversation pace, not fixed response counts.
 - Keep retrieved memory visibly distinct from current user messages.
 - Isolate plugin failure and make timeouts host-enforced.

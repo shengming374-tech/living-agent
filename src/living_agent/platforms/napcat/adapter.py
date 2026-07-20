@@ -228,14 +228,15 @@ class NapCatAdapter:
         result = await self._runtime.handle_chat(normalized.envelope)
         if result.message is None:
             return
-        reply = normalized.reply.model_copy(update={"message": result.message})
-        await self._send_reply(
-            reply,
-            connection,
-            event_id=result.event.event_id,
-            conversation_id=result.event.conversation_id,
-            taint_labels=result.event.taint_labels,
-        )
+        for message in result.messages or [result.message]:
+            reply = normalized.reply.model_copy(update={"message": message})
+            await self._send_reply(
+                reply,
+                connection,
+                event_id=result.event.event_id,
+                conversation_id=result.event.conversation_id,
+                taint_labels=result.event.taint_labels,
+            )
 
     async def _send_reply(
         self,

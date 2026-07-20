@@ -16,7 +16,7 @@ Every external effect crosses a code-enforced capability broker.
 | 2 | Brokered calculator plugin in an isolated process | Complete |
 | 3 | Managed memory, persona, and prompt APIs | Complete |
 | 4 | Persistent psyche and safe thought records | Complete |
-| 5 | Momentum, utterance sessions, interruption | Planned |
+| 5 | Momentum, utterance sessions, interruption | Partial |
 | 6 | Multi-step executive kernel and verification | Planned |
 | 7 | Control Studio | Planned |
 | 8 | Activities, journaling, dream isolation, proposals | Planned |
@@ -27,13 +27,15 @@ placeholder modules.
 
 Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
 as a host-owned adapter with authenticated ingress and brokered same-event
-replies. It does not change the Phase 5 status because interruptible multi-unit
-utterance sessions are still planned.
+replies. It can deliver the short units in a brokered `UtteranceSession`
+sequentially; cancellation after a new inbound interruption remains unfinished.
 
 OpenClaw WeChat compatibility is implemented as a transport bridge using the
 typed `before_dispatch` synthetic-reply contract. It authenticates and namespaces
 ingress, applies channel/account allowlists, brokers exact same-event replies, and
-fails closed without delegating personality or permissions to OpenClaw. Direct
+fails closed without delegating personality or permissions to OpenClaw. A new
+inbound message cancels unsent follow-up units in that same conversation and
+suppresses an older model response that finishes late. Direct
 text is implemented; group/media/proactive messaging and persistent replay keys
 remain future work.
 
@@ -62,7 +64,7 @@ and requires an owner-supplied endpoint, model ID, and credential.
    intent, confirmation, cross-session access, and external sending.
 7. Runtime or a subprocess plugin executes only an allowed grant.
 8. Verification produces structured evidence; Social Cognition renders the one
-   visible response.
+   visible persona as one short reaction or a few short semantic units.
 9. Security decisions and effects are written to an append-only application
    audit service inaccessible to plugin code.
 

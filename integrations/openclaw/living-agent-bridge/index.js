@@ -8,6 +8,7 @@ const DEFAULTS = Object.freeze({
   channelId: "openclaw-weixin",
   allowedAccountIds: [],
   timeoutMs: 90000,
+  followupDelayMs: 450,
   maxMessageChars: 12000,
   allowRemoteEndpoint: false,
 });
@@ -20,6 +21,10 @@ const STATE = {
     startedAt: Date.now(),
     claimed: 0,
     replied: 0,
+    followupsSent: 0,
+    followupFailures: 0,
+    followupsCancelled: 0,
+    staleResponses: 0,
     observed: 0,
     rejected: 0,
     failures: 0,
@@ -70,6 +75,7 @@ export function normalizeConfig(raw = {}, environment = process.env) {
     channelId,
     allowedAccountIds: new Set(allowedAccountIds),
     timeoutMs: boundedInteger(value.timeoutMs, DEFAULTS.timeoutMs, 1000, 120000),
+    followupDelayMs: boundedInteger(value.followupDelayMs, DEFAULTS.followupDelayMs, 100, 5000),
     maxMessageChars: boundedInteger(
       value.maxMessageChars,
       DEFAULTS.maxMessageChars,
@@ -133,6 +139,7 @@ export function buildBridgeRequest(event, context, config) {
     ? Math.max(0, Math.trunc(event.timestamp))
     : Date.now();
   return {
+    deliveryTarget: explicitConversationId || explicitSenderId || "",
     payload: {
       protocol_version: 1,
       channel_id: channelId,
@@ -151,15 +158,41 @@ export function buildBridgeRequest(event, context, config) {
 }
 
 function validResponse(value) {
+  const messages = responseMessages(value);
+  const primaryMessage = typeof value?.message === "string" ? value.message.trim() : null;
+  const explicitMessagesValid =
+    value?.messages === undefined ||
+    (Array.isArray(value.messages) &&
+      value.messages.length <= 3 &&
+      value.messages.every(
+        (item) => typeof item === "string" && item.trim() && item.length <= 4000,
+      ));
+  const primaryMatches =
+    value?.message === null
+      ? messages.length === 0
+      : primaryMessage !== null && messages.length > 0 && messages[0] === primaryMessage;
   return (
     value &&
     typeof value === "object" &&
     value.protocol_version === 1 &&
     value.handled === true &&
-    (value.message === null ||
-      (typeof value.message === "string" && value.message.length <= 4000)) &&
+    (value.message === null || (primaryMessage !== null && value.message.length <= 4000)) &&
+    explicitMessagesValid &&
+    primaryMatches &&
+    messages.length <= 3 &&
     typeof value.reason_code === "string"
   );
+}
+
+function responseMessages(value) {
+  if (Array.isArray(value?.messages)) {
+    if (!value.messages.every((item) => typeof item === "string")) return [];
+    const messages = value.messages.map((item) => item.trim()).filter(Boolean);
+    if (messages.length > 0) return messages.slice(0, 3);
+  }
+  return typeof value?.message === "string" && value.message.trim()
+    ? [value.message.trim()]
+    : [];
 }
 
 async function postToLivingAgent(payload, config, fetchImpl) {
@@ -207,6 +240,29 @@ export function createBeforeDispatchHandler(options = {}) {
   const configProvider = options.configProvider || (() => STATE.config);
   const stats = options.stats || STATE.stats;
   const logger = options.logger || STATE.logger;
+  const sendFollowup = options.sendFollowup;
+  const scheduleImpl = options.scheduleImpl || ((callback, delayMs) => setTimeout(callback, delayMs));
+  const clearScheduleImpl = options.clearScheduleImpl || ((timer) => clearTimeout(timer));
+  const pendingByConversation = new Map();
+  const activeRequests = new Map();
+
+  function conversationKey(built) {
+    return JSON.stringify([
+      built.payload.channel_id,
+      built.payload.account_id,
+      built.payload.conversation_id,
+    ]);
+  }
+
+  function cancelPending(key) {
+    const pending = pendingByConversation.get(key);
+    if (!pending) return;
+    pending.cancelled = true;
+    for (const timer of pending.timers) clearScheduleImpl(timer);
+    stats.followupsCancelled = (stats.followupsCancelled || 0) + pending.timers.size;
+    pendingByConversation.delete(key);
+  }
+
   return async (event, context) => {
     const config = configProvider();
     if (!config) {
@@ -227,13 +283,53 @@ export function createBeforeDispatchHandler(options = {}) {
       logger?.warn?.(`[${PLUGIN_ID}] inbound rejected: ${built.rejected}${fields}`);
       return { handled: true };
     }
+    const key = conversationKey(built);
+    const requestToken = {};
+    cancelPending(key);
+    activeRequests.set(key, requestToken);
     try {
       const response = await postToLivingAgent(built.payload, config, fetchImpl);
+      if (activeRequests.get(key) !== requestToken) {
+        stats.staleResponses = (stats.staleResponses || 0) + 1;
+        return { handled: true };
+      }
       stats.lastSuccessAt = Date.now();
       stats.lastErrorCode = null;
-      if (typeof response.message === "string" && response.message.trim()) {
+      const messages = responseMessages(response);
+      if (messages.length > 0) {
         stats.replied += 1;
-        return { handled: true, text: response.message };
+        if (messages.length > 1 && built.deliveryTarget && typeof sendFollowup === "function") {
+          const pending = { cancelled: false, timers: new Set() };
+          pendingByConversation.set(key, pending);
+          messages.slice(1).forEach((message, index) => {
+            let timer;
+            timer = scheduleImpl(async () => {
+              if (pending.cancelled || pendingByConversation.get(key) !== pending) return;
+              pending.timers.delete(timer);
+              if (pending.timers.size === 0) pendingByConversation.delete(key);
+              try {
+                await sendFollowup({
+                  channelId: built.payload.channel_id,
+                  accountId: built.payload.account_id,
+                  to: built.deliveryTarget,
+                  text: message,
+                });
+                stats.followupsSent = (stats.followupsSent || 0) + 1;
+              } catch (error) {
+                stats.followupFailures = (stats.followupFailures || 0) + 1;
+                stats.lastErrorCode = safeErrorCode(error);
+                logger?.error?.(`[${PLUGIN_ID}] follow-up send failed: ${stats.lastErrorCode}`);
+              }
+            }, config.followupDelayMs * (index + 1));
+            pending.timers.add(timer);
+            timer?.unref?.();
+          });
+        }
+        const first =
+          messages.length > 1 && (!built.deliveryTarget || typeof sendFollowup !== "function")
+            ? messages.join("\n")
+            : messages[0];
+        return { handled: true, text: first };
       }
       stats.observed += 1;
       return { handled: true };
@@ -243,7 +339,22 @@ export function createBeforeDispatchHandler(options = {}) {
       stats.lastErrorCode = code;
       logger?.error?.(`[${PLUGIN_ID}] LivingAgent request failed: ${code}`);
       return { handled: true };
+    } finally {
+      if (activeRequests.get(key) === requestToken) activeRequests.delete(key);
     }
+  };
+}
+
+function createRuntimeFollowupSender(api) {
+  return async ({ channelId, accountId, to, text: message }) => {
+    const adapter = await api.runtime?.channel?.outbound?.loadAdapter?.(channelId);
+    if (!adapter?.sendText) throw new Error("outbound_unavailable");
+    await adapter.sendText({
+      cfg: api.config,
+      to,
+      text: message,
+      accountId,
+    });
   };
 }
 
@@ -271,7 +382,11 @@ export function register(api) {
   }
   if (STATE.installed) return;
 
-  api.on("before_dispatch", createBeforeDispatchHandler(), { priority: 100 });
+  api.on(
+    "before_dispatch",
+    createBeforeDispatchHandler({ sendFollowup: createRuntimeFollowupSender(api) }),
+    { priority: 100 },
+  );
   api.registerGatewayMethod(
     "livingAgentBridge.status",
     async ({ respond }) => respond(true, statusSnapshot()),

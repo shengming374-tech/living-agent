@@ -74,10 +74,15 @@ configuration tooling with these values:
   "channelId": "openclaw-weixin",
   "allowedAccountIds": ["your-weixin-account-id"],
   "timeoutMs": 90000,
+  "followupDelayMs": 450,
   "maxMessageChars": 12000,
   "allowRemoteEndpoint": false
 }
 ```
+
+When a newer inbound message reaches the same conversation, the bridge cancels
+any still-pending follow-up units from the older response. It also suppresses an
+older model response if that response completes after the newer inbound arrived.
 
 Restart the Gateway after changing plugin configuration:
 

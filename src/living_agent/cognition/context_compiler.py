@@ -16,6 +16,7 @@ class ContextKind(StrEnum):
     ROOT_POLICY = "ROOT_POLICY"
     PSYCHE_STATE = "PSYCHE_STATE"
     RECENT_CONVERSATION = "RECENT_CONVERSATION"
+    INTERACTION_PLAN = "INTERACTION_PLAN"
     OWNER_REQUEST = "OWNER_REQUEST"
     SOCIAL_CHAT = "SOCIAL_CHAT"
     RETRIEVED_MEMORY = "RETRIEVED_MEMORY"
@@ -54,6 +55,7 @@ class ContextCompiler:
         available_capabilities: list[str] | None = None,
         psyche_state: dict[str, Any] | None = None,
         conversation_history: list[dict[str, Any]] | None = None,
+        interaction_plan: dict[str, Any] | None = None,
     ) -> CompiledContext:
         sections = [
             ContextSection(
@@ -87,6 +89,15 @@ class ContextCompiler:
                     content=self._serialize(conversation_history),
                     source_event_ids=history_source_ids,
                     taint_labels=history_taint | {"conversation_history"},
+                )
+            )
+        if interaction_plan is not None:
+            sections.append(
+                ContextSection(
+                    kind=ContextKind.INTERACTION_PLAN,
+                    content=self._serialize(interaction_plan),
+                    source_event_ids=[event.event_id],
+                    taint_labels={"host_interaction_plan"},
                 )
             )
         event_kind = self._event_kind(event)

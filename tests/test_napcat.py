@@ -260,6 +260,29 @@ def test_private_message_round_trip_uses_broker_and_plain_text_segment(
     )
 
 
+def test_engage_reply_sends_multiple_short_napcat_messages(settings: Settings) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.napcat_enabled = True
+    configured.napcat_access_token = SecretStr(NAPCAT_TOKEN)
+    provider = FixedLLMProvider("第一条短回复\n第二条短回复")
+    with TestClient(create_app(configured, llm_provider=provider)) as client:
+        with client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(private_event("这是一个需要正常参与的较长聊天消息"))
+            first = websocket.receive_json()
+            assert first["params"]["message"][0]["data"]["text"] == "第一条短回复"
+            websocket.send_json(action_success(first, message_id=9101))
+            second = websocket.receive_json()
+            assert second["params"]["message"][0]["data"]["text"] == "第二条短回复"
+            websocket.send_json(action_success(second, message_id=9102))
+            wait_for_audit_count(
+                client,
+                lambda entry: entry["action"] == "napcat.outbound"
+                and entry["outcome"] == "success",
+                2,
+            )
+            close_websocket(websocket, client)
+
+
 def test_group_cq_string_detects_bot_mention_and_replies_to_group(
     napcat_client: TestClient,
 ) -> None:

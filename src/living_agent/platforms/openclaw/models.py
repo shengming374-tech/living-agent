@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -10,6 +10,7 @@ from living_agent.models.conversation import TurnDecision
 from living_agent.models.events import IngressEnvelope, SourceType
 
 OPENCLAW_REPLY_CAPABILITY = "platform.openclaw.message"
+ShortReply = Annotated[str, Field(min_length=1, max_length=4000)]
 
 
 def _stable_identifier(value: str) -> str:
@@ -56,6 +57,7 @@ class OpenClawReplyArguments(BaseModel):
     account_id: str
     conversation_id: str
     message: str = Field(min_length=1, max_length=4000)
+    messages: list[ShortReply] = Field(default_factory=list, max_length=3)
     source_message_id: str
 
     @field_validator("channel_id", "account_id", "conversation_id", "source_message_id")
@@ -72,6 +74,7 @@ class OpenClawBridgeResponse(BaseModel):
     event_id: str | None
     turn: TurnDecision | None
     message: str | None
+    messages: list[ShortReply] = Field(default_factory=list, max_length=3)
     reason_code: str
 
 

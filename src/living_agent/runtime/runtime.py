@@ -107,7 +107,7 @@ class AgentRuntime:
         await self._psyche.appraise(event, turn)
         psyche_state = await self._psyche.state()
         if turn.mode == "observe":
-            return ChatResult(event=event, turn=turn, message=None)
+            return ChatResult(event=event, turn=turn, message=None, messages=[])
 
         proposal = self._executive.propose(event)
         if proposal is not None:
@@ -131,6 +131,8 @@ class AgentRuntime:
                 evidence_ids=[proposal.task.task_id] if task_result.success else [],
             )
             message = self._social.render_task_result(task_result)
+            utterance = self._social.plan_utterance(message, turn)
+            messages = [unit.text for unit in utterance.units]
             await self._audit.append(
                 action="task.completed",
                 actor_id="living-agent",
@@ -146,16 +148,29 @@ class AgentRuntime:
             if event.conversation_id is not None:
                 await self._events.add_agent_message(
                     conversation_id=event.conversation_id,
-                    content=message,
+                    content="\n".join(messages),
                     source_event_id=event.event_id,
                 )
-            return ChatResult(event=event, turn=turn, message=message)
+            return ChatResult(
+                event=event,
+                turn=turn,
+                message=messages[0],
+                messages=messages,
+                utterance=utterance,
+            )
 
         conversation_history = await self._conversation_history(event)
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
             conversation_history=conversation_history,
+            interaction_plan={
+                "mode": turn.mode,
+                "expected_units_min": turn.expected_units_min,
+                "expected_units_max": turn.expected_units_max,
+                "target_chars_per_unit": 36,
+                "format": "newline_separated_plain_messages",
+            },
             psyche_state={
                 "valence": psyche_state.valence,
                 "arousal": psyche_state.arousal,
@@ -183,6 +198,7 @@ class AgentRuntime:
                 event=event,
                 turn=turn,
                 message=self._social.render_model_failure(),
+                messages=[self._social.render_model_failure()],
             )
         await self._audit.append(
             action="model.called",
@@ -217,6 +233,11 @@ class AgentRuntime:
                     "reason_codes": continuity.reason_codes,
                 },
             )
+        utterance_text = (
+            model_response.text if continuity.action is CriticAction.APPROVE else message
+        )
+        utterance = self._social.plan_utterance(utterance_text, turn)
+        messages = [unit.text for unit in utterance.units]
         await self._audit.append(
             action="response.generated",
             actor_id="living-agent",
@@ -231,10 +252,16 @@ class AgentRuntime:
         if event.conversation_id is not None:
             await self._events.add_agent_message(
                 conversation_id=event.conversation_id,
-                content=message,
+                content="\n".join(messages),
                 source_event_id=event.event_id,
             )
-        return ChatResult(event=event, turn=turn, message=message)
+        return ChatResult(
+            event=event,
+            turn=turn,
+            message=messages[0],
+            messages=messages,
+            utterance=utterance,
+        )
 
     async def _conversation_history(self, event: TrustedEvent) -> list[dict[str, Any]]:
         if event.conversation_id is None:

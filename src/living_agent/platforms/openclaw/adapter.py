@@ -153,10 +153,14 @@ class OpenClawBridgeAdapter:
                 event_id=result.event.event_id,
                 turn=result.turn,
                 message=None,
+                messages=[],
                 reason_code="runtime_observed",
             )
 
-        reply = normalized.reply.model_copy(update={"message": result.message})
+        reply_messages = result.messages or [result.message]
+        reply = normalized.reply.model_copy(
+            update={"message": reply_messages[0], "messages": reply_messages}
+        )
         conversation_id = result.event.conversation_id
         if conversation_id is None:
             raise OpenClawBridgePolicyError("conversation_missing")
@@ -199,6 +203,7 @@ class OpenClawBridgeAdapter:
                 event_id=result.event.event_id,
                 turn=result.turn,
                 message=None,
+                messages=[],
                 reason_code=decision.reason_code,
             )
 
@@ -212,12 +217,14 @@ class OpenClawBridgeAdapter:
                 "channel_id": request.channel_id,
                 "account_id": request.account_id,
                 "source_message_id": request.message_id,
+                "unit_count": len(reply_messages),
             },
         )
         return OpenClawBridgeResponse(
             event_id=result.event.event_id,
             turn=result.turn,
-            message=result.message,
+            message=reply_messages[0],
+            messages=reply_messages,
             reason_code="reply_authorized",
         )
 
@@ -257,7 +264,7 @@ class OpenClawBridgeAdapter:
                 )
             self._completed.move_to_end(key)
             return response.model_copy(
-                update={"message": None, "reason_code": "idempotent_replay"}
+                update={"message": None, "messages": [], "reason_code": "idempotent_replay"}
             )
 
     async def _remember(

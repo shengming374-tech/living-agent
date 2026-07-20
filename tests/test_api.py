@@ -26,6 +26,8 @@ def test_minimal_chat_api_creates_trusted_event_and_response(client: TestClient)
     assert payload["event"]["authority_level"] == "member"
     assert payload["turn"]["mode"] == "react"
     assert payload["message"] == "Hello. What is on your mind?"
+    assert payload["messages"] == ["Hello. What is on your mind?"]
+    assert payload["utterance"]["units"][0]["function"] == "reaction"
 
 
 def test_group_system_impersonation_is_observed_and_audited(client: TestClient) -> None:
