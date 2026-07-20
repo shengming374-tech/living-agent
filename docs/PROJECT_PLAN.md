@@ -37,6 +37,12 @@ fails closed without delegating personality or permissions to OpenClaw. Direct
 text is implemented; group/media/proactive messaging and persistent replay keys
 remain future work.
 
+Embedding provider compatibility is implemented as a separate vertical slice:
+deterministic Mock and OpenAI-compatible providers, strict transport/response
+validation, owner-only API access, and a brokered one-time external-send grant.
+Vector persistence, memory backfill, scope-first semantic ranking, index migration,
+and retrieval integration remain planned rather than implied by this slice.
+
 ## Minimum viable vertical slice
 
 1. An authenticated adapter submits a message with a platform identity.

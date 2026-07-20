@@ -8,6 +8,7 @@ from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
+from living_agent.providers.embeddings import EmbeddingService
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.trust.authority import AuthorityResolver
@@ -31,6 +32,10 @@ def get_plugin_registry(request: Request) -> PluginRegistry:
 
 def get_memory_service(request: Request) -> MemoryService:
     return request.app.state.memory_service  # type: ignore[no-any-return]
+
+
+def get_embedding_service(request: Request) -> EmbeddingService:
+    return request.app.state.embedding_service  # type: ignore[no-any-return]
 
 
 def get_settings(request: Request) -> Settings:

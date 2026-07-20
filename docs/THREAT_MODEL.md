@@ -29,6 +29,9 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | OpenClaw bridge impersonation | Process posts forged WeChat identities | Dedicated bearer token plus exact channel/account allowlists and loopback default |
 | Personality fallback | Bridge failure lets another agent answer | Claimed OpenClaw messages fail closed with no OpenClaw-agent fallback |
 | Synthetic reply escalation | Model requests arbitrary channel send | Typed same-event reply arguments and exact one-time broker grant |
+| Embedding data exfiltration | Chat or memory is silently sent to a model API | Owner-only explicit API, one-time `send` grant, no automatic memory embedding |
+| Malicious embedding API | Huge/malformed vectors or secret-bearing errors | Response-byte cap, strict schema/index/dimension/finite checks, generic errors |
+| Provider downgrade | Remote API configured over cleartext HTTP | HTTPS required remotely unless insecure transport is explicitly enabled |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -93,3 +96,9 @@ attestation. Its replay cache is bounded but not persistent, and the current
 OpenClaw `before_dispatch` contract requires deriving a fallback message ID from
 stable metadata. Keep the bridge loopback-only where possible, rotate its token,
 and use authenticated TLS plus network policy if a remote endpoint is enabled.
+Embedding providers necessarily receive the owner-submitted input batch. Provider
+privacy, retention, regional processing, and model behavior are external risks.
+LivingAgent disables redirects and proxy-environment inheritance, bounds requests
+and responses, never audits text/vectors/error bodies, and does not automatically
+send long-term memory. A production control plane must authenticate the owner API;
+the development `X-Actor-ID` header alone is insufficient.

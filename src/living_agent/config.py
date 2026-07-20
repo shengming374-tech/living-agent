@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
@@ -33,6 +35,17 @@ class Settings(BaseSettings):
     admin_ids: list[str] = Field(default_factory=list)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     model_provider: Literal["mock"] = "mock"
+    embedding_provider: Literal["mock", "openai_compatible"] = "mock"
+    embedding_model: str = "mock-hash-v1"
+    embedding_api_base_url: str | None = None
+    embedding_api_key: SecretStr | None = None
+    embedding_dimensions: int | None = Field(default=None, ge=1, le=65536)
+    embedding_timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
+    embedding_max_batch_size: int = Field(default=32, ge=1, le=256)
+    embedding_max_input_chars: int = Field(default=12000, ge=1, le=100000)
+    embedding_max_total_chars: int = Field(default=48000, ge=1, le=1000000)
+    embedding_max_response_bytes: int = Field(default=4194304, ge=1024, le=67108864)
+    embedding_allow_insecure_http: bool = False
     audit_page_size: int = Field(default=100, ge=1, le=1000)
     test_disable_delays: bool = False
     plugin_root: Path = Path("plugins/examples")
@@ -50,9 +63,7 @@ class Settings(BaseSettings):
     napcat_max_in_flight_events: int = Field(default=16, ge=1, le=256)
     openclaw_bridge_enabled: bool = False
     openclaw_bridge_access_token: SecretStr | None = None
-    openclaw_bridge_allowed_channels: list[str] = Field(
-        default_factory=lambda: ["openclaw-weixin"]
-    )
+    openclaw_bridge_allowed_channels: list[str] = Field(default_factory=lambda: ["openclaw-weixin"])
     openclaw_bridge_allowed_account_ids: list[str] = Field(default_factory=list)
     openclaw_bridge_max_message_chars: int = Field(default=12000, ge=1, le=100000)
     openclaw_bridge_idempotency_entries: int = Field(default=2048, ge=1, le=100000)
@@ -92,6 +103,14 @@ class Settings(BaseSettings):
             raise ValueError("owner_id cannot be empty")
         return normalized
 
+    @field_validator("embedding_model")
+    @classmethod
+    def validate_embedding_model(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or len(normalized) > 255:
+            raise ValueError("embedding_model must contain 1 to 255 characters")
+        return normalized
+
     @field_validator("root_prompt_second_factor_sha256")
     @classmethod
     def validate_second_factor_hash(cls, value: str | None) -> str | None:
@@ -104,6 +123,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_adapter_credentials(self) -> Self:
+        if self.embedding_provider == "openai_compatible":
+            if self.embedding_api_base_url is None:
+                raise ValueError(
+                    "embedding_api_base_url is required for openai_compatible provider"
+                )
+            self._validate_embedding_api_url(self.embedding_api_base_url)
         if self.napcat_enabled:
             token = self.napcat_access_token
             if token is None or not token.get_secret_value().strip():
@@ -117,6 +142,24 @@ class Settings(BaseSettings):
             if not self.openclaw_bridge_allowed_channels:
                 raise ValueError("OpenClaw bridge requires at least one allowed channel")
         return self
+
+    def _validate_embedding_api_url(self, value: str) -> None:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("embedding_api_base_url must be an HTTP(S) URL")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise ValueError(
+                "embedding_api_base_url cannot contain credentials, query, or fragment"
+            )
+        hostname = parsed.hostname.lower()
+        try:
+            loopback = ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = hostname == "localhost"
+        if parsed.scheme != "https" and not loopback and not self.embedding_allow_insecure_http:
+            raise ValueError(
+                "remote embedding_api_base_url requires HTTPS unless insecure HTTP is explicit"
+            )
 
 
 def load_settings() -> Settings:

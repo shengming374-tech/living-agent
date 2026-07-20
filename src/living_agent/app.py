@@ -10,6 +10,7 @@ from fastapi import FastAPI
 
 from living_agent.api.audit import router as audit_router
 from living_agent.api.chat import router as chat_router
+from living_agent.api.embeddings import router as embeddings_router
 from living_agent.api.health import router as health_router
 from living_agent.api.memories import router as memories_router
 from living_agent.api.persona import router as persona_router
@@ -50,6 +51,14 @@ from living_agent.platforms.openclaw.models import (
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
+from living_agent.providers.embeddings import (
+    EMBEDDING_CAPABILITY,
+    EmbeddingCapabilityArguments,
+    EmbeddingProvider,
+    EmbeddingService,
+    MockEmbeddingProvider,
+    OpenAICompatibleEmbeddingProvider,
+)
 from living_agent.providers.llm import LLMProvider, MockLLMProvider
 from living_agent.psyche.repository import PsycheRepository
 from living_agent.psyche.service import PsycheService
@@ -66,6 +75,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     llm_provider: LLMProvider | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> FastAPI:
     resolved_settings = settings or load_settings()
     configure_logging(resolved_settings.log_level)
@@ -87,6 +97,13 @@ def create_app(
     )
     broker.register_capability(
         CapabilityDefinition(
+            name=EMBEDDING_CAPABILITY,
+            operations=frozenset({"send"}),
+            argument_model=EmbeddingCapabilityArguments,
+        )
+    )
+    broker.register_capability(
+        CapabilityDefinition(
             name=OPENCLAW_REPLY_CAPABILITY,
             operations=frozenset({"reply"}),
             argument_model=OpenClawReplyArguments,
@@ -103,6 +120,33 @@ def create_app(
     )
     plugin_registry = PluginRegistry(resolved_settings.plugin_root)
     plugin_registry.discover()
+    if embedding_provider is not None:
+        resolved_embedding_provider = embedding_provider
+    elif resolved_settings.embedding_provider == "mock":
+        resolved_embedding_provider = MockEmbeddingProvider(
+            model=resolved_settings.embedding_model,
+            dimensions=resolved_settings.embedding_dimensions or 32,
+        )
+    else:
+        base_url = resolved_settings.embedding_api_base_url
+        if base_url is None:
+            raise ValueError("embedding API base URL is not configured")
+        resolved_embedding_provider = OpenAICompatibleEmbeddingProvider(
+            base_url=base_url,
+            api_key=resolved_settings.embedding_api_key,
+            model=resolved_settings.embedding_model,
+            dimensions=resolved_settings.embedding_dimensions,
+            timeout_seconds=resolved_settings.embedding_timeout_seconds,
+            max_response_bytes=resolved_settings.embedding_max_response_bytes,
+        )
+    embedding_service = EmbeddingService(
+        provider=resolved_embedding_provider,
+        broker=broker,
+        audit=audit,
+        max_batch_size=resolved_settings.embedding_max_batch_size,
+        max_input_chars=resolved_settings.embedding_max_input_chars,
+        max_total_chars=resolved_settings.embedding_max_total_chars,
+    )
     memory_service = MemoryService(
         repository=MemoryRepository(database.sessions),
         events=EventRepository(database.sessions),
@@ -184,22 +228,28 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        await asyncio.to_thread(run_migrations, resolved_settings.database_url)
-        await persona_manager.initialize()
-        await prompt_manager.initialize()
-        await psyche_service.initialize()
-        await audit.append(
-            action="runtime.started",
-            actor_id="living-agent",
-            outcome="success",
-            details={"environment": resolved_settings.environment},
-        )
-        for plugin_id in resolved_settings.enabled_plugins:
-            await plugin_registry.enable(
-                plugin_id, actor_id=resolved_settings.owner_id, audit=audit
+        del application
+        try:
+            await asyncio.to_thread(run_migrations, resolved_settings.database_url)
+            await persona_manager.initialize()
+            await prompt_manager.initialize()
+            await psyche_service.initialize()
+            await audit.append(
+                action="runtime.started",
+                actor_id="living-agent",
+                outcome="success",
+                details={"environment": resolved_settings.environment},
             )
-        yield
-        await database.dispose()
+            for plugin_id in resolved_settings.enabled_plugins:
+                await plugin_registry.enable(
+                    plugin_id, actor_id=resolved_settings.owner_id, audit=audit
+                )
+            yield
+        finally:
+            try:
+                await embedding_service.close()
+            finally:
+                await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version="0.1.0", lifespan=lifespan)
     app.state.settings = resolved_settings
@@ -210,6 +260,7 @@ def create_app(
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry
     app.state.memory_service = memory_service
+    app.state.embedding_service = embedding_service
     app.state.persona_manager = persona_manager
     app.state.prompt_manager = prompt_manager
     app.state.psyche_service = psyche_service
@@ -217,6 +268,7 @@ def create_app(
     app.state.openclaw_bridge_adapter = openclaw_bridge_adapter
     app.include_router(health_router)
     app.include_router(chat_router)
+    app.include_router(embeddings_router)
     app.include_router(audit_router)
     app.include_router(plugins_router)
     app.include_router(memories_router)

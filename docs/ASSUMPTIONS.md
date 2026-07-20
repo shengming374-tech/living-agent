@@ -46,3 +46,10 @@
     restart may produce a second response until persistent event keys are added.
 18. Direct WeChat text is the initial compatibility target. Group chat, media,
     proactive sends, and alternate OpenClaw channels remain denied or unclaimed.
+19. Embedding generation is initially an explicit owner control-plane operation.
+    It never automatically exports chat history or committed memories. Remote
+    calls are external sends requiring a one-time broker grant and owner
+    confirmation; audit stores only bounded operational metadata.
+20. `openai_compatible` means the JSON `POST /embeddings` contract with optional
+    Bearer authentication. Provider-specific authentication and payload variants
+    require separate adapters rather than weakening response validation.

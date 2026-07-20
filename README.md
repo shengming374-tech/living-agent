@@ -83,6 +83,15 @@ provider will implement the same protocol and receive only redacted, typed conte
 Secrets belong in environment-backed settings and must never appear in prompt or
 audit previews.
 
+Embeddings have an independent Provider boundary. The default deterministic Mock
+requires no credentials; `openai_compatible` calls a configured `/embeddings`
+endpoint with strict response, size, index, finite-number, and dimension checks.
+Owner-only `GET /v1/embeddings/status` and `POST /v1/embeddings` provide a tested
+vertical slice. Sending text to a remote provider requires an exact one-time
+`model.embedding.generate` Capability Broker grant and is audited without storing
+input text, vectors, keys, or upstream error bodies. See
+[`docs/integrations/embeddings.md`](docs/integrations/embeddings.md).
+
 ## Native plugins
 
 The native host discovers strict manifests and invokes each plugin call in a new
@@ -181,7 +190,8 @@ to a stable actor ID; conversation scope is visible only with the matching
 conversation ID; global candidates require owner-authored source events. Owner
 operations support version-checked edits, soft delete/restore, merge, and split.
 Source event, version, and response-usage endpoints preserve provenance. Automatic
-model extraction and semantic/vector retrieval are not implemented.
+model extraction and semantic/vector retrieval are not implemented. The embedding
+Provider/API slice does not automatically export or vectorize committed memories.
 
 ## Persona and prompt changes
 
@@ -249,6 +259,9 @@ continuity claims. The optional NapCat compatibility slice adds a tested OneBot
 The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
 the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a
 second personality frontend.
+The embedding compatibility slice adds deterministic Mock and strict
+OpenAI-compatible providers plus an owner-only, brokered generation API. It does
+not yet add vector persistence or memory ranking.
 
 Partially implemented: activities currently describe calculator execution, not a
 general daily-activity system; continuity checks cover memory, prior-thought, and
