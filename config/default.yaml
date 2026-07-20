@@ -1,0 +1,9 @@
+app_name: LivingAgent
+environment: development
+database_url: sqlite+aiosqlite:///./living_agent.db
+owner_id: owner-local
+admin_ids: []
+log_level: INFO
+model_provider: mock
+audit_page_size: 100
+test_disable_delays: false

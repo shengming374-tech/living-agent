@@ -65,8 +65,15 @@ uv run ruff check .
 uv run mypy
 ```
 
-The runnable API and configuration commands will be added with Phase 1. The
-current Phase 0 package verifies the tooling and architecture baseline only.
+Run the development API from the project directory:
+
+```bash
+uv run uvicorn --app-dir src living_agent.app:app --reload
+```
+
+Then request `GET /health` or submit an authenticated-adapter envelope to
+`POST /v1/chat`. Configuration defaults live in `config/default.yaml`; copy
+`.env.example` values into the process environment for deployment overrides.
 
 ## Model configuration
 
@@ -121,10 +128,12 @@ no code or prompts were borrowed.
 
 ## Implementation status
 
-Implemented: Phase 0 research, architecture decisions, threat model, packaging,
-and quality-tool baseline.
+Implemented: Phase 0 research and architecture; Phase 1 configuration, migrations,
+trusted ingress, stable-ID authority, taint propagation, typed context compilation,
+one-time capability grants and decisions, host-owned audit, event bus, Mock LLM,
+turn gating, health/chat/audit APIs, and a biomimetic evaluation scaffold.
 
-Not yet implemented: runtime/API, persistence, plugins, managed memory, persistent
+Not yet implemented: subprocess plugins, managed long-term memory, persistent
 psyche, utterance interruption, general executive planning, Control Studio, and
 dream/activity features. This section is updated only after executable, tested
 vertical slices land.
@@ -133,5 +142,8 @@ vertical slices land.
 
 HTTP authentication, OS-level plugin sandboxing, tamper-evident audit storage,
 provider privacy guarantees, resource quotas, and production deployment hardening
-are not supplied by the Phase 0 baseline. Never run unreviewed plugin code merely
-because process isolation exists.
+are not supplied by the current runtime. `/v1/chat` is an adapter ingress and its
+`authenticated` identity flag is only trustworthy behind an authenticated adapter
+or gateway. The development `X-Actor-ID` audit header is not production-grade
+authentication. Never run unreviewed plugin code merely because process isolation
+exists.

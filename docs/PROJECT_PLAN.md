@@ -12,7 +12,7 @@ Every external effect crosses a code-enforced capability broker.
 | Phase | Scope | Status at project creation |
 | --- | --- | --- |
 | 0 | Research, ADRs, threat model, tooling baseline | Complete |
-| 1 | Trusted event to audited chat response | Planned |
+| 1 | Trusted event to audited chat response | Complete |
 | 2 | Brokered calculator plugin in an isolated process | Planned |
 | 3 | Managed memory, persona, and prompt APIs | Planned |
 | 4 | Persistent psyche and safe thought records | Planned |

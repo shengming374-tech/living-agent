@@ -1,0 +1,33 @@
+- case_id: simple-emotion
+  input_text: I feel sad today.
+  response_units:
+    - That sounds difficult. I am here with you.
+  simple_emotion: true
+- case_id: grounded-memory
+  input_text: Do you recall the book?
+  response_units:
+    - I remember you mentioned Dune last week.
+  memory_evidence_ids:
+    - memory-17
+- case_id: interrupted-speech
+  input_text: Explain the result.
+  response_units:
+    - The calculation finished.
+    - The result is 42.
+  required_fact_tokens:
+    - "42"
+  interrupted_after_unit: 1
+  stale_units_sent_after_interruption: 0
+- case_id: variable-single-reaction
+  input_text: Nice.
+  response_units:
+    - It is.
+- case_id: variable-three-part-report
+  input_text: Report the checked task.
+  response_units:
+    - The task completed.
+    - Tests passed.
+    - Audit ID audit-3 records it.
+  required_fact_tokens:
+    - Tests passed
+    - audit-3

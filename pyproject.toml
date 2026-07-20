@@ -36,6 +36,7 @@ packages = ["src/living_agent"]
 addopts = "-ra --strict-markers --strict-config"
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 target-version = "py312"
@@ -51,7 +52,8 @@ ignore = ["S101"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
-packages = ["living_agent"]
+files = ["src/living_agent"]
+mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
