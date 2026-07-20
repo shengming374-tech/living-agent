@@ -10,7 +10,8 @@ from living_agent.cognition.context_compiler import CompiledContext, ContextComp
 from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
-from living_agent.execution.executor import CalculatorTaskExecutor
+from living_agent.execution.repository import TaskNotFoundError, TaskStateError
+from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.memory.service import MemoryService
 from living_agent.models.conversation import ChatResult
@@ -34,7 +35,7 @@ class AgentRuntime:
         event_bus: EventBus,
         social: SocialCognition,
         executive: ExecutiveCognition,
-        task_executor: CalculatorTaskExecutor,
+        tasks: TaskService,
         context_compiler: ContextCompiler,
         llm: LLMProvider,
         root_policy: str,
@@ -49,7 +50,7 @@ class AgentRuntime:
         self._event_bus = event_bus
         self._social = social
         self._executive = executive
-        self._task_executor = task_executor
+        self._tasks = tasks
         self._context_compiler = context_compiler
         self._llm = llm
         self._root_policy = root_policy
@@ -122,42 +123,35 @@ class AgentRuntime:
         if turn.mode == "observe":
             return ChatResult(event=event, turn=turn, message=None, messages=[])
 
-        proposal = self._executive.propose(event)
-        if proposal is not None:
-            activity = await self._psyche.start_activity(
-                kind="calculator_task",
-                summary=f"Executing verified task {proposal.task.task_id}.",
-                source_event_ids=[event.event_id],
-            )
+        confirmation = self._executive.confirmation(event)
+        if confirmation is not None:
             try:
-                task_result = await self._task_executor.execute(proposal)
-            except Exception:
-                await self._psyche.finish_activity(
-                    activity.activity_id,
-                    success=False,
-                    evidence_ids=[],
+                task_run = await self._tasks.confirm(
+                    task_id=confirmation.task_id,
+                    conversation_id=event.conversation_id,
+                    actor_id=event.source_identity or "anonymous",
                 )
-                raise
-            await self._psyche.finish_activity(
-                activity.activity_id,
-                success=task_result.success,
-                evidence_ids=[proposal.task.task_id] if task_result.success else [],
-            )
-            message = self._social.render_task_result(task_result)
+                message = self._social.render_task_run(task_run)
+            except TaskConfirmationDeniedError:
+                message = self._social.render_task_confirmation_denied()
+            except (TaskNotFoundError, TaskStateError):
+                message = self._social.render_task_confirmation_missing()
             utterance = self._social.plan_utterance(message, turn)
             messages = [unit.text for unit in utterance.units]
-            await self._audit.append(
-                action="task.completed",
-                actor_id="living-agent",
-                conversation_id=event.conversation_id,
-                outcome="success" if task_result.success else "failure",
-                details={
-                    "event_id": event.event_id,
-                    "task_id": proposal.task.task_id,
-                    "evidence_count": len(task_result.evidence),
-                    "errors": task_result.errors,
-                },
+            return ChatResult(
+                event=event,
+                turn=turn,
+                message=messages[0],
+                messages=messages,
+                utterance=utterance,
             )
+
+        proposal = self._executive.propose(event)
+        if proposal is not None:
+            task_run = await self._tasks.submit(proposal)
+            message = self._social.render_task_run(task_run)
+            utterance = self._social.plan_utterance(message, turn)
+            messages = [unit.text for unit in utterance.units]
             return ChatResult(
                 event=event,
                 turn=turn,

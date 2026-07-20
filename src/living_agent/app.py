@@ -18,6 +18,7 @@ from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
 from living_agent.api.prompts import router as prompts_router
 from living_agent.api.psyche import router as psyche_router
+from living_agent.api.tasks import router as tasks_router
 from living_agent.api.users import router as users_router
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import ContextCompiler
@@ -25,10 +26,19 @@ from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.config import Settings, load_settings
 from living_agent.evaluation.continuity_critic import ContinuityCritic
-from living_agent.evaluation.task_verifier import CalculatorTaskVerifier
+from living_agent.evaluation.task_verifier import CalculatorTaskVerifier, TaskPlanVerifier
 from living_agent.execution.broker import CapabilityBroker, CapabilityDefinition
 from living_agent.execution.contracts import CALCULATOR_CAPABILITY, CalculatorArguments
 from living_agent.execution.executor import CalculatorTaskExecutor
+from living_agent.execution.kernel import TaskKernel
+from living_agent.execution.report import TaskReportExecutor
+from living_agent.execution.report_contracts import (
+    TASK_REPORT_CAPABILITY,
+    TaskReportArguments,
+    task_report_scope_matches,
+)
+from living_agent.execution.repository import TaskRepository
+from living_agent.execution.service import TaskService
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.logging import configure_logging
 from living_agent.management.artifacts import ArtifactRepository
@@ -107,6 +117,14 @@ def create_app(
             operations=frozenset({"execute"}),
             argument_model=CalculatorArguments,
             sandbox_required=True,
+        )
+    )
+    broker.register_capability(
+        CapabilityDefinition(
+            name=TASK_REPORT_CAPABILITY,
+            operations=frozenset({"write"}),
+            argument_model=TaskReportArguments,
+            scope_validator=task_report_scope_matches,
         )
     )
     broker.register_capability(
@@ -227,12 +245,31 @@ def create_app(
             max_context_chars=resolved_settings.model_max_context_chars,
             max_response_bytes=resolved_settings.model_max_response_bytes,
         )
-    task_executor = CalculatorTaskExecutor(
+    calculator_executor = CalculatorTaskExecutor(
         registry=plugin_registry,
         process=PluginProcess(timeout_seconds=resolved_settings.plugin_timeout_seconds),
         broker=broker,
         audit=audit,
         verifier=CalculatorTaskVerifier(),
+    )
+    task_repository = TaskRepository(database.sessions)
+    task_kernel = TaskKernel(
+        repository=task_repository,
+        calculator=calculator_executor,
+        reports=TaskReportExecutor(
+            broker=broker,
+            repository=task_repository,
+            audit=audit,
+        ),
+        verifier=TaskPlanVerifier(),
+        audit=audit,
+    )
+    task_service = TaskService(
+        kernel=task_kernel,
+        repository=task_repository,
+        psyche=psyche_service,
+        authority=authority,
+        audit=audit,
     )
     trust_boundary = TrustBoundary(authority)
     context_compiler = ContextCompiler()
@@ -251,7 +288,7 @@ def create_app(
             )
         ),
         executive=ExecutiveCognition(),
-        task_executor=task_executor,
+        tasks=task_service,
         context_compiler=context_compiler,
         llm=resolved_llm_provider,
         root_policy=root_policy,
@@ -301,6 +338,7 @@ def create_app(
                 await plugin_registry.enable(
                     plugin_id, actor_id=resolved_settings.owner_id, audit=audit
                 )
+            await task_service.initialize()
             yield
         finally:
             try:
@@ -327,6 +365,9 @@ def create_app(
     app.state.prompt_manager = prompt_manager
     app.state.psyche_service = psyche_service
     app.state.user_service = user_service
+    app.state.task_repository = task_repository
+    app.state.task_kernel = task_kernel
+    app.state.task_service = task_service
     app.state.napcat_adapter = napcat_adapter
     app.state.openclaw_bridge_adapter = openclaw_bridge_adapter
     app.include_router(health_router)
@@ -338,6 +379,7 @@ def create_app(
     app.include_router(persona_router)
     app.include_router(prompts_router)
     app.include_router(psyche_router)
+    app.include_router(tasks_router)
     app.include_router(users_router)
     app.include_router(napcat_router)
     app.include_router(openclaw_router)

@@ -9,7 +9,7 @@ Every external effect crosses a code-enforced capability broker.
 
 ## Phase status
 
-| Phase | Scope | Status at project creation |
+| Phase | Scope | Current status |
 | --- | --- | --- |
 | 0 | Research, ADRs, threat model, tooling baseline | Complete |
 | 1 | Trusted event to audited chat response | Complete |
@@ -17,7 +17,7 @@ Every external effect crosses a code-enforced capability broker.
 | 3 | Managed memory, persona, and prompt APIs | Complete |
 | 4 | Persistent psyche and safe thought records | Complete |
 | 5 | Momentum, utterance sessions, interruption | Partial |
-| 6 | Multi-step executive kernel and verification | Planned |
+| 6 | Multi-step executive kernel and verification | Complete |
 | 7 | Control Studio | Planned |
 | 8 | Activities, journaling, dream isolation, proposals | Planned |
 
@@ -73,6 +73,16 @@ separation, validates bounded final text, isolates provider failures, and record
 only safe operational metadata. A real deployment remains configuration-dependent
 and requires an owner-supplied endpoint, model ID, and credential.
 
+Phase 6 is implemented as a persistent typed task kernel. Deterministic task
+understanding creates bounded calculator/report plans; every step carries one
+CapabilityRequest, dependency set, retry bound, result, and evidence. The runner
+supports multiple plugin calls, stops dependent work after failure, retries only
+transient process failures, independently verifies completion, survives restart,
+and never resumes an interrupted write without renewed owner confirmation.
+Owner APIs expose task status, reports, confirmation, and cancellation. Social
+Cognition alone renders the structured result. The first action catalog is
+deliberately limited to verified arithmetic and confirmed database reports.
+
 ## Minimum viable vertical slice
 
 1. An authenticated adapter submits a message with a platform identity.
@@ -118,7 +128,12 @@ and requires an owner-supplied endpoint, model ID, and credential.
 Phase 3 added a source-aware memory firewall and management/version APIs before
 long-term recall claims were enabled. Phase 4 added persistent safe thought
 summaries, psyche state decay, unresolved topics, task activities, and continuity
-evidence constraints. Phase 5 adds interruptible speech. Phase 6 adds general task
-planning and evidence verification. Phases 7 and 8 remain last because
+evidence constraints. Phase 5 adds interruptible speech. Phase 6 adds persistent
+typed task planning, execution recovery, and evidence verification. Phases 7 and
+8 remain last because
 administration and dream/activity features must rest on mature security and
 persistence semantics.
+
+Multimodal input and output are scheduled for version `0.2.0`, after the current
+text/runtime phases. Existing media segment placeholders are transport metadata,
+not image, audio, video, or attachment understanding.

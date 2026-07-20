@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import re
 
-from living_agent.execution.contracts import VerifiedTaskResult
+from living_agent.execution.contracts import (
+    TaskRun,
+    TaskRunStatus,
+    TaskStepStatus,
+    VerifiedTaskResult,
+)
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.models.conversation import SpeechUnit, TurnDecision, UtteranceSession
@@ -58,6 +63,55 @@ class SocialCognition:
         if "plugin_crashed" in result.errors:
             return "I couldn't finish that calculation because the calculator stopped."
         return "I couldn't verify a reliable result for that calculation."
+
+    def render_task_run(self, run: TaskRun) -> str:
+        if run.status is TaskRunStatus.WAITING_CONFIRMATION:
+            return (
+                "The checked work is ready, but saving the report needs owner confirmation. "
+                f"Task: {run.task.task_id}."
+            )
+        outputs = [
+            result.output
+            for result in run.step_results
+            if result.status is TaskStepStatus.COMPLETED and result.output is not None
+        ]
+        calculations = [
+            (output.get("expression"), output.get("value"))
+            for output in outputs
+            if "expression" in output and "value" in output
+        ]
+        report_saved = any("report_id" in output for output in outputs)
+        if run.status is TaskRunStatus.COMPLETED and len(calculations) == 1 and not report_saved:
+            expression, value = calculations[0]
+            return f"I checked it: {expression} = {value}."
+        if run.status is TaskRunStatus.COMPLETED and report_saved:
+            return "I checked the task and saved its confirmed report."
+        if run.status is TaskRunStatus.COMPLETED and calculations:
+            summary = "; ".join(f"{expression} = {value}" for expression, value in calculations)
+            return f"I checked them: {summary}."
+        errors = {error for result in run.step_results for error in result.errors}
+        single_calculator = (
+            len(run.plan.steps) == 1 and run.plan.steps[0].action.handler == "calculator"
+        )
+        if single_calculator:
+            if "plugin_timeout" in errors:
+                return "I couldn't finish that calculation because the calculator timed out."
+            if "plugin_crashed" in errors:
+                return "I couldn't finish that calculation because the calculator stopped."
+            return "I couldn't verify a reliable result for that calculation."
+        if "plugin_timeout" in errors:
+            return "I retried, but the task still timed out."
+        if "plugin_crashed" in errors:
+            return "I retried, but the task tool kept stopping."
+        if "tainted_write_denied" in errors:
+            return "I did not save that because its source was not safe for a write."
+        return "I couldn't verify the task, so I stopped the remaining steps."
+
+    def render_task_confirmation_denied(self) -> str:
+        return "That write still needs confirmation from the owner."
+
+    def render_task_confirmation_missing(self) -> str:
+        return "I don't have a matching task waiting for confirmation here."
 
     def render_continuity_block(self) -> str:
         return "I don't have a record that supports saying that."

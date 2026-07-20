@@ -80,3 +80,16 @@
     profiles by stable platform identity. Display names are mutable metadata and
     never establish owner/admin authority. Registration does not grant memory,
     prompt, plugin, or capability access.
+27. Multimodal understanding is deferred to version `0.2.0`. Until then, image,
+    audio, video, voice, and file segments may be represented as transport
+    placeholders but are never claimed as parsed or understood content.
+28. Phase 6 task understanding uses an explicit deterministic grammar for bounded
+    calculations, task-report requests, and confirmation commands. This keeps
+    actions testable and prevents model prose from becoming authority. Arbitrary
+    natural-language planning requires later typed model-proposal adapters and a
+    broader independently verified action catalog.
+29. Task runs and step evidence persist in the primary database. Single-process
+    execution uses an in-process lock plus optimistic row versions; multi-instance
+    production requires a distributed task lease. Startup may retry interrupted
+    sandbox/read steps, but an interrupted write always returns to owner
+    confirmation before any effect is attempted again.

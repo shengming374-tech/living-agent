@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from living_agent.execution.contracts import extract_calculation_expression
+from living_agent.execution.planner import executive_reason_code
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.models.conversation import TurnDecision
 from living_agent.models.events import SourceType, TrustedEvent
@@ -69,8 +69,9 @@ class TurnGate:
             return self._decision(event, "observe", 0.0, 0, 0, "group_tainted_observation")
         if event.source_type is SourceType.GROUP_MESSAGE and not mentions_agent:
             return self._unmentioned_group_decision(event, momentum)
-        if extract_calculation_expression(content) is not None:
-            return self._decision(event, "act", 0.8, 1, 1, "calculator_task")
+        executive_reason = executive_reason_code(content)
+        if executive_reason is not None:
+            return self._decision(event, "act", 0.8, 1, 1, executive_reason)
         normalized = text.strip()
         plain = normalized.rstrip(self._trailing_punctuation)
         if plain in self._brief_acknowledgements:

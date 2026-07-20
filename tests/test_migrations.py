@@ -32,4 +32,6 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         "psyche_topics",
         "activity_records",
         "registered_users",
+        "task_runs",
+        "task_reports",
     } <= set(table_names)

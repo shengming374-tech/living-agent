@@ -35,6 +35,9 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Cloud prompt exfiltration | Secrets or cross-scope data enter model context | Context redaction, source compiler, explicit provider config, no automatic memory recall |
 | Cloud API manipulation | Error body or reasoning text is reflected to users | Strict final-text schema, bounded generic errors, ignore reasoning fields |
 | Model authority confusion | Injected user data is flattened into system prompt | Root-only system message; typed JSON data retains source and taint labels |
+| Task-plan substitution | A proposal changes actor, scope, provenance, or handler metadata | Host plan verifier binds every step to the TaskContract and authenticated source |
+| Confirmation replay | An old or cross-chat approval is reused for a new write | Owner identity, waiting state, same-conversation chat binding, exact request scope, one-time grant |
+| Crash-time write replay | Runtime restarts while a write may be in flight | Persisted step state, renewed owner confirmation, idempotent report commit |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -75,6 +78,8 @@ before ranking, preventing cross-session leakage.
 | Unauthorized write or third-party send | ASK_OWNER or DENY before execution |
 | Plugin timeout or crash | Process is terminated/reaped; runtime stays healthy; audit records failure |
 | Tool reports success without evidence | Verifier requires typed output and success criteria |
+| Multi-step tool failure is hidden | Failed step is persisted; dependent steps are skipped; completion verifier rejects missing evidence |
+| Interrupted task silently repeats a write | Startup recovery retries only bounded sandbox/read work; writes return to confirmation |
 | Agent deploys own modification | Proposal actor cannot satisfy owner approval requirement |
 | Secret leaks through errors/logs | Redaction and generic boundary errors; secrets never enter prompt logs |
 | Audit tampering by plugin | No audit capability or database handle enters plugin process |
@@ -111,3 +116,9 @@ requires remote credentials, disables redirects/proxy inheritance, bounds contex
 and response sizes, and never audits prompts, outputs, keys, reasoning fields, or
 upstream error bodies. These controls do not replace provider due diligence or
 regional/privacy review.
+Phase 6 task execution uses an in-process lock and optimistic database versions,
+not a distributed lease. Running multiple Runtime instances against the same task
+tables can produce conflicts and requires a single active executor or a future
+database-backed lease. The initial deterministic planner intentionally recognizes
+only bounded calculator/report commands; broad model-generated action plans are
+not trusted or executed.

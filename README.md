@@ -5,9 +5,10 @@ social participation and reliable, policy-controlled task execution. It is not a
 claim of consciousness and does not fabricate a biological body or life history.
 
 The implemented foundation includes trusted ingress, brokered execution,
-source-aware long-term memory, managed Persona/Prompt versions, and persistent
-psyche evidence. Interruptible speech, general planning, and the management UI
-remain staged features and are listed explicitly below.
+source-aware long-term memory, managed Persona/Prompt versions, persistent
+psyche evidence, and a multi-step executive task kernel. Runtime-level speech
+replanning, a broader tool catalog, multimodal input, and the management UI remain
+staged features and are listed explicitly below.
 
 ## Goals
 
@@ -225,6 +226,28 @@ over committed memories, excludes imagined/dream/fictional nodes from reality
 context, and records usage only after a response is delivered. The embedding
 Provider/API slice does not automatically export or vectorize committed memories.
 
+## Executive tasks
+
+Phase 6 adds persisted `TaskContract`, `ExecutionPlan`, step-result, and evidence
+records. Explicit calculator tasks may contain up to eight arithmetic steps. Each
+step obtains its own one-time Capability Grant, executes through the isolated
+plugin, and is independently verified before dependent steps continue. Retryable
+plugin timeout, crash, and protocol failures retry only the affected step;
+unverified failures stop and mark remaining steps skipped.
+
+A task may request a host-owned report record. This is a real database write, not
+a filesystem or plugin shortcut. It stops at `waiting_confirmation`, remains
+pending across restart, and runs only after the configured owner confirms it
+through `POST /v1/tasks/{task_id}/confirm` or sends `确认任务` in the same
+conversation. Interrupted writes return to confirmation after restart rather than
+replaying automatically. Owner APIs list, inspect, confirm, cancel, and read task
+reports. Ordinary social messages still follow the Social Cognition path.
+
+The initial action catalog intentionally contains only independently verified
+arithmetic and confirmed task-report storage. The kernel is multi-step and
+handler-based, but arbitrary natural-language tool planning, filesystem access,
+network work, and third-party sends are not implied.
+
 ## Persona and prompt changes
 
 Persona is layered across identity, values, traits, speech, boundaries, and growth
@@ -327,6 +350,11 @@ uses local lexical features after scope filtering.
 The cloud chat compatibility slice adds a strict OpenAI-compatible Chat
 Completions provider with typed context boundaries and isolated failure handling.
 It remains disabled until a deployment supplies its endpoint, model ID, and key.
+Phase 6 adds a persistent multi-step Executive Kernel with typed plans, per-step
+capability grants, dependency handling, bounded retry, independent completion
+verification, restart recovery, owner-confirmed writes, cancellation, and task
+inspection APIs. The executable action catalog currently contains calculator
+steps and a host-owned task-report write.
 
 Partially implemented: activities currently describe calculator execution, not a
 general daily-activity system; continuity checks cover memory, prior-thought, and
@@ -336,12 +364,15 @@ and conversation scope; it does not yet independently prove semantic entailment
 between arbitrary free-form claim text and the referenced record.
 
 Not yet implemented: automatic memory extraction, embedding/vector retrieval,
-runtime-level replanning of interrupted speech, general
-multi-step executive planning, Control Studio,
+runtime-level replanning of interrupted speech, arbitrary natural-language action
+planning, a broader task-tool catalog, Control Studio,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
 OpenClaw group/media/proactive messaging and persistent bridge idempotency are
 also not implemented. The OpenClaw and NapCat adapters cancel unsent follow-up
 units when a newer inbound message reaches the same conversation.
+Image understanding, speech recognition, audio/video processing, and attachment
+parsing are explicitly deferred to version `0.2.0`; media placeholders are not
+described as multimodal support.
 This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations

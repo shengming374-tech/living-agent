@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from living_agent.audit.models import AuditRecordORM
+from living_agent.execution.models import TaskReportORM, TaskRunORM
 from living_agent.management.models import ArtifactStageORM, ArtifactVersionORM
 from living_agent.memory.models import (
     MemoryCandidateORM,
@@ -37,6 +38,8 @@ _ = (
     MemoryVersionORM,
     PsycheStateORM,
     ThoughtRecordORM,
+    TaskReportORM,
+    TaskRunORM,
     TrustedEventORM,
     UnresolvedTopicORM,
     RegisteredUserORM,

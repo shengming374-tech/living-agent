@@ -33,7 +33,7 @@ def test_task_contract_validates_and_rejects_duplicates() -> None:
             constraints=["same", "same"],
             allowed_capabilities=[],
             forbidden_operations=[],
-            success_criteria=[],
+            success_criteria=["done"],
             confirmation_requirements=[],
         )
 

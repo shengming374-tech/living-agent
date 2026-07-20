@@ -62,18 +62,18 @@ class CalculatorTaskExecutor:
         except ValueError:
             return await self._reject(proposal, "plugin_arguments_invalid")
 
-        self._broker.add_grant(
-            CapabilityGrant(
-                actor_id=request.actor_id,
-                capability=request.capability,
-                operations={request.operation},
-                resource_scopes={request.resource_scope},
-                conversation_id=request.conversation_id,
-                one_time=True,
-            )
+        grant = CapabilityGrant(
+            actor_id=request.actor_id,
+            capability=request.capability,
+            operations={request.operation},
+            resource_scopes={request.resource_scope},
+            conversation_id=request.conversation_id,
+            one_time=True,
         )
+        self._broker.add_grant(grant)
         decision = await self._broker.decide(request)
         if decision.outcome not in _ALLOWED_DECISIONS:
+            self._broker.revoke_grant(grant)
             return await self._reject(proposal, f"capability_{decision.outcome.value.lower()}")
 
         try:
