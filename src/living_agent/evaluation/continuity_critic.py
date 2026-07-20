@@ -64,12 +64,14 @@ class ContinuityCritic:
         evidence: ClaimEvidence,
         *,
         conversation_id: str | None,
+        actor_id: str = "living-agent",
         evaluated_at: datetime | None = None,
     ) -> ContinuityDecision:
         now = evaluated_at or datetime.now(UTC)
         reasons: list[str] = []
         if self._memory_claim.search(text) and not await self._valid_memories(
             evidence.memory_ids,
+            actor_id=actor_id,
             conversation_id=conversation_id,
         ):
             reasons.append("memory_claim_without_accessible_evidence")
@@ -95,6 +97,7 @@ class ContinuityCritic:
         self,
         memory_ids: list[str],
         *,
+        actor_id: str,
         conversation_id: str | None,
     ) -> bool:
         if not memory_ids:
@@ -103,7 +106,7 @@ class ContinuityCritic:
             for memory_id in memory_ids:
                 await self._memories.get_accessible(
                     memory_id,
-                    actor_id="living-agent",
+                    actor_id=actor_id,
                     conversation_id=conversation_id,
                     owner=False,
                 )

@@ -12,6 +12,7 @@ from living_agent.cognition.social import SocialCognition
 from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.interaction.momentum import ConversationMomentum
+from living_agent.memory.service import MemoryService
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope, SourceType, TrustedEvent
 from living_agent.providers.llm import LLMProvider, LLMProviderError
@@ -38,6 +39,7 @@ class AgentRuntime:
         root_policy: str,
         psyche: PsycheService,
         continuity_critic: ContinuityCritic,
+        memories: MemoryService,
     ) -> None:
         self._boundary = boundary
         self._events = events
@@ -51,6 +53,7 @@ class AgentRuntime:
         self._root_policy = root_policy
         self._psyche = psyche
         self._continuity_critic = continuity_critic
+        self._memories = memories
 
     @property
     def root_policy_checksum(self) -> str:
@@ -160,10 +163,21 @@ class AgentRuntime:
             )
 
         conversation_history = self._conversation_history(conversation_events)
+        recalled_memories = []
+        if TaintLabel.SUSPECTED_INSTRUCTION.value not in event.taint_labels:
+            recalled_memories = await self._memories.recall(
+                actor_id=event.source_identity or "anonymous",
+                conversation_id=event.conversation_id,
+                query=self._event_text(event),
+                limit=4,
+            )
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
             conversation_history=conversation_history,
+            retrieved_memories=[
+                memory.model_dump(mode="json") for memory in recalled_memories
+            ],
             interaction_plan={
                 "mode": turn.mode,
                 "expected_units_min": turn.expected_units_min,
@@ -215,10 +229,19 @@ class AgentRuntime:
                 "total_tokens": model_response.usage.total_tokens,
             },
         )
+        claim_evidence = model_response.claim_evidence.model_copy(
+            update={
+                "memory_ids": sorted(
+                    set(model_response.claim_evidence.memory_ids)
+                    | {memory.id for memory in recalled_memories}
+                )
+            }
+        )
         continuity = await self._continuity_critic.evaluate(
             model_response.text,
-            model_response.claim_evidence,
+            claim_evidence,
             conversation_id=event.conversation_id,
+            actor_id=event.source_identity or "anonymous",
         )
         if continuity.action is CriticAction.APPROVE:
             message = self._social.render_model_text(model_response.text)
@@ -256,6 +279,11 @@ class AgentRuntime:
             message=messages[0],
             messages=messages,
             utterance=utterance,
+            recalled_memory_ids=(
+                [memory.id for memory in recalled_memories]
+                if continuity.action is CriticAction.APPROVE
+                else []
+            ),
         )
 
     async def record_delivery(
@@ -287,6 +315,14 @@ class AgentRuntime:
                 if result.utterance.sent_count >= len(result.utterance.units)
                 else "sending"
             )
+        if unit_index == 0:
+            response_id = session_id or result.event.event_id
+            for memory_id in result.recalled_memory_ids:
+                await self._memories.record_usage(
+                    memory_id,
+                    response_id=response_id,
+                    conversation_id=conversation_id,
+                )
         await self._audit.append(
             action="response.delivered",
             actor_id="living-agent",
@@ -322,3 +358,10 @@ class AgentRuntime:
             }
             for item in history
         ]
+
+    @staticmethod
+    def _event_text(event: TrustedEvent) -> str:
+        if isinstance(event.content, str):
+            return event.content
+        text = event.content.get("text", "")
+        return text if isinstance(text, str) else ""

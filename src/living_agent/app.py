@@ -32,6 +32,7 @@ from living_agent.interaction.turn_gate import TurnGate
 from living_agent.logging import configure_logging
 from living_agent.management.artifacts import ArtifactRepository
 from living_agent.memory.firewall import MemoryFirewall
+from living_agent.memory.recall import MemoryRecallService
 from living_agent.memory.repository import MemoryRepository
 from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
@@ -157,6 +158,7 @@ def create_app(
         repository=MemoryRepository(database.sessions),
         events=EventRepository(database.sessions),
         firewall=MemoryFirewall(),
+        recall=MemoryRecallService(),
         audit=audit,
     )
     psyche_service = PsycheService(
@@ -240,6 +242,7 @@ def create_app(
         root_policy=root_policy,
         psyche=psyche_service,
         continuity_critic=continuity_critic,
+        memories=memory_service,
     )
     napcat_adapter = NapCatAdapter(
         enabled=resolved_settings.napcat_enabled,

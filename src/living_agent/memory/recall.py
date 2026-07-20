@@ -1,0 +1,94 @@
+"""Local lexical ranking after repository-enforced memory scope filtering."""
+
+from __future__ import annotations
+
+import json
+import math
+import re
+
+from living_agent.models.memory import MemoryFactuality, MemoryNode
+
+_TOKEN_PATTERN = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]+", re.IGNORECASE)
+_STOP_FEATURES = {
+    "about",
+    "that",
+    "this",
+    "what",
+    "when",
+    "where",
+    "which",
+    "with",
+    "什么",
+    "他们",
+    "你们",
+    "我们",
+    "可以",
+    "怎么",
+    "记得",
+    "这个",
+    "那个",
+}
+_REALITY_FACTUALITIES = {
+    MemoryFactuality.VERIFIED,
+    MemoryFactuality.REPORTED,
+    MemoryFactuality.INFERRED,
+}
+
+
+class MemoryRecallService:
+    def rank(
+        self,
+        query: str,
+        memories: list[MemoryNode],
+        *,
+        limit: int,
+    ) -> list[MemoryNode]:
+        query_features = self._features(query)
+        if not query_features:
+            return []
+        ranked: list[tuple[float, MemoryNode]] = []
+        normalized_query = self._normalize(query)
+        for memory in memories:
+            if memory.factuality not in _REALITY_FACTUALITIES:
+                continue
+            searchable = f"{memory.subject} {self._content_text(memory)}"
+            memory_features = self._features(searchable)
+            overlap = query_features.intersection(memory_features)
+            if not overlap:
+                continue
+            lexical = len(overlap) / math.sqrt(len(query_features) * len(memory_features))
+            normalized_memory = self._normalize(searchable)
+            exact_bonus = 0.15 if normalized_query in normalized_memory else 0.0
+            score = lexical * 0.7 + memory.importance * 0.2 + memory.confidence * 0.1
+            ranked.append((score + exact_bonus, memory))
+        ranked.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
+        return [memory for _score, memory in ranked[:limit]]
+
+    @classmethod
+    def _features(cls, text: str) -> set[str]:
+        features: set[str] = set()
+        for token in _TOKEN_PATTERN.findall(cls._normalize(text)):
+            if cls._is_cjk(token):
+                if len(token) <= 2:
+                    features.add(token)
+                else:
+                    features.update(
+                        token[index : index + 2] for index in range(len(token) - 1)
+                    )
+            elif len(token) >= 2:
+                features.add(token)
+        return features - _STOP_FEATURES
+
+    @staticmethod
+    def _content_text(memory: MemoryNode) -> str:
+        if isinstance(memory.content, str):
+            return memory.content
+        return json.dumps(memory.content, ensure_ascii=False, sort_keys=True)
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return " ".join(text.casefold().split())
+
+    @staticmethod
+    def _is_cjk(token: str) -> bool:
+        return bool(token) and all("\u4e00" <= character <= "\u9fff" for character in token)

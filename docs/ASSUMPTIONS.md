@@ -68,4 +68,6 @@
     does not repeat AI-disclosure boilerplate in ordinary conversation.
 24. Short-term conversational continuity uses only a bounded, same-conversation
     window of persisted user and Agent turns. It is typed model context, not an
-    automatic permanent-memory commit; semantic memory recall remains explicit.
+    automatic permanent-memory commit. Long-term recall reads only committed,
+    scope-accessible reality memories and uses local lexical ranking; it never
+    turns the current message into a permanent memory.

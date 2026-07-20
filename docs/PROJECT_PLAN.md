@@ -51,8 +51,10 @@ remain future work.
 Embedding provider compatibility is implemented as a separate vertical slice:
 deterministic Mock and OpenAI-compatible providers, strict transport/response
 validation, owner-only API access, and a brokered one-time external-send grant.
-Vector persistence, memory backfill, scope-first semantic ranking, index migration,
-and retrieval integration remain planned rather than implied by this slice.
+Runtime chat now has local lexical recall after repository scope filtering, with
+reality-factuality filtering and delivered-response usage records. Vector
+persistence, memory backfill, embedding ranking, and index migration remain
+planned rather than implied by this slice.
 
 Cloud chat compatibility is implemented as a separate provider slice using
 OpenAI-compatible non-streaming Chat Completions. It preserves root/data context

@@ -50,6 +50,7 @@ unsafe root rejection, recovery/rollback, restart activation, and chat isolation
 ## Deferred beyond Phase 3
 
 - Automatic memory extraction and model-driven candidate generation.
-- Semantic/vector ranking; memory search is currently scope-first substring search.
+- Embedding/vector ranking and persistent vector indexes. Runtime recall currently
+  uses local lexical features only after repository-enforced scope filtering.
 - Persistent psyche and ThoughtRecord, interruptible utterance sessions, general
   multi-step execution, Control Studio frontend, and dream/activity systems.

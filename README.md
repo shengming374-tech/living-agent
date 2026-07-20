@@ -197,7 +197,9 @@ to a stable actor ID; conversation scope is visible only with the matching
 conversation ID; global candidates require owner-authored source events. Owner
 operations support version-checked edits, soft delete/restore, merge, and split.
 Source event, version, and response-usage endpoints preserve provenance. Automatic
-model extraction and semantic/vector retrieval are not implemented. The embedding
+model extraction is not implemented. Chat uses local scope-first lexical recall
+over committed memories, excludes imagined/dream/fictional nodes from reality
+context, and records usage only after a response is delivered. The embedding
 Provider/API slice does not automatically export or vectorize committed memories.
 
 ## Persona and prompt changes
@@ -294,7 +296,8 @@ delivery receipts. Cancelled or failed units do not enter recent conversation
 history as things the persona said.
 The embedding compatibility slice adds deterministic Mock and strict
 OpenAI-compatible providers plus an owner-only, brokered generation API. It does
-not yet add vector persistence or memory ranking.
+not yet add vector persistence or embedding-based memory ranking; current recall
+uses local lexical features after scope filtering.
 The cloud chat compatibility slice adds a strict OpenAI-compatible Chat
 Completions provider with typed context boundaries and isolated failure handling.
 It remains disabled until a deployment supplies its endpoint, model ID, and key.
@@ -306,8 +309,8 @@ versions. The critic validates evidence existence, accessibility, time, status,
 and conversation scope; it does not yet independently prove semantic entailment
 between arbitrary free-form claim text and the referenced record.
 
-Not yet implemented: automatic memory extraction/vector retrieval, runtime-level
-replanning of interrupted speech, general
+Not yet implemented: automatic memory extraction, embedding/vector retrieval,
+runtime-level replanning of interrupted speech, general
 multi-step executive planning, Control Studio,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
 OpenClaw group/media/proactive messaging and persistent bridge idempotency are

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from living_agent.audit.service import AuditService
 from living_agent.memory.firewall import MemoryFirewall
+from living_agent.memory.recall import MemoryRecallService
 from living_agent.memory.repository import MemoryRepository
 from living_agent.models.events import AuthorityLevel, TrustedEvent
 from living_agent.models.memory import (
@@ -34,11 +35,13 @@ class MemoryService:
         repository: MemoryRepository,
         events: EventRepository,
         firewall: MemoryFirewall,
+        recall: MemoryRecallService,
         audit: AuditService,
     ) -> None:
         self._repository = repository
         self._events = events
         self._firewall = firewall
+        self._recall = recall
         self._audit = audit
 
     async def create_candidate(
@@ -141,6 +144,37 @@ class MemoryService:
             include_deleted=include_deleted and owner,
             limit=limit,
         )
+
+    async def recall(
+        self,
+        *,
+        actor_id: str,
+        conversation_id: str | None,
+        query: str,
+        limit: int = 4,
+    ) -> list[MemoryNode]:
+        accessible = await self._repository.search(
+            actor_id=actor_id,
+            conversation_id=conversation_id,
+            owner=False,
+            query="",
+            include_deleted=False,
+            limit=100,
+        )
+        recalled = self._recall.rank(query, accessible, limit=limit)
+        await self._audit.append(
+            action="memory.recalled",
+            actor_id="living-agent",
+            conversation_id=conversation_id,
+            outcome="success",
+            details={
+                "requester_id": actor_id,
+                "query_chars": len(query),
+                "candidate_count": len(accessible),
+                "recalled_memory_ids": [memory.id for memory in recalled],
+            },
+        )
+        return recalled
 
     async def get_accessible(
         self,
