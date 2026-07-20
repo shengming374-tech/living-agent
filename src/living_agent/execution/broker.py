@@ -11,8 +11,10 @@ from pydantic import BaseModel, ValidationError
 from living_agent.audit.service import AuditService
 from living_agent.models.capabilities import (
     CapabilityDecision,
+    CapabilityDefinitionView,
     CapabilityGrant,
     CapabilityRequest,
+    CapabilitySnapshot,
     DecisionOutcome,
 )
 from living_agent.models.events import AuthorityLevel
@@ -62,6 +64,28 @@ class CapabilityBroker:
             if candidate is grant:
                 self._grants.pop(index)
                 return
+
+    async def revoke_grant_by_id(self, grant_id: str) -> CapabilityGrant | None:
+        async with self._decision_lock:
+            for index, grant in enumerate(self._grants):
+                if grant.grant_id == grant_id:
+                    return self._grants.pop(index)
+        return None
+
+    async def snapshot(self) -> CapabilitySnapshot:
+        async with self._decision_lock:
+            grants = [grant.model_copy(deep=True) for grant in self._grants]
+        definitions = [
+            CapabilityDefinitionView(
+                name=definition.name,
+                operations=sorted(definition.operations),
+                argument_schema=definition.argument_model.__name__,
+                sandbox_required=definition.sandbox_required,
+                scope_bound=definition.scope_validator is not None,
+            )
+            for definition in sorted(self._definitions.values(), key=lambda item: item.name)
+        ]
+        return CapabilitySnapshot(definitions=definitions, active_grants=grants)
 
     async def decide(
         self,

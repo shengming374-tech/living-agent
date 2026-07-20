@@ -1,0 +1,903 @@
+"use strict";
+
+const viewRoot = document.querySelector("#view-root");
+const viewTitle = document.querySelector("#view-title");
+const viewMeta = document.querySelector("#view-meta");
+const runtimeStatus = document.querySelector("#runtime-status");
+const actorInput = document.querySelector("#actor-id");
+const modal = document.querySelector("#modal");
+const modalForm = document.querySelector("#modal-form");
+const modalTitle = document.querySelector("#modal-title");
+const modalBody = document.querySelector("#modal-body");
+const modalFooter = document.querySelector("#modal-footer");
+const toastStack = document.querySelector("#toast-stack");
+
+const PERSONA_LAYERS = ["identity", "values", "traits", "speech", "boundaries", "growth"];
+const PROMPTS = [
+  ["host", "root"],
+  ["interaction", "turn"],
+  ["psyche", "appraisal"],
+  ["social", "reply"],
+  ["executive", "task"],
+  ["speech", "render"],
+  ["memory", "candidate"],
+  ["evaluation", "critic"],
+];
+const VIEW_META = {
+  overview: ["总览", "Runtime 与控制面状态"],
+  memories: ["Memory Explorer", "候选、记忆节点与来源"],
+  persona: ["Persona Editor", "分层人格的 staging 工作流"],
+  prompts: ["Prompt Lab", "渲染、测试与版本部署"],
+  plugins: ["Plugin Center", "发现状态与运行时开关"],
+  capabilities: ["Capability Manager", "能力定义与临时 Grant"],
+  tasks: ["Task Console", "执行计划、证据与确认"],
+  users: ["User Directory", "稳定身份与展示资料"],
+  audit: ["Audit Log", "权限、工具与配置变更"],
+  versions: ["Version History", "人格与 Prompt 历史"],
+  simulator: ["Behavior Simulator", "无副作用 TurnDecision 干跑"],
+};
+
+const state = {
+  view: "overview",
+  actorId: localStorage.getItem("living-agent.actor-id") || "owner-local",
+  conversationId: localStorage.getItem("living-agent.conversation-id") || "",
+  memoryMode: "nodes",
+  memories: [],
+  memoryCandidates: [],
+  selectedMemoryIds: new Set(),
+  selectedMemory: null,
+  personaLayer: "identity",
+  promptKey: "social/reply",
+  artifact: null,
+  artifactHistory: [],
+  artifactStage: null,
+  tasks: [],
+  selectedTask: null,
+  audit: [],
+  simulatorResult: null,
+};
+
+actorInput.value = state.actorId;
+
+class ApiError extends Error {
+  constructor(message, status, payload) {
+    super(message);
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
+function apiErrorMessage(payload, status) {
+  const detail = payload && typeof payload === "object" ? payload.detail : payload;
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      const location = Array.isArray(item.loc) ? item.loc.slice(1).join(".") : "request";
+      return `${location || "request"}: ${item.msg || "invalid value"}`;
+    }).join("; ");
+  }
+  if (detail && typeof detail === "object") return pretty(detail);
+  return String(detail || `HTTP ${status}`);
+}
+
+function esc(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function pretty(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date);
+}
+
+function shortId(value) {
+  const text = String(value || "");
+  return text.length > 16 ? `${text.slice(0, 8)}…${text.slice(-5)}` : text;
+}
+
+function statusClass(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["active", "completed", "success", "verified", "deployed", "allow", "allow_once", "allow_in_sandbox", "allow_read_only"].includes(normalized)) return "is-ok";
+  if (["pending", "planned", "running", "waiting", "waiting_confirmation", "staged", "ask_owner"].includes(normalized)) return "is-warn";
+  if (["failed", "failure", "denied", "deny", "deleted", "rejected", "cancelled"].includes(normalized)) return "is-error";
+  return "is-info";
+}
+
+function badge(value) {
+  return `<span class="badge ${statusClass(value)}">${esc(value)}</span>`;
+}
+
+function contentText(content) {
+  return typeof content === "string" ? content : pretty(content);
+}
+
+async function api(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  headers.set("X-Actor-ID", state.actorId);
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  const response = await fetch(path, {
+    method: options.method || "GET",
+    headers,
+    body: options.body === undefined
+      ? undefined
+      : options.body instanceof FormData
+        ? options.body
+        : JSON.stringify(options.body),
+  });
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
+  }
+  if (!response.ok) {
+    throw new ApiError(apiErrorMessage(payload, response.status), response.status, payload);
+  }
+  return payload;
+}
+
+function toast(message, type = "ok") {
+  const item = document.createElement("div");
+  item.className = `toast ${type === "error" ? "is-error" : ""}`;
+  item.textContent = message;
+  toastStack.append(item);
+  window.setTimeout(() => item.remove(), 4200);
+}
+
+function showLoading(label = "正在读取控制面") {
+  viewRoot.innerHTML = `<div class="loading-state"><span></span>${esc(label)}</div>`;
+}
+
+function renderFailure(error) {
+  const message = error instanceof ApiError ? error.message : "控制面请求失败";
+  const authAction = error instanceof ApiError && [401, 403, 422].includes(error.status)
+    ? '<button class="button is-primary" id="fix-identity">设置管理身份</button>'
+    : '<button class="button" id="retry-view">重试</button>';
+  viewRoot.innerHTML = `
+    <div class="error-state">
+      <div><strong>${esc(message)}</strong><div class="metric-note">HTTP ${esc(error.status || "offline")}</div></div>
+      ${authAction}
+    </div>`;
+  document.querySelector("#retry-view")?.addEventListener("click", renderCurrentView);
+  document.querySelector("#fix-identity")?.addEventListener("click", openIdentityDialog);
+}
+
+function askForm({ title, body, submitLabel = "确认", danger = false }) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      modalForm.onsubmit = null;
+      modal.onclose = null;
+      resolve(value);
+    };
+    modalTitle.textContent = title;
+    modalBody.innerHTML = body;
+    modalFooter.innerHTML = `
+      <button type="button" class="button" id="modal-cancel">取消</button>
+      <button type="submit" class="button ${danger ? "is-danger" : "is-primary"}">${esc(submitLabel)}</button>`;
+    document.querySelector("#modal-cancel").onclick = () => modal.close();
+    modalForm.onsubmit = (event) => {
+      event.preventDefault();
+      if (event.submitter && event.submitter.value === "cancel") {
+        modal.close();
+        return;
+      }
+      const data = new FormData(modalForm);
+      finish(data);
+      modal.close();
+    };
+    modal.onclose = () => finish(null);
+    modal.showModal();
+    modalBody.querySelector("input, textarea, select")?.focus();
+  });
+}
+
+async function confirmAction(title, message, label = "确认", danger = false) {
+  const result = await askForm({
+    title,
+    body: `<p>${esc(message)}</p>`,
+    submitLabel: label,
+    danger,
+  });
+  return result !== null;
+}
+
+async function requestSecondFactor() {
+  const data = await askForm({
+    title: "二次认证",
+    body: `
+      <div class="form-row">
+        <label for="second-factor">安全根 Prompt 凭据</label>
+        <input class="field" id="second-factor" name="secondFactor" type="password" autocomplete="one-time-code" required>
+      </div>`,
+    submitLabel: "验证",
+  });
+  return data ? String(data.get("secondFactor") || "") : null;
+}
+
+async function checkHealth() {
+  try {
+    const health = await fetch("/health").then((response) => response.json());
+    runtimeStatus.className = "runtime-status is-ok";
+    runtimeStatus.innerHTML = `<i></i>${esc(health.status)} · ${esc(health.version)}`;
+  } catch {
+    runtimeStatus.className = "runtime-status is-error";
+    runtimeStatus.innerHTML = "<i></i>离线";
+  }
+}
+
+function setView(view) {
+  if (!VIEW_META[view]) return;
+  state.view = view;
+  document.querySelectorAll(".nav-item").forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.view === view);
+  });
+  [viewTitle.textContent, viewMeta.textContent] = VIEW_META[view];
+  window.history.replaceState(null, "", `/studio#${view}`);
+  renderCurrentView();
+}
+
+async function renderCurrentView() {
+  showLoading();
+  try {
+    const renderer = {
+      overview: renderOverview,
+      memories: renderMemories,
+      persona: () => renderArtifactEditor("persona"),
+      prompts: () => renderArtifactEditor("prompt"),
+      plugins: renderPlugins,
+      capabilities: renderCapabilities,
+      tasks: renderTasks,
+      users: renderUsers,
+      audit: renderAudit,
+      versions: renderVersions,
+      simulator: renderSimulator,
+    }[state.view];
+    await renderer();
+  } catch (error) {
+    console.error(error);
+    renderFailure(error);
+  }
+}
+
+async function renderOverview() {
+  const [audit, tasks, users, plugins, capabilities, memories] = await Promise.all([
+    api("/v1/audit?limit=12"),
+    api("/v1/tasks?limit=100"),
+    api("/v1/users?limit=100"),
+    api("/v1/plugins"),
+    api("/v1/capabilities"),
+    api("/v1/memories?limit=100", { headers: state.conversationId ? { "X-Conversation-ID": state.conversationId } : {} }),
+  ]);
+  const pendingTasks = tasks.filter((item) => item.status === "waiting_confirmation").length;
+  const enabledPlugins = plugins.filter((item) => item.enabled).length;
+  viewRoot.innerHTML = `
+    <div class="metric-grid">
+      ${metric("长期记忆", memories.length, `${memories.filter((item) => item.status === "active").length} active`)}
+      ${metric("注册用户", users.length, "稳定平台身份")}
+      ${metric("待确认任务", pendingTasks, `${tasks.length} total`)}
+      ${metric("启用插件", enabledPlugins, `${capabilities.definitions.length} capabilities`)}
+    </div>
+    <section class="band">
+      <div class="section-heading"><h2>执行状态</h2><button class="button is-small" data-go="tasks">打开任务台</button></div>
+      ${taskStatusTable(tasks.slice(0, 6))}
+    </section>
+    <section class="band">
+      <div class="section-heading"><h2>最近审计</h2><button class="button is-small" data-go="audit">查看全部</button></div>
+      ${auditTable(audit.slice(0, 8))}
+    </section>`;
+  viewRoot.querySelectorAll("[data-go]").forEach((button) => {
+    button.onclick = () => setView(button.dataset.go);
+  });
+}
+
+function metric(label, value, note) {
+  return `<article class="metric-card"><div class="metric-label">${esc(label)}</div><div class="metric-value">${esc(value)}</div><div class="metric-note">${esc(note)}</div></article>`;
+}
+
+function taskStatusTable(tasks) {
+  if (!tasks.length) return '<div class="empty-state">没有任务记录</div>';
+  return `<div class="table-wrap"><table><thead><tr><th>任务</th><th>状态</th><th>步骤</th><th>更新时间</th></tr></thead><tbody>${tasks.map((run) => `
+    <tr><td><span class="mono">${esc(shortId(run.task.task_id))}</span><br><span class="metric-note">${esc(run.task.goal)}</span></td><td>${badge(run.status)}</td><td>${run.step_results.filter((item) => item.status === "completed").length}/${run.step_results.length}</td><td>${esc(formatDate(run.updated_at))}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function auditTable(entries) {
+  if (!entries.length) return '<div class="empty-state">没有审计记录</div>';
+  return `<div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>结果</th><th>Actor</th><th>会话</th></tr></thead><tbody>${entries.map((entry) => `
+    <tr><td>${esc(formatDate(entry.created_at))}</td><td class="mono">${esc(entry.action)}</td><td>${badge(entry.outcome)}</td><td><span class="truncate">${esc(entry.actor_id || "-")}</span></td><td><span class="truncate mono">${esc(entry.conversation_id || "-")}</span></td></tr>`).join("")}</tbody></table></div>`;
+}
+
+async function renderMemories() {
+  if (state.memoryMode === "candidates") {
+    state.memoryCandidates = await api("/v1/memories/candidates?limit=200");
+  } else {
+    const query = document.querySelector("#memory-search")?.value || "";
+    const includeDeleted = document.querySelector("#include-deleted")?.checked || false;
+    const headers = state.conversationId ? { "X-Conversation-ID": state.conversationId } : {};
+    state.memories = await api(`/v1/memories?query=${encodeURIComponent(query)}&include_deleted=${includeDeleted}&limit=300`, { headers });
+  }
+  const list = state.memoryMode === "nodes" ? renderMemoryNodes() : renderMemoryCandidates();
+  viewRoot.innerHTML = `
+    <div class="toolbar">
+      <div class="segmented">
+        <button data-memory-mode="nodes" class="${state.memoryMode === "nodes" ? "is-active" : ""}">记忆节点</button>
+        <button data-memory-mode="candidates" class="${state.memoryMode === "candidates" ? "is-active" : ""}">候选队列</button>
+      </div>
+      ${state.memoryMode === "nodes" ? `
+        <input class="field is-search" id="memory-search" placeholder="搜索内容或主题">
+        <label class="check-row"><input type="checkbox" id="include-deleted">包含删除</label>
+        <button class="button" id="search-memories">搜索</button>
+        <div class="toolbar-spacer"></div>
+        <button class="button" id="merge-memories" ${state.selectedMemoryIds.size < 2 ? "disabled" : ""}>合并 ${state.selectedMemoryIds.size || ""}</button>` : '<div class="toolbar-spacer"></div>'}
+    </div>
+    ${list}`;
+  viewRoot.querySelectorAll("[data-memory-mode]").forEach((button) => {
+    button.onclick = () => {
+      state.memoryMode = button.dataset.memoryMode;
+      state.selectedMemory = null;
+      renderCurrentView();
+    };
+  });
+  document.querySelector("#search-memories")?.addEventListener("click", renderMemories);
+  document.querySelector("#memory-search")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") renderMemories();
+  });
+  document.querySelector("#merge-memories")?.addEventListener("click", mergeSelectedMemories);
+  bindMemoryRows();
+}
+
+function renderMemoryNodes() {
+  const detail = state.selectedMemory ? memoryDetail(state.selectedMemory) : '<div class="empty-state">选择一条记忆</div>';
+  return `<div class="split-layout"><div class="split-main"><div class="table-wrap"><table><thead><tr><th></th><th>主题</th><th>类型</th><th>事实性</th><th>置信度</th><th>范围</th><th>状态</th></tr></thead><tbody>${state.memories.map((memory) => `
+    <tr>
+      <td><input type="checkbox" data-select-memory="${esc(memory.id)}" ${state.selectedMemoryIds.has(memory.id) ? "checked" : ""}></td>
+      <td><button class="row-button" data-memory-id="${esc(memory.id)}"><strong>${esc(memory.subject)}</strong><span class="truncate metric-note">${esc(contentText(memory.content))}</span></button></td>
+      <td>${esc(memory.type)}</td><td>${badge(memory.factuality)}</td><td>${Math.round(memory.confidence * 100)}%</td><td><span class="mono">${esc(memory.scope)}</span></td><td>${badge(memory.status)}</td>
+    </tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有匹配记忆</div></td></tr>'}</tbody></table></div></div><aside class="detail-pane" id="memory-detail">${detail}</aside></div>`;
+}
+
+function renderMemoryCandidates() {
+  return `<div class="table-wrap"><table><thead><tr><th>主题</th><th>类型</th><th>来源信任</th><th>事实性</th><th>范围</th><th>状态</th><th></th></tr></thead><tbody>${state.memoryCandidates.map((item) => `
+    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span></td><td>${esc(item.type)}</td><td>${esc(item.source_trust)}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${item.status === "pending" ? `<button class="button is-small is-primary" data-commit-candidate="${esc(item.candidate_id)}">提交</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
+}
+
+function bindMemoryRows() {
+  viewRoot.querySelectorAll("[data-memory-id]").forEach((button) => {
+    button.onclick = () => {
+      state.selectedMemory = state.memories.find((item) => item.id === button.dataset.memoryId) || null;
+      document.querySelector("#memory-detail").innerHTML = state.selectedMemory ? memoryDetail(state.selectedMemory) : "";
+      bindMemoryDetail();
+    };
+  });
+  viewRoot.querySelectorAll("[data-select-memory]").forEach((checkbox) => {
+    checkbox.onchange = () => {
+      if (checkbox.checked) state.selectedMemoryIds.add(checkbox.dataset.selectMemory);
+      else state.selectedMemoryIds.delete(checkbox.dataset.selectMemory);
+      const merge = document.querySelector("#merge-memories");
+      if (merge) {
+        merge.disabled = state.selectedMemoryIds.size < 2;
+        merge.textContent = `合并 ${state.selectedMemoryIds.size || ""}`;
+      }
+    };
+  });
+  viewRoot.querySelectorAll("[data-commit-candidate]").forEach((button) => {
+    button.onclick = async () => {
+      try {
+        const result = await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.commitCandidate)}/commit`, { method: "POST" });
+        toast(result.decision.allowed ? "候选记忆已提交" : `候选被拒绝：${result.decision.reason_code}`);
+        renderMemories();
+      } catch (error) { toast(error.message, "error"); }
+    };
+  });
+  bindMemoryDetail();
+}
+
+function memoryDetail(memory) {
+  return `
+    <div class="section-heading"><h2>${esc(memory.subject)}</h2>${badge(memory.status)}</div>
+    <dl class="detail-grid">
+      <dt>ID</dt><dd class="mono">${esc(memory.id)}</dd>
+      <dt>类型</dt><dd>${esc(memory.type)}</dd>
+      <dt>事实性</dt><dd>${esc(memory.factuality)}</dd>
+      <dt>置信度</dt><dd>${Math.round(memory.confidence * 100)}%</dd>
+      <dt>重要度</dt><dd>${Math.round(memory.importance * 100)}%</dd>
+      <dt>范围</dt><dd class="mono">${esc(memory.scope)}</dd>
+      <dt>版本</dt><dd>${memory.version}</dd>
+      <dt>更新时间</dt><dd>${esc(formatDate(memory.updated_at))}</dd>
+    </dl>
+    <pre class="content-block">${esc(contentText(memory.content))}</pre>
+    <div class="toolbar band">
+      <button class="button is-small" id="edit-memory">编辑</button>
+      <button class="button is-small" id="inspect-memory">来源与历史</button>
+      <button class="button is-small" id="split-memory">拆分</button>
+      <div class="toolbar-spacer"></div>
+      ${memory.status === "active" ? '<button class="button is-small is-danger" id="delete-memory">删除</button>' : '<button class="button is-small is-primary" id="restore-memory">恢复</button>'}
+    </div>
+    <div id="memory-evidence"></div>`;
+}
+
+function bindMemoryDetail() {
+  const memory = state.selectedMemory;
+  if (!memory) return;
+  document.querySelector("#edit-memory")?.addEventListener("click", () => editMemory(memory));
+  document.querySelector("#inspect-memory")?.addEventListener("click", () => inspectMemory(memory));
+  document.querySelector("#split-memory")?.addEventListener("click", () => splitMemory(memory));
+  document.querySelector("#delete-memory")?.addEventListener("click", () => changeMemoryStatus(memory, "delete"));
+  document.querySelector("#restore-memory")?.addEventListener("click", () => changeMemoryStatus(memory, "restore"));
+}
+
+async function editMemory(memory) {
+  const data = await askForm({
+    title: "编辑记忆",
+    body: `<div class="inline-form">
+      <div class="form-row is-full"><label>主题</label><input class="field" name="subject" value="${esc(memory.subject)}" required></div>
+      <div class="form-row is-full"><label>内容</label><textarea class="textarea" name="content" required>${esc(contentText(memory.content))}</textarea></div>
+      <div class="form-row"><label>事实性</label><select class="select" name="factuality">${["verified", "reported", "inferred", "imagined", "dream", "fictional"].map((value) => `<option ${value === memory.factuality ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+      <div class="form-row"><label>置信度</label><input class="field" name="confidence" type="number" min="0" max="1" step="0.01" value="${memory.confidence}"></div>
+      <div class="form-row"><label>重要度</label><input class="field" name="importance" type="number" min="0" max="1" step="0.01" value="${memory.importance}"></div>
+    </div>`,
+    submitLabel: "保存版本",
+  });
+  if (!data) return;
+  let content = String(data.get("content"));
+  try { if (content.trim().startsWith("{")) content = JSON.parse(content); } catch { /* keep text */ }
+  try {
+    const updated = await api(`/v1/memories/${encodeURIComponent(memory.id)}`, {
+      method: "PATCH",
+      body: {
+        expected_version: memory.version,
+        subject: String(data.get("subject")),
+        content,
+        factuality: String(data.get("factuality")),
+        confidence: Number(data.get("confidence")),
+        importance: Number(data.get("importance")),
+      },
+    });
+    state.selectedMemory = updated;
+    toast("记忆版本已更新");
+    renderMemories();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function inspectMemory(memory) {
+  const headers = state.conversationId ? { "X-Conversation-ID": state.conversationId } : {};
+  try {
+    const [versions, sources, usages] = await Promise.all([
+      api(`/v1/memories/${encodeURIComponent(memory.id)}/versions`, { headers }),
+      api(`/v1/memories/${encodeURIComponent(memory.id)}/sources`, { headers }),
+      api(`/v1/memories/${encodeURIComponent(memory.id)}/usages`, { headers }),
+    ]);
+    document.querySelector("#memory-evidence").innerHTML = `
+      <div class="band"><h3>版本 ${versions.length}</h3><pre class="json-block">${esc(pretty(versions))}</pre></div>
+      <div class="band"><h3>来源 ${sources.length}</h3><pre class="json-block">${esc(pretty(sources))}</pre></div>
+      <div class="band"><h3>使用记录 ${usages.length}</h3><pre class="json-block">${esc(pretty(usages))}</pre></div>`;
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function changeMemoryStatus(memory, action) {
+  const approved = await confirmAction(action === "delete" ? "删除记忆" : "恢复记忆", `${memory.subject} · v${memory.version}`, action === "delete" ? "删除" : "恢复", action === "delete");
+  if (!approved) return;
+  const method = action === "delete" ? "DELETE" : "POST";
+  const suffix = action === "delete" ? "" : "/restore";
+  try {
+    await api(`/v1/memories/${encodeURIComponent(memory.id)}${suffix}?expected_version=${memory.version}`, { method });
+    state.selectedMemory = null;
+    toast(action === "delete" ? "记忆已软删除" : "记忆已恢复");
+    renderMemories();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function mergeSelectedMemories() {
+  const selected = state.memories.filter((item) => state.selectedMemoryIds.has(item.id));
+  if (selected.length < 2) return;
+  const first = selected[0];
+  const data = await askForm({
+    title: `合并 ${selected.length} 条记忆`,
+    body: `<div class="inline-form">
+      <div class="form-row is-full"><label>主题</label><input class="field" name="subject" value="${esc(first.subject)}" required></div>
+      <div class="form-row is-full"><label>合并内容</label><textarea class="textarea" name="content" required>${esc(selected.map((item) => contentText(item.content)).join("\n"))}</textarea></div>
+      <div class="form-row"><label>类型</label><select class="select" name="type">${["episodic", "semantic", "relationship", "self", "core"].map((value) => `<option ${value === first.type ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+      <div class="form-row"><label>事实性</label><select class="select" name="factuality">${["verified", "reported", "inferred", "imagined", "dream", "fictional"].map((value) => `<option ${value === first.factuality ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+      <div class="form-row"><label>范围</label><input class="field" name="scope" value="${esc(first.scope)}" required></div>
+      <div class="form-row"><label>置信度</label><input class="field" name="confidence" type="number" min="0" max="1" step="0.01" value="${first.confidence}"></div>
+      <div class="form-row"><label>重要度</label><input class="field" name="importance" type="number" min="0" max="1" step="0.01" value="${first.importance}"></div>
+    </div>`,
+    submitLabel: "创建合并版本",
+  });
+  if (!data) return;
+  try {
+    await api("/v1/memories/merge", { method: "POST", body: {
+      memory_ids: selected.map((item) => item.id),
+      type: String(data.get("type")), content: String(data.get("content")), subject: String(data.get("subject")),
+      factuality: String(data.get("factuality")), confidence: Number(data.get("confidence")), importance: Number(data.get("importance")), scope: String(data.get("scope")),
+    }});
+    state.selectedMemoryIds.clear();
+    state.selectedMemory = null;
+    toast("记忆已合并");
+    renderMemories();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function splitMemory(memory) {
+  const seed = [1, 2].map((index) => ({
+    type: memory.type,
+    content: `${contentText(memory.content)} (${index})`,
+    subject: `${memory.subject} ${index}`,
+    factuality: memory.factuality,
+    confidence: memory.confidence,
+    importance: memory.importance,
+    scope: memory.scope,
+  }));
+  const data = await askForm({
+    title: "拆分记忆",
+    body: `<div class="form-row"><label>parts JSON</label><textarea class="textarea" name="parts" required>${esc(pretty(seed))}</textarea></div>`,
+    submitLabel: "验证并拆分",
+  });
+  if (!data) return;
+  try {
+    const parts = JSON.parse(String(data.get("parts")));
+    await api(`/v1/memories/${encodeURIComponent(memory.id)}/split`, { method: "POST", body: { parts } });
+    state.selectedMemory = null;
+    toast("记忆已拆分");
+    renderMemories();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderArtifactEditor(kind) {
+  const isPersona = kind === "persona";
+  const key = isPersona ? state.personaLayer : state.promptKey;
+  const [category, name] = isPersona ? [null, key] : key.split("/");
+  const base = isPersona ? `/v1/persona/${key}` : `/v1/prompts/${category}/${name}`;
+  const [artifact, history] = await Promise.all([api(base), api(`${base}/history`)]);
+  state.artifact = artifact;
+  state.artifactHistory = history;
+  state.artifactStage = null;
+  const choices = isPersona ? PERSONA_LAYERS.map((item) => [item, item]) : PROMPTS.map(([cat, prompt]) => [`${cat}/${prompt}`, `${cat}/${prompt}`]);
+  viewRoot.innerHTML = `
+    <div class="editor-layout">
+      <aside class="artifact-list">${choices.map(([value, label]) => `<button data-artifact-key="${esc(value)}" class="${value === key ? "is-active" : ""}">${esc(label)}</button>`).join("")}</aside>
+      <section class="editor-workspace">
+        <div class="toolbar">
+          <strong class="mono">${esc(artifact.artifact_path)}</strong>
+          <span class="badge is-info">v${artifact.version}</span>
+          ${!isPersona ? `<span class="badge">≈ ${artifact.token_estimate} tokens</span><span class="badge">${esc((artifact.variables || []).join(", ") || "no variables")}</span>` : ""}
+          <div class="toolbar-spacer"></div>
+          ${!isPersona ? '<button class="button is-small" id="render-artifact">测试渲染</button>' : ""}
+          <button class="button is-small" id="rollback-artifact" ${history.length < 2 ? "disabled" : ""}>回滚</button>
+          <button class="button is-primary" id="stage-artifact">创建 Stage</button>
+        </div>
+        <textarea class="textarea editor-textarea" id="artifact-content" spellcheck="false">${esc(artifact.content)}</textarea>
+        <div id="artifact-stage"></div>
+      </section>
+    </div>`;
+  viewRoot.querySelectorAll("[data-artifact-key]").forEach((button) => {
+    button.onclick = () => {
+      if (isPersona) state.personaLayer = button.dataset.artifactKey;
+      else state.promptKey = button.dataset.artifactKey;
+      renderCurrentView();
+    };
+  });
+  document.querySelector("#stage-artifact").onclick = () => stageArtifact(kind, base);
+  document.querySelector("#rollback-artifact").onclick = () => rollbackArtifact(kind, base);
+  document.querySelector("#render-artifact")?.addEventListener("click", () => renderPrompt(base));
+}
+
+async function rootHeadersIfNeeded(kind) {
+  if (kind !== "prompt" || state.promptKey !== "host/root") return {};
+  const secondFactor = await requestSecondFactor();
+  if (secondFactor === null) return null;
+  return { "X-Second-Factor": secondFactor };
+}
+
+async function stageArtifact(kind, base) {
+  const headers = await rootHeadersIfNeeded(kind);
+  if (headers === null) return;
+  const content = document.querySelector("#artifact-content").value;
+  try {
+    state.artifactStage = await api(`${base}/stage`, { method: "POST", headers, body: { content, expected_version: state.artifact.version } });
+    renderArtifactStage(kind);
+    toast("Stage 已创建");
+  } catch (error) { toast(error.message, "error"); }
+}
+
+function renderArtifactStage(kind) {
+  const stage = state.artifactStage;
+  if (!stage) return;
+  document.querySelector("#artifact-stage").innerHTML = `
+    <section class="band">
+      <div class="section-heading"><h2>Stage ${esc(shortId(stage.stage_id))}</h2>${badge(stage.status)}</div>
+      <div class="editor-meta"><span>base v${stage.base_version}</span><span>${stage.tested ? "tested" : "untested"}</span><span>${esc(formatDate(stage.updated_at))}</span></div>
+      <pre class="diff-block">${esc(stage.diff || "No diff")}</pre>
+      ${Object.keys(stage.test_results || {}).length ? `<pre class="json-block">${esc(pretty(stage.test_results))}</pre>` : ""}
+      <div class="toolbar"><button class="button" id="test-stage">运行测试</button><button class="button is-primary" id="deploy-stage" ${stage.tested ? "" : "disabled"}>部署</button></div>
+    </section>`;
+  document.querySelector("#test-stage").onclick = () => testArtifactStage(kind);
+  document.querySelector("#deploy-stage").onclick = () => deployArtifactStage(kind);
+}
+
+async function testArtifactStage(kind) {
+  try {
+    state.artifactStage = await api(`/v1/${kind === "persona" ? "persona" : "prompts"}/stages/${encodeURIComponent(state.artifactStage.stage_id)}/test`, { method: "POST" });
+    renderArtifactStage(kind);
+    toast(state.artifactStage.tested ? "Stage 测试通过" : "Stage 测试失败", state.artifactStage.tested ? "ok" : "error");
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function deployArtifactStage(kind) {
+  const headers = await rootHeadersIfNeeded(kind);
+  if (headers === null) return;
+  const approved = await confirmAction("部署变更", `${state.artifactStage.artifact_path} · base v${state.artifactStage.base_version}`, "部署");
+  if (!approved) return;
+  try {
+    const result = await api(`/v1/${kind === "persona" ? "persona" : "prompts"}/stages/${encodeURIComponent(state.artifactStage.stage_id)}/deploy`, { method: "POST", headers });
+    toast(result.restart_required ? "已部署，重启后生效" : "已部署");
+    renderCurrentView();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function rollbackArtifact(kind, base) {
+  const options = state.artifactHistory.filter((item) => item.version !== state.artifact.version).map((item) => `<option value="${item.version}">v${item.version} · ${esc(item.change_type)} · ${esc(formatDate(item.created_at))}</option>`).join("");
+  const data = await askForm({ title: "回滚版本", body: `<div class="form-row"><label>目标版本</label><select class="select" name="version" required>${options}</select></div>`, submitLabel: "测试并回滚", danger: true });
+  if (!data) return;
+  const headers = await rootHeadersIfNeeded(kind);
+  if (headers === null) return;
+  try {
+    const result = await api(`${base}/rollback`, { method: "POST", headers, body: { target_version: Number(data.get("version")) } });
+    toast(result.restart_required ? "已回滚，重启后生效" : "已回滚");
+    renderCurrentView();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderPrompt(base) {
+  const fields = (state.artifact.variables || []).map((name) => `<div class="form-row"><label>${esc(name)}</label><input class="field" name="${esc(name)}" required></div>`).join("");
+  const data = await askForm({ title: "测试渲染", body: fields || '<div class="empty-state">该 Prompt 没有变量</div>', submitLabel: "渲染" });
+  if (!data) return;
+  const variables = {};
+  for (const name of state.artifact.variables || []) variables[name] = String(data.get(name));
+  try {
+    const result = await api(`${base}/render`, { method: "POST", body: { variables } });
+    await askForm({ title: `渲染结果 · ${result.token_estimate} tokens`, body: `<pre class="content-block">${esc(result.rendered)}</pre>`, submitLabel: "关闭" });
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderPlugins() {
+  const plugins = await api("/v1/plugins");
+  viewRoot.innerHTML = `<div class="plugin-grid">${plugins.map((plugin) => `
+    <article class="item-card">
+      <div class="item-card-header"><div><h2 class="item-card-title">${esc(plugin.name)}</h2><div class="item-card-subtitle mono">${esc(plugin.id)} · v${esc(plugin.version)}</div></div>${badge(plugin.enabled ? "active" : "disabled")}</div>
+      <div class="status-strip">${plugin.operations.map((operation) => `<span class="badge">${esc(operation)}</span>`).join("")}<span class="badge ${plugin.risk_level === "high" ? "is-error" : "is-info"}">${esc(plugin.risk_level)}</span></div>
+      <div class="item-card-actions"><button class="button is-small ${plugin.enabled ? "is-danger" : "is-primary"}" data-plugin="${esc(plugin.id)}" data-enabled="${plugin.enabled}">${plugin.enabled ? "禁用" : "启用"}</button></div>
+    </article>`).join("") || '<div class="empty-state">没有发现插件</div>'}</div>`;
+  viewRoot.querySelectorAll("[data-plugin]").forEach((button) => {
+    button.onclick = async () => {
+      const enabling = button.dataset.enabled !== "true";
+      if (!await confirmAction(enabling ? "启用插件" : "禁用插件", button.dataset.plugin, enabling ? "启用" : "禁用", !enabling)) return;
+      try {
+        await api(`/v1/plugins/${encodeURIComponent(button.dataset.plugin)}/${enabling ? "enable" : "disable"}`, { method: "POST" });
+        toast(enabling ? "插件已启用" : "插件已禁用");
+        renderPlugins();
+      } catch (error) { toast(error.message, "error"); }
+    };
+  });
+}
+
+async function renderCapabilities() {
+  const snapshot = await api("/v1/capabilities");
+  viewRoot.innerHTML = `
+    <section><div class="section-heading"><h2>已注册能力</h2><span class="badge">${snapshot.definitions.length}</span></div>
+      <div class="table-wrap"><table><thead><tr><th>能力</th><th>操作</th><th>参数 Schema</th><th>沙箱</th><th>范围绑定</th></tr></thead><tbody>${snapshot.definitions.map((item) => `<tr><td class="mono">${esc(item.name)}</td><td>${item.operations.map((value) => `<span class="badge">${esc(value)}</span>`).join(" ")}</td><td class="mono">${esc(item.argument_schema)}</td><td>${badge(item.sandbox_required ? "required" : "host")}</td><td>${badge(item.scope_bound ? "bound" : "grant")}</td></tr>`).join("")}</tbody></table></div>
+    </section>
+    <section class="band"><div class="section-heading"><h2>临时 Grant</h2><span class="badge ${snapshot.active_grants.length ? "is-warn" : "is-ok"}">${snapshot.active_grants.length}</span></div>
+      <div class="table-wrap"><table><thead><tr><th>Grant</th><th>Actor</th><th>能力</th><th>操作</th><th>范围</th><th></th></tr></thead><tbody>${snapshot.active_grants.map((grant) => `<tr><td class="mono">${esc(shortId(grant.grant_id))}</td><td>${esc(grant.actor_id)}</td><td class="mono">${esc(grant.capability)}</td><td>${esc([...grant.operations].join(", "))}</td><td><span class="truncate mono">${esc([...grant.resource_scopes].join(", "))}</span></td><td><button class="button is-small is-danger" data-revoke-grant="${esc(grant.grant_id)}">撤销</button></td></tr>`).join("") || '<tr><td colspan="6"><div class="empty-state">当前没有临时 Grant</div></td></tr>'}</tbody></table></div>
+    </section>`;
+  viewRoot.querySelectorAll("[data-revoke-grant]").forEach((button) => {
+    button.onclick = async () => {
+      if (!await confirmAction("撤销临时 Grant", button.dataset.revokeGrant, "撤销", true)) return;
+      try {
+        await api(`/v1/capabilities/grants/${encodeURIComponent(button.dataset.revokeGrant)}`, { method: "DELETE" });
+        toast("Grant 已撤销");
+        renderCapabilities();
+      } catch (error) { toast(error.message, "error"); }
+    };
+  });
+}
+
+async function renderTasks() {
+  const statusFilter = document.querySelector("#task-status")?.value || "";
+  state.tasks = await api(`/v1/tasks?limit=300${statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : ""}`);
+  const detail = state.selectedTask ? taskDetail(state.selectedTask) : '<div class="empty-state">选择一个任务</div>';
+  viewRoot.innerHTML = `
+    <div class="toolbar"><select class="select" id="task-status"><option value="">全部状态</option>${["planned", "running", "waiting_confirmation", "completed", "failed", "cancelled"].map((value) => `<option ${value === statusFilter ? "selected" : ""}>${value}</option>`).join("")}</select><button class="button" id="filter-tasks">筛选</button></div>
+    <div class="split-layout"><div class="split-main"><div class="table-wrap"><table><thead><tr><th>任务</th><th>请求者</th><th>状态</th><th>步骤</th><th>更新时间</th></tr></thead><tbody>${state.tasks.map((run) => `<tr><td><button class="row-button" data-task-id="${esc(run.task.task_id)}"><strong>${esc(run.task.goal)}</strong><span class="metric-note mono">${esc(shortId(run.task.task_id))}</span></button></td><td><span class="truncate">${esc(run.task.requester_id)}</span></td><td>${badge(run.status)}</td><td>${run.step_results.filter((item) => item.status === "completed").length}/${run.step_results.length}</td><td>${esc(formatDate(run.updated_at))}</td></tr>`).join("") || '<tr><td colspan="5"><div class="empty-state">没有任务记录</div></td></tr>'}</tbody></table></div></div><aside class="detail-pane" id="task-detail">${detail}</aside></div>`;
+  document.querySelector("#filter-tasks").onclick = renderTasks;
+  viewRoot.querySelectorAll("[data-task-id]").forEach((button) => {
+    button.onclick = () => {
+      state.selectedTask = state.tasks.find((item) => item.task.task_id === button.dataset.taskId);
+      document.querySelector("#task-detail").innerHTML = taskDetail(state.selectedTask);
+      bindTaskDetail();
+    };
+  });
+  bindTaskDetail();
+}
+
+function taskDetail(run) {
+  return `
+    <div class="section-heading"><h2>${esc(run.task.goal)}</h2>${badge(run.status)}</div>
+    <dl class="detail-grid"><dt>Task ID</dt><dd class="mono">${esc(run.task.task_id)}</dd><dt>请求者</dt><dd>${esc(run.task.requester_id)}</dd><dt>会话</dt><dd class="mono">${esc(run.conversation_id || "-")}</dd><dt>版本</dt><dd>${run.version}</dd><dt>允许能力</dt><dd>${run.task.allowed_capabilities.map((value) => `<span class="badge">${esc(value)}</span>`).join(" ")}</dd></dl>
+    <div class="band"><h3>执行步骤</h3>${run.plan.steps.map((step) => {
+      const result = run.step_results.find((item) => item.step_id === step.step_id);
+      return `<div class="item-card"><div class="item-card-header"><strong>${esc(step.title)}</strong>${badge(result?.status || "pending")}</div><div class="item-card-subtitle mono">${esc(step.action.capability_request.capability)} / ${esc(step.action.capability_request.operation)} · attempts ${result?.attempts || 0}/${step.max_attempts}</div>${result?.errors?.length ? `<div class="status-strip">${result.errors.map((error) => `<span class="badge is-error">${esc(error)}</span>`).join("")}</div>` : ""}${result?.output ? `<pre class="json-block">${esc(pretty(result.output))}</pre>` : ""}</div>`;
+    }).join("")}</div>
+    <div class="toolbar band">
+      ${run.status === "waiting_confirmation" ? '<button class="button is-primary" id="confirm-task">确认写入</button>' : ""}
+      ${["planned", "running", "waiting_confirmation"].includes(run.status) ? '<button class="button is-danger" id="cancel-task">取消任务</button>' : ""}
+      ${run.status === "completed" && run.plan.steps.some((step) => step.action.handler === "task_report") ? '<button class="button" id="view-task-report">查看报告</button>' : ""}
+    </div>`;
+}
+
+function bindTaskDetail() {
+  const run = state.selectedTask;
+  if (!run) return;
+  document.querySelector("#confirm-task")?.addEventListener("click", async () => {
+    if (!await confirmAction("确认任务写入", run.task.task_id, "确认写入")) return;
+    try { state.selectedTask = await api(`/v1/tasks/${run.task.task_id}/confirm`, { method: "POST" }); toast("任务已继续执行"); renderTasks(); } catch (error) { toast(error.message, "error"); }
+  });
+  document.querySelector("#cancel-task")?.addEventListener("click", async () => {
+    if (!await confirmAction("取消任务", run.task.task_id, "取消任务", true)) return;
+    try { await api(`/v1/tasks/${run.task.task_id}/cancel`, { method: "POST" }); state.selectedTask = null; toast("任务已取消"); renderTasks(); } catch (error) { toast(error.message, "error"); }
+  });
+  document.querySelector("#view-task-report")?.addEventListener("click", async () => {
+    try { const report = await api(`/v1/tasks/${run.task.task_id}/report`); await askForm({ title: "任务报告", body: `<pre class="content-block">${esc(report.content)}</pre>`, submitLabel: "关闭" }); } catch (error) { toast(error.message, "error"); }
+  });
+}
+
+async function renderUsers() {
+  const query = document.querySelector("#user-search")?.value || "";
+  const users = await api(`/v1/users?query=${encodeURIComponent(query)}&limit=300`);
+  viewRoot.innerHTML = `<div class="toolbar"><input class="field is-search" id="user-search" placeholder="搜索稳定 ID 或昵称"><button class="button" id="search-users">搜索</button></div>
+    <div class="table-wrap"><table><thead><tr><th>展示名</th><th>稳定标识符</th><th>来源</th><th>消息数</th><th>首次出现</th><th>最近出现</th><th>最近会话</th></tr></thead><tbody>${users.map((user) => `<tr><td><strong>${esc(user.display_name || "-")}</strong></td><td class="mono">${esc(user.user_id)}</td><td>${esc(user.source_type)}</td><td>${user.message_count}</td><td>${esc(formatDate(user.first_seen_at))}</td><td>${esc(formatDate(user.last_seen_at))}</td><td><span class="truncate mono">${esc(user.last_conversation_id || "-")}</span></td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有用户记录</div></td></tr>'}</tbody></table></div>`;
+  document.querySelector("#search-users").onclick = renderUsers;
+  document.querySelector("#user-search").onkeydown = (event) => { if (event.key === "Enter") renderUsers(); };
+}
+
+async function renderAudit() {
+  state.audit = await api("/v1/audit?limit=500");
+  const filter = document.querySelector("#audit-filter")?.value.toLowerCase() || "";
+  const outcome = document.querySelector("#audit-outcome")?.value || "";
+  const entries = state.audit.filter((entry) => (!filter || `${entry.action} ${entry.actor_id} ${entry.conversation_id}`.toLowerCase().includes(filter)) && (!outcome || entry.outcome === outcome));
+  viewRoot.innerHTML = `<div class="toolbar"><input class="field is-search" id="audit-filter" placeholder="动作、Actor 或会话"><select class="select" id="audit-outcome"><option value="">全部结果</option>${[...new Set(state.audit.map((entry) => entry.outcome))].sort().map((value) => `<option ${value === outcome ? "selected" : ""}>${esc(value)}</option>`).join("")}</select><button class="button" id="filter-audit">筛选</button><div class="toolbar-spacer"></div><span class="badge">${entries.length} / ${state.audit.length}</span></div>
+    <div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>结果</th><th>Actor</th><th>会话</th><th></th></tr></thead><tbody>${entries.map((entry) => `<tr><td>${esc(formatDate(entry.created_at))}</td><td class="mono">${esc(entry.action)}</td><td>${badge(entry.outcome)}</td><td><span class="truncate">${esc(entry.actor_id || "-")}</span></td><td><span class="truncate mono">${esc(entry.conversation_id || "-")}</span></td><td><button class="button is-small" data-audit-id="${esc(entry.audit_id)}">详情</button></td></tr>`).join("")}</tbody></table></div>`;
+  document.querySelector("#filter-audit").onclick = renderAudit;
+  viewRoot.querySelectorAll("[data-audit-id]").forEach((button) => {
+    button.onclick = async () => {
+      const entry = entries.find((item) => item.audit_id === button.dataset.auditId);
+      await askForm({ title: entry.action, body: `<pre class="json-block">${esc(pretty(entry))}</pre>`, submitLabel: "关闭" });
+    };
+  });
+}
+
+async function renderVersions() {
+  const personaRequests = PERSONA_LAYERS.map(async (layer) => ({ kind: "persona", key: layer, items: await api(`/v1/persona/${layer}/history`) }));
+  const promptRequests = PROMPTS.map(async ([category, name]) => ({ kind: "prompt", key: `${category}/${name}`, items: await api(`/v1/prompts/${category}/${name}/history`) }));
+  const groups = await Promise.all([...personaRequests, ...promptRequests]);
+  const versions = groups.flatMap((group) => group.items.map((item) => ({ ...item, uiKind: group.kind, uiKey: group.key }))).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  viewRoot.innerHTML = `<div class="table-wrap"><table><thead><tr><th>类型</th><th>路径</th><th>版本</th><th>变更</th><th>Actor</th><th>时间</th><th></th></tr></thead><tbody>${versions.map((item, index) => `<tr><td>${badge(item.uiKind)}</td><td class="mono">${esc(item.artifact_path)}</td><td>v${item.version}</td><td>${esc(item.change_type)}</td><td>${esc(item.actor_id)}</td><td>${esc(formatDate(item.created_at))}</td><td><button class="button is-small" data-version-index="${index}">查看</button> <button class="button is-small" data-edit-version="${index}">打开编辑器</button></td></tr>`).join("")}</tbody></table></div>`;
+  viewRoot.querySelectorAll("[data-version-index]").forEach((button) => {
+    button.onclick = async () => {
+      const item = versions[Number(button.dataset.versionIndex)];
+      await askForm({ title: `${item.artifact_path} · v${item.version}`, body: `<pre class="content-block">${esc(item.content)}</pre>`, submitLabel: "关闭" });
+    };
+  });
+  viewRoot.querySelectorAll("[data-edit-version]").forEach((button) => {
+    button.onclick = () => {
+      const item = versions[Number(button.dataset.editVersion)];
+      if (item.uiKind === "persona") state.personaLayer = item.uiKey;
+      else state.promptKey = item.uiKey;
+      setView(item.uiKind === "persona" ? "persona" : "prompts");
+    };
+  });
+}
+
+async function renderSimulator() {
+  viewRoot.innerHTML = `
+    <div class="simulator-layout">
+      <form class="simulator-form" id="simulator-form">
+        <div class="inline-form">
+          <div class="form-row is-full"><label>消息内容</label><textarea class="textarea" name="content" required>${esc(state.simulatorResult?.event?.content?.text || "你觉得这个计划怎么样？")}</textarea></div>
+          <div class="form-row"><label>来源类型</label><select class="select" name="source_type">${["direct_message", "group_message", "webpage", "file", "tool_result", "plugin_result"].map((value) => `<option>${value}</option>`).join("")}</select></div>
+          <div class="form-row"><label>来源标识符</label><input class="field" name="source_identity" value="simulator-user"></div>
+          <div class="form-row"><label>会话</label><input class="field" name="conversation_id" value="simulator-conversation"></div>
+          <div class="form-row"><label>认证状态</label><select class="select" name="authenticated"><option value="true">authenticated</option><option value="false">unauthenticated</option></select></div>
+          <div class="form-row"><label>群聊点名</label><select class="select" name="mentions_agent"><option value="true">mentioned</option><option value="false">not mentioned</option></select></div>
+        </div>
+        <div class="toolbar band"><button class="button is-primary" type="submit">运行模拟</button><span class="badge is-info">no persistence</span><span class="badge is-info">no effects</span></div>
+      </form>
+      <section id="simulator-result">${state.simulatorResult ? simulatorResult(state.simulatorResult) : '<div class="empty-state">等待模拟输入</div>'}</section>
+    </div>`;
+  document.querySelector("#simulator-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const sourceType = String(data.get("source_type"));
+    const content = {
+      text: String(data.get("content")),
+      mentions_agent: String(data.get("mentions_agent")) === "true",
+    };
+    try {
+      state.simulatorResult = await api("/v1/simulator/turn", { method: "POST", body: {
+        content,
+        source_type: sourceType,
+        source_identity: String(data.get("source_identity")) || null,
+        conversation_id: String(data.get("conversation_id")) || null,
+        authenticated: String(data.get("authenticated")) === "true",
+      }});
+      document.querySelector("#simulator-result").innerHTML = simulatorResult(state.simulatorResult);
+    } catch (error) { toast(error.message, "error"); }
+  };
+}
+
+function simulatorResult(result) {
+  return `
+    <div class="decision-banner"><div class="decision-mode">${esc(result.turn.mode)}</div><div><strong>${esc(result.turn.reason_code)}</strong><div class="metric-note">urgency ${result.turn.urgency} · ${result.turn.expected_units_min}-${result.turn.expected_units_max} units</div></div></div>
+    <section class="band"><h3>可信边界</h3><dl class="detail-grid"><dt>身份</dt><dd>${esc(result.event.source_identity || "anonymous")}</dd><dt>信任</dt><dd>${badge(result.event.trust_level)}</dd><dt>权限</dt><dd>${badge(result.event.authority_level)}</dd><dt>Taint</dt><dd>${[...result.event.taint_labels].map((value) => `<span class="badge is-warn">${esc(value)}</span>`).join(" ") || "none"}</dd></dl></section>
+    <section class="band"><h3>会话动量</h3><pre class="json-block">${esc(pretty(result.momentum))}</pre></section>
+    <section class="band"><h3>上下文区段</h3><div class="status-strip">${result.context_sections.map((value) => `<span class="badge">${esc(value)}</span>`).join("")}</div></section>
+    ${result.task_steps.length ? `<section class="band"><h3>${esc(result.task_goal)}</h3>${result.task_steps.map((step) => `<div class="item-card"><div class="item-card-header"><strong>${esc(step.title)}</strong>${badge(step.requires_confirmation ? "ASK_OWNER" : "brokered")}</div><div class="item-card-subtitle mono">${esc(step.capability)} / ${esc(step.operation)} / ${esc(step.handler)}</div></div>`).join("")}</section>` : ""}
+    <section class="band"><div class="status-strip"><span class="badge ${result.would_call_model ? "is-warn" : "is-ok"}">model ${result.would_call_model ? "yes" : "no"}</span><span class="badge ${result.would_execute_tools ? "is-warn" : "is-ok"}">tools ${result.would_execute_tools ? "proposed" : "none"}</span><span class="badge is-ok">persisted false</span><span class="badge is-ok">effects false</span></div></section>`;
+}
+
+async function openIdentityDialog() {
+  const data = await askForm({
+    title: "管理身份",
+    body: `<div class="form-row"><label>Owner stable ID</label><input class="field" name="actorId" value="${esc(state.actorId)}" autocomplete="off" required></div>`,
+    submitLabel: "应用",
+  });
+  if (!data) return;
+  state.actorId = String(data.get("actorId")).trim();
+  actorInput.value = state.actorId;
+  localStorage.setItem("living-agent.actor-id", state.actorId);
+  toast("管理身份已更新");
+  renderCurrentView();
+}
+
+document.querySelectorAll(".nav-item").forEach((button) => {
+  button.addEventListener("click", () => setView(button.dataset.view));
+});
+document.querySelector("#refresh-view").addEventListener("click", renderCurrentView);
+document.querySelector("#save-actor").addEventListener("click", () => {
+  state.actorId = actorInput.value.trim();
+  localStorage.setItem("living-agent.actor-id", state.actorId);
+  toast("管理身份已应用");
+  renderCurrentView();
+});
+document.querySelector("#mobile-menu").addEventListener("click", () => {
+  document.querySelector(".primary-nav").scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
+
+const initialView = window.location.hash.slice(1);
+if (VIEW_META[initialView]) state.view = initialView;
+document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("is-active", item.dataset.view === state.view));
+[viewTitle.textContent, viewMeta.textContent] = VIEW_META[state.view];
+checkHealth();
+renderCurrentView();

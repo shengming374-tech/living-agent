@@ -135,6 +135,31 @@ def test_external_observation_requires_candidate_and_owner_commit(client: TestCl
     assert usages.status_code == 200 and usages.json() == []
 
 
+def test_candidate_queue_is_owner_only_and_filterable(client: TestClient) -> None:
+    event_id = ingest_event(client, content="A candidate for Control Studio.")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="A candidate for Control Studio.",
+        subject="studio candidate",
+    )
+
+    denied = client.get(
+        "/v1/memories/candidates",
+        headers={"X-Actor-ID": "member-1"},
+    )
+    pending = client.get(
+        "/v1/memories/candidates?status=pending",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+
+    assert denied.status_code == 403
+    assert pending.status_code == 200
+    assert [item["candidate_id"] for item in pending.json()] == [
+        candidate["candidate_id"]
+    ]
+
+
 @pytest.mark.parametrize(
     ("memory_type", "content", "reason"),
     [

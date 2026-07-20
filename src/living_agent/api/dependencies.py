@@ -4,6 +4,7 @@ from fastapi import Request
 
 from living_agent.audit.service import AuditService
 from living_agent.config import Settings
+from living_agent.execution.broker import CapabilityBroker
 from living_agent.execution.service import TaskService
 from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
@@ -62,3 +63,7 @@ def get_user_service(request: Request) -> UserService:
 
 def get_task_service(request: Request) -> TaskService:
     return request.app.state.task_service  # type: ignore[no-any-return]
+
+
+def get_broker(request: Request) -> CapabilityBroker:
+    return request.app.state.broker  # type: ignore[no-any-return]

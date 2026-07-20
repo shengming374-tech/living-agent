@@ -93,3 +93,14 @@
     production requires a distributed task lease. Startup may retry interrupted
     sandbox/read steps, but an interrupted write always returns to owner
     confirmation before any effect is attempted again.
+30. Control Studio is served from the same FastAPI origin and uses the existing
+    owner APIs. Its `X-Actor-ID` selector is convenient for local development only;
+    production must authenticate the control plane and derive this identity from a
+    trusted session or gateway rather than a user-editable browser field.
+31. Behavior simulation may read bounded, same-conversation history to reproduce
+    momentum, but it performs no event, task, memory, or audit write and calls no
+    model, plugin, or platform adapter. Its output is a deterministic preview, not
+    permission to execute the previewed proposal.
+32. An authenticated owner may inspect the complete memory inventory without a
+    conversation header. Non-owner reads still apply global, stable private-actor,
+    and exact conversation scope filters before search.

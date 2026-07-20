@@ -11,6 +11,7 @@ from living_agent.memory.repository import MemoryNotFoundError, MemoryVersionCon
 from living_agent.memory.service import MemoryAccessError, MemoryService
 from living_agent.models.events import AuthorityLevel, TrustedEvent
 from living_agent.models.memory import (
+    CandidateStatus,
     MemoryCandidate,
     MemoryCandidateCreate,
     MemoryCommitResult,
@@ -84,6 +85,18 @@ async def create_candidate(
         raise _translate_error(exc) from exc
 
 
+@router.get("/candidates", response_model=list[MemoryCandidate])
+async def list_candidates(
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+    candidate_status: Annotated[CandidateStatus | None, Query(alias="status")] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> list[MemoryCandidate]:
+    _require_owner(actor_id, authority)
+    return await memories.candidates(status=candidate_status, limit=limit)
+
+
 @router.post("/candidates/{candidate_id}/commit", response_model=MemoryCommitResult)
 async def commit_candidate(
     candidate_id: str,
@@ -101,9 +114,9 @@ async def commit_candidate(
 @router.get("", response_model=list[MemoryNode])
 async def search_memories(
     actor_id: ActorHeader,
-    conversation_id: ConversationHeader,
     authority: AuthorityDependency,
     memories: MemoryDependency,
+    conversation_id: ConversationHeader = None,
     query: str = Query(default="", max_length=500),
     include_deleted: bool = False,
     limit: int = Query(default=100, ge=1, le=500),
@@ -136,9 +149,9 @@ async def merge_memories(
 async def get_memory(
     memory_id: str,
     actor_id: ActorHeader,
-    conversation_id: ConversationHeader,
     authority: AuthorityDependency,
     memories: MemoryDependency,
+    conversation_id: ConversationHeader = None,
 ) -> MemoryNode:
     return await _accessible(
         memory_id,
@@ -223,9 +236,9 @@ async def split_memory(
 async def memory_versions(
     memory_id: str,
     actor_id: ActorHeader,
-    conversation_id: ConversationHeader,
     authority: AuthorityDependency,
     memories: MemoryDependency,
+    conversation_id: ConversationHeader = None,
 ) -> list[MemoryVersion]:
     await _accessible(
         memory_id,
@@ -244,9 +257,9 @@ async def memory_versions(
 async def memory_sources(
     memory_id: str,
     actor_id: ActorHeader,
-    conversation_id: ConversationHeader,
     authority: AuthorityDependency,
     memories: MemoryDependency,
+    conversation_id: ConversationHeader = None,
 ) -> list[TrustedEvent]:
     await _accessible(
         memory_id,
@@ -262,9 +275,9 @@ async def memory_sources(
 async def memory_usages(
     memory_id: str,
     actor_id: ActorHeader,
-    conversation_id: ConversationHeader,
     authority: AuthorityDependency,
     memories: MemoryDependency,
+    conversation_id: ConversationHeader = None,
 ) -> list[MemoryUsage]:
     await _accessible(
         memory_id,

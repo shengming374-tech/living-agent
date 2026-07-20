@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>LivingAgent Control Studio</title>
+    <link rel="stylesheet" href="/studio/styles.css">
+  </head>
+  <body>
+    <div class="studio-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true">LA</div>
+          <div>
+            <div class="brand-name">LivingAgent</div>
+            <div class="brand-subtitle">Control Studio</div>
+          </div>
+        </div>
+
+        <nav class="primary-nav" aria-label="控制台导航">
+          <button class="nav-item is-active" data-view="overview"><span>01</span>总览</button>
+          <button class="nav-item" data-view="memories"><span>02</span>记忆</button>
+          <button class="nav-item" data-view="persona"><span>03</span>人格</button>
+          <button class="nav-item" data-view="prompts"><span>04</span>Prompt</button>
+          <button class="nav-item" data-view="plugins"><span>05</span>插件</button>
+          <button class="nav-item" data-view="capabilities"><span>06</span>权限</button>
+          <button class="nav-item" data-view="tasks"><span>07</span>任务</button>
+          <button class="nav-item" data-view="users"><span>08</span>用户</button>
+          <button class="nav-item" data-view="audit"><span>09</span>审计</button>
+          <button class="nav-item" data-view="versions"><span>10</span>版本</button>
+          <button class="nav-item" data-view="simulator"><span>11</span>模拟器</button>
+        </nav>
+
+        <div class="identity-control">
+          <label for="actor-id">管理身份</label>
+          <div class="identity-row">
+            <input id="actor-id" autocomplete="off" spellcheck="false" value="owner-local">
+            <button class="icon-button" id="save-actor" title="应用管理身份" aria-label="应用管理身份">✓</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div class="header-title">
+            <button class="icon-button mobile-menu" id="mobile-menu" aria-label="打开导航">☰</button>
+            <div>
+              <h1 id="view-title">总览</h1>
+              <div class="header-meta" id="view-meta">Runtime 与控制面状态</div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <span class="runtime-status is-pending" id="runtime-status"><i></i>检查中</span>
+            <button class="icon-button" id="refresh-view" title="刷新当前视图" aria-label="刷新当前视图">↻</button>
+          </div>
+        </header>
+
+        <section class="view-root" id="view-root" aria-live="polite">
+          <div class="loading-state"><span></span>正在读取控制面</div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="modal" id="modal">
+      <form method="dialog" class="modal-frame" id="modal-form">
+        <header class="modal-header">
+          <h2 id="modal-title">操作</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </header>
+        <div class="modal-body" id="modal-body"></div>
+        <footer class="modal-footer" id="modal-footer"></footer>
+      </form>
+    </dialog>
+
+    <div class="toast-stack" id="toast-stack" aria-live="assertive"></div>
+    <script src="/studio/app.js" defer></script>
+  </body>
+</html>

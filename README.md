@@ -7,8 +7,9 @@ claim of consciousness and does not fabricate a biological body or life history.
 The implemented foundation includes trusted ingress, brokered execution,
 source-aware long-term memory, managed Persona/Prompt versions, persistent
 psyche evidence, and a multi-step executive task kernel. Runtime-level speech
-replanning, a broader tool catalog, multimodal input, and the management UI remain
-staged features and are listed explicitly below.
+replanning, a broader tool catalog, and multimodal input remain staged features
+and are listed explicitly below. A bundled Control Studio now exposes the
+implemented management workflows through the same FastAPI service.
 
 ## Goals
 
@@ -76,6 +77,11 @@ uv run uvicorn --app-dir src living_agent.app:app --reload
 Then request `GET /health` or submit an authenticated-adapter envelope to
 `POST /v1/chat`. Configuration defaults live in `config/default.yaml`; copy
 `.env.example` values into the process environment for deployment overrides.
+
+Open `http://127.0.0.1:8000/studio` for the Control Studio. Its default
+`owner-local` identity matches the development configuration; change the identity
+field when `LIVING_AGENT_OWNER_ID` uses another stable ID. `X-Actor-ID` is a
+development control-plane convention, not production authentication.
 
 Social participation is deterministic. Direct messages and explicit group
 mentions always receive a turn decision; unmentioned group participation is
@@ -248,6 +254,24 @@ arithmetic and confirmed task-report storage. The kernel is multi-step and
 handler-based, but arbitrary natural-language tool planning, filesystem access,
 network work, and third-party sends are not implied.
 
+## Control Studio
+
+Phase 7 bundles a responsive, dependency-free management interface at `/studio`.
+It provides Runtime overview, Memory Explorer and candidate review, Persona
+Editor, Prompt Lab, Plugin Center, Capability Manager, Task Console, User
+Directory, Audit Log, combined version history, and a Behavior Simulator. Persona
+and Prompt changes retain the existing stage, diff, test, deploy, rollback, and
+audit workflows; root Prompt credentials are requested in a password dialog and
+are never stored by the Studio.
+
+The Capability Manager can inspect registered capabilities and revoke active
+temporary grants, but cannot create grants. The Behavior Simulator normalizes an
+input, computes momentum and `TurnDecision`, and previews task steps and context
+section names. It does not persist the event, call a model or plugin, create a
+task, write audit, or execute an effect. All management data APIs remain
+owner-only. Static assets ship inside the Python wheel with a restrictive Content
+Security Policy and no external browser dependencies.
+
 ## Persona and prompt changes
 
 Persona is layered across identity, values, traits, speech, boundaries, and growth
@@ -355,6 +379,10 @@ capability grants, dependency handling, bounded retry, independent completion
 verification, restart recovery, owner-confirmed writes, cancellation, and task
 inspection APIs. The executable action catalog currently contains calculator
 steps and a host-owned task-report write.
+Phase 7 adds the bundled Control Studio for the existing memory, Persona, Prompt,
+plugin, task, user, audit, and version APIs, plus owner-only capability inventory,
+temporary-grant revocation, candidate-memory inspection, and side-effect-free
+behavior simulation.
 
 Partially implemented: activities currently describe calculator execution, not a
 general daily-activity system; continuity checks cover memory, prior-thought, and
@@ -365,8 +393,8 @@ between arbitrary free-form claim text and the referenced record.
 
 Not yet implemented: automatic memory extraction, embedding/vector retrieval,
 runtime-level replanning of interrupted speech, arbitrary natural-language action
-planning, a broader task-tool catalog, Control Studio,
-arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
+planning, a broader task-tool catalog, arbitrary third-party plugin installation,
+journaling, sleep, and dream isolation.
 OpenClaw group/media/proactive messaging and persistent bridge idempotency are
 also not implemented. The OpenClaw and NapCat adapters cancel unsent follow-up
 units when a newer inbound message reaches the same conversation.

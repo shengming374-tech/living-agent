@@ -38,6 +38,10 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Task-plan substitution | A proposal changes actor, scope, provenance, or handler metadata | Host plan verifier binds every step to the TaskContract and authenticated source |
 | Confirmation replay | An old or cross-chat approval is reused for a new write | Owner identity, waiting state, same-conversation chat binding, exact request scope, one-time grant |
 | Crash-time write replay | Runtime restarts while a write may be in flight | Persisted step state, renewed owner confirmation, idempotent report commit |
+| Stored content in Control Studio | Memory, audit, or plugin text injects browser markup/script | Dynamic values are text-escaped; no inline/eval code; restrictive same-origin CSP |
+| Forged Studio identity | A remote client sets the development owner header | All APIs re-check owner authority; production requires an authenticated control plane and trusted identity derivation |
+| Simulator used as an execution bypass | A dry run persists an event, creates a task, or calls a tool | Dedicated read-only path; tests assert no event/task/audit write and no model/plugin/effect call |
+| Capability-console escalation | Studio creates a broad grant for itself | Console exposes inventory and revocation only; grant creation remains host-internal |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -122,3 +126,8 @@ tables can produce conflicts and requires a single active executor or a future
 database-backed lease. The initial deterministic planner intentionally recognizes
 only bounded calculator/report commands; broad model-generated action plans are
 not trusted or executed.
+Control Studio assets are publicly readable on the service origin and its
+development identity field is not authentication. Data and mutation endpoints
+still require owner authority, but `X-Actor-ID` can be forged by any client that
+can reach an unprotected development server. Do not expose it to an untrusted
+network; add authenticated sessions or a trusted reverse proxy before production.

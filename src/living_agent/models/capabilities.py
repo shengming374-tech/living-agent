@@ -37,6 +37,7 @@ class CapabilityRequest(BaseModel):
 class CapabilityGrant(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    grant_id: str = Field(default_factory=lambda: str(uuid4()))
     actor_id: str
     capability: str
     operations: set[str]
@@ -53,3 +54,20 @@ class CapabilityDecision(BaseModel):
     reason_code: str
     explanation: str
     effective_scope: str | None = None
+
+
+class CapabilityDefinitionView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    operations: list[str]
+    argument_schema: str
+    sandbox_required: bool
+    scope_bound: bool
+
+
+class CapabilitySnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    definitions: list[CapabilityDefinitionView]
+    active_grants: list[CapabilityGrant]

@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from living_agent.api.audit import router as audit_router
+from living_agent.api.capabilities import router as capabilities_router
 from living_agent.api.chat import router as chat_router
 from living_agent.api.embeddings import router as embeddings_router
 from living_agent.api.health import router as health_router
@@ -18,6 +19,8 @@ from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
 from living_agent.api.prompts import router as prompts_router
 from living_agent.api.psyche import router as psyche_router
+from living_agent.api.simulator import router as simulator_router
+from living_agent.api.studio import router as studio_router
 from living_agent.api.tasks import router as tasks_router
 from living_agent.api.users import router as users_router
 from living_agent.audit.service import AuditService
@@ -374,11 +377,14 @@ def create_app(
     app.include_router(chat_router)
     app.include_router(embeddings_router)
     app.include_router(audit_router)
+    app.include_router(capabilities_router)
     app.include_router(plugins_router)
     app.include_router(memories_router)
     app.include_router(persona_router)
     app.include_router(prompts_router)
     app.include_router(psyche_router)
+    app.include_router(simulator_router)
+    app.include_router(studio_router)
     app.include_router(tasks_router)
     app.include_router(users_router)
     app.include_router(napcat_router)

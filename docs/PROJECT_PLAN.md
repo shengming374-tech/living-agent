@@ -18,7 +18,7 @@ Every external effect crosses a code-enforced capability broker.
 | 4 | Persistent psyche and safe thought records | Complete |
 | 5 | Momentum, utterance sessions, interruption | Partial |
 | 6 | Multi-step executive kernel and verification | Complete |
-| 7 | Control Studio | Planned |
+| 7 | Control Studio | Complete |
 | 8 | Activities, journaling, dream isolation, proposals | Planned |
 
 Each implemented phase must pass pytest, Ruff, and mypy before its phase commit.
@@ -83,6 +83,13 @@ Owner APIs expose task status, reports, confirmation, and cancellation. Social
 Cognition alone renders the structured result. The first action catalog is
 deliberately limited to verified arithmetic and confirmed database reports.
 
+Phase 7 is implemented as a same-origin Control Studio bundled with FastAPI. It
+operates the existing memory, Persona, Prompt, plugin, task, user, audit, and
+version APIs, adds read/revoke capability inventory, and adds a read-only Behavior
+Simulator. The simulator follows the real trust, momentum, turn-gate, and bounded
+executive proposal paths without event/task/audit persistence, model/plugin calls,
+or external effects. The Studio cannot mint capability grants.
+
 ## Minimum viable vertical slice
 
 1. An authenticated adapter submits a message with a platform identity.
@@ -129,10 +136,10 @@ Phase 3 added a source-aware memory firewall and management/version APIs before
 long-term recall claims were enabled. Phase 4 added persistent safe thought
 summaries, psyche state decay, unresolved topics, task activities, and continuity
 evidence constraints. Phase 5 adds interruptible speech. Phase 6 adds persistent
-typed task planning, execution recovery, and evidence verification. Phases 7 and
-8 remain last because
-administration and dream/activity features must rest on mature security and
-persistence semantics.
+typed task planning, execution recovery, and evidence verification. Phase 7 added
+the owner control surface after those persistence and security contracts matured.
+Phase 8 remains last because journaling, dream, and daily-activity features need
+strict fact-isolation and self-modification approval semantics.
 
 Multimodal input and output are scheduled for version `0.2.0`, after the current
 text/runtime phases. Existing media segment placeholders are transport metadata,

@@ -126,6 +126,14 @@ class MemoryService:
             memory=memory,
         )
 
+    async def candidates(
+        self,
+        *,
+        status: CandidateStatus | None,
+        limit: int,
+    ) -> list[MemoryCandidate]:
+        return await self._repository.list_candidates(status=status, limit=limit)
+
     async def search(
         self,
         *,

@@ -10,6 +10,7 @@ from living_agent.cognition.context_compiler import CompiledContext, ContextComp
 from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
+from living_agent.evaluation.simulator import BehaviorSimulation, SimulatedTaskStep
 from living_agent.execution.repository import TaskNotFoundError, TaskStateError
 from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
 from living_agent.interaction.momentum import ConversationMomentum
@@ -76,6 +77,54 @@ class AgentRuntime:
             root_policy=self._root_policy,
             current_task=current_task,
             available_capabilities=available_capabilities,
+        )
+
+    async def simulate_chat(self, envelope: IngressEnvelope) -> BehaviorSimulation:
+        event = self._boundary.normalize(envelope)
+        conversation_events = await self._conversation_events(event)
+        momentum = ConversationMomentum.from_history(
+            conversation_events,
+            now=event.created_at,
+        )
+        turn = self._social.decide_turn(event, momentum)
+        confirmation = None
+        proposal = None
+        if turn.mode != "observe":
+            confirmation = self._executive.confirmation(event)
+            proposal = self._executive.propose(event) if confirmation is None else None
+        context = self._context_compiler.compile(
+            event,
+            root_policy=self._root_policy,
+            current_task=(proposal.task.model_dump(mode="json") if proposal is not None else None),
+            available_capabilities=(
+                proposal.task.allowed_capabilities if proposal is not None else []
+            ),
+            conversation_history=self._conversation_history(conversation_events[-8:]),
+            interaction_plan=turn.model_dump(mode="json"),
+        )
+        task_steps = []
+        if proposal is not None:
+            task_steps = [
+                SimulatedTaskStep(
+                    title=step.title,
+                    handler=step.action.handler,
+                    capability=step.action.capability_request.capability,
+                    operation=step.action.capability_request.operation,
+                    requires_confirmation=step.action.handler == "task_report",
+                )
+                for step in proposal.plan.steps
+            ]
+        return BehaviorSimulation(
+            event=event,
+            turn=turn,
+            momentum=momentum,
+            context_sections=[section.kind.value for section in context.sections],
+            task_goal=proposal.task.goal if proposal is not None else None,
+            task_steps=task_steps,
+            would_call_model=(
+                turn.mode != "observe" and proposal is None and confirmation is None
+            ),
+            would_execute_tools=proposal is not None,
         )
 
     async def handle_chat(self, envelope: IngressEnvelope) -> ChatResult:

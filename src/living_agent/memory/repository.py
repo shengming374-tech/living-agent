@@ -101,6 +101,20 @@ class MemoryRepository:
                 raise MemoryNotFoundError("memory candidate not found")
             return self._candidate_schema(record)
 
+    async def list_candidates(
+        self,
+        *,
+        status: CandidateStatus | None,
+        limit: int,
+    ) -> list[MemoryCandidate]:
+        statement = select(MemoryCandidateORM)
+        if status is not None:
+            statement = statement.where(MemoryCandidateORM.status == status.value)
+        statement = statement.order_by(MemoryCandidateORM.updated_at.desc()).limit(limit)
+        async with self._sessions() as session:
+            records = list((await session.scalars(statement)).all())
+        return [self._candidate_schema(record) for record in records]
+
     async def reject_candidate(self, candidate_id: str, *, reason: str) -> MemoryCandidate:
         async with self._sessions() as session:
             record = await session.get(MemoryCandidateORM, candidate_id)
