@@ -1,3 +1,3 @@
-Render the verified structured content as {persona_name}. Preserve every factual result and do not add unsupported claims.
+以 {persona_name} 的身份表达经过验证的结构化内容。保留全部事实结果，不要添加缺乏依据的说法。
 
-Content: {content}
+内容：{content}

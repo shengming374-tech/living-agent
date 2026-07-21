@@ -1,64 +1,38 @@
-# Phase 6 completion record
+# 阶段 6 完成记录
 
-Completed on 2026-07-21.
+于 2026-07-21 完成。
 
-## Executive contracts and planning
+## 执行合同与规划
 
-- `TaskContract`, `ExecutionPlan`, `PlanStep`, `PlannedAction`, `TaskRun`, and
-  `TaskStepResult` are strict Pydantic contracts separate from database models.
-- Deterministic task understanding recognizes single or multi-step arithmetic,
-  optional task-report storage, and owner confirmation commands in Chinese or
-  English. Unknown text remains social chat rather than becoming an action.
-- Plans are topologically ordered, bounded to 16 steps, and validated against the
-  authenticated requester, provenance, allowed capabilities, forbidden
-  operations, exact handler metadata, report scope, and confirmation requirements.
+- `TaskContract`、`ExecutionPlan`、`PlanStep`、`PlannedAction`、`TaskRun` 和 `TaskStepResult` 是与数据库模型分离的严格 Pydantic 合同。
+- 确定性任务理解可识别单步/多步算术、可选任务报告存储，以及中英文所有者确认命令。未知文本继续作为社交聊天，不能直接变成操作。
+- 计划按拓扑排序，最多 16 步，并针对认证请求者、来源、允许能力、禁止操作、精确处理器元数据、报告范围和确认要求进行验证。
 
-## Execution and evidence
+## 执行与证据
 
-- Every calculator step receives a distinct one-time grant and isolated plugin
-  process. Host verification recomputes arithmetic and rejects forged output.
-- Timeout, crash, and protocol failures retry only the current step up to its
-  declared bound. Semantic/schema/permission failures stop immediately and mark
-  unstarted steps skipped.
-- Plan completion requires every step to be completed with handler-specific
-  evidence. Executive code returns structured state; Social Cognition alone
-  renders visible language.
-- Task runs, plans, attempts, outputs, evidence, pending confirmation, provenance,
-  activity IDs, and optimistic versions persist in PostgreSQL-compatible tables.
+- 每个计算步骤分别获得单次授权和独立插件进程。宿主重新计算算术并拒绝伪造输出。
+- 超时、崩溃和协议失败只在当前步骤的声明上限内重试。语义、模式或权限失败立即停止，并把未开始步骤标记为跳过。
+- 只有每一步都完成并具有处理器特定证据，计划才算完成。执行代码返回结构化状态；只有社交认知表达可见语言。
+- 任务运行、计划、尝试次数、输出、证据、待确认状态、来源、活动 ID 和乐观版本均保存在兼容 PostgreSQL 的表中。
 
-## Confirmation and recovery
+## 确认与恢复
 
-- `task.report/write` is a host-owned database capability with strict arguments
-  and exact `tasks/{task_id}/report` scope. It cannot access files, network,
-  prompts, memories, plugins, or the Agent object.
-- Owner-originated writes first stop at `waiting_confirmation`. Members cannot
-  authorize writes, and dangerous taint is denied even when an owner confirms.
-- API confirmation is owner-only. Chat confirmation additionally requires the
-  same conversation; it cannot expose or approve another conversation's pending
-  task.
-- Pending tasks survive restart. Interrupted calculator work may retry within its
-  bound. Interrupted writes require confirmation again and use idempotent report
-  commits. Owners can cancel a non-terminal task without producing its write.
+- `task.report/write` 是宿主持有的数据库能力，使用严格参数和精确的 `tasks/{task_id}/report` 范围。它不能访问文件、网络、提示词、记忆、插件或 Agent 对象。
+- 所有者发起的写入先停在 `waiting_confirmation`。成员不能批准写入；即使所有者确认，危险污染也会被拒绝。
+- API 确认仅限所有者。聊天确认还要求属于同一会话，不能暴露或批准其他会话的待处理任务。
+- 待处理任务可跨重启保留。被中断的计算可在上限内重试；被中断的写入必须重新确认，并采用幂等报告提交。所有者可以取消非终止任务而不产生写入。
 
-## Excluded from Phase 6
+## 不属于阶段 6 的内容
 
-- The first executable catalog contains arithmetic and task-report storage only.
-  Arbitrary model-generated plans, filesystem tools, network tools, unsolicited
-  messaging, and Shell execution remain unavailable.
-- Multimodal input/output is deferred to `0.2.0` and is not part of this phase.
-- Distributed task leases are required before running multiple Runtime instances
-  against one database.
+- 首个可执行目录只有算术和任务报告存储。任意模型生成计划、文件系统工具、网络工具、主动消息和 Shell 执行仍不可用。
+- 多模态输入/输出延后到 `0.2.0`，不属于本阶段。
+- 多个运行时实例共用数据库前必须实现分布式任务租约。
 
-## Phase gate
+## 阶段验收
 
-- `pytest`: 169 passed.
-- `ruff check .`: passed.
-- `mypy src`: passed for 108 source files.
-- OpenClaw bridge `node --test`: 13 passed.
+- `pytest`：169 项通过。
+- `ruff check .`：通过。
+- `mypy src`：108 个源文件通过。
+- OpenClaw 桥接 `node --test`：13 项通过。
 
-Tests cover multi-step plugin execution, topological dependencies, plan actor and
-scope substitution, independent evidence, transient retry, terminal failure,
-dependent-step skipping, owner-only APIs, same-conversation chat confirmation,
-tainted and unauthorized writes, cancellation, pending-task restart persistence,
-interrupted read recovery, write re-confirmation after restart, activity
-reconciliation, migrations, and all earlier runtime behavior.
+测试覆盖多步骤插件执行、拓扑依赖、计划操作者与范围替换、独立证据、瞬时失败重试、终止失败、依赖步骤跳过、仅限所有者 API、同会话聊天确认、污染/未授权写入、取消、待处理任务重启持久化、被中断读取恢复、写入重启后重新确认、活动对账、迁移和此前全部运行时行为。

@@ -1,34 +1,24 @@
-# Phase 1 completion record
+# 阶段 1 完成记录
 
-Completed on 2026-07-20 in the `feat(runtime): add trusted event pipeline` commit.
+于 2026-07-20 在提交 `feat(runtime): add trusted event pipeline` 中完成。
 
-## Implemented
+## 已实现
 
-- YAML plus Pydantic Settings configuration, pinned Python 3.12 development runtime,
-  and SQLite/PostgreSQL-compatible async SQLAlchemy infrastructure.
-- Alembic initial migration for trusted events and append-only application audit.
-- `TrustedEvent`, source types, trust levels, stable-ID authority mapping, taint
-  propagation, suspected-instruction audit signals, and an async event bus.
-- Typed context sections for root policy, owner request, social chat, retrieved
-  memory, untrusted documents/results, current task, and capabilities.
-- Capability definitions, strict argument validation, conversation/resource scope,
-  one-time grants, write confirmation, dangerous-taint denial, self-approval denial,
-  and auditable decisions.
-- Social-only response rendering, deterministic Mock LLM provider, turn decisions,
-  `/health`, `/v1/chat`, and owner-gated `/v1/audit` endpoints.
-- An executable biomimetic evaluation scaffold for evidence-backed claims,
-  interruption traces, varied unit counts, emotional replies, and factual reports.
+- YAML 与 Pydantic Settings 配置、固定的 Python 3.12 开发运行时，以及兼容 SQLite/PostgreSQL 的异步 SQLAlchemy 基础设施。
+- 为可信事件和只追加应用审计建立首个 Alembic 迁移。
+- `TrustedEvent`、来源类型、信任等级、稳定 ID 权限映射、污染传播、疑似指令审计信号和异步事件总线。
+- 根策略、所有者请求、社交聊天、召回记忆、不可信文档/结果、当前任务和可用能力的类型化上下文区段。
+- 能力定义、严格参数验证、会话/资源范围、单次授权、写入确认、危险污染拒绝、自我批准拒绝和可审计裁决。
+- 仅由社交认知生成回复、确定性 Mock 模型提供方、发言决策，以及 `/health`、`/v1/chat` 和仅限所有者的 `/v1/audit` 端点。
+- 可执行的仿生评估框架，覆盖有证据的声明、中断轨迹、不同消息单元数量、情绪回应和事实报告。
 
-## Phase gate
+## 阶段验收
 
-- `uv run pytest -q`: 22 passed, one upstream Starlette `TestClient` deprecation warning.
-- `uv run ruff check src tests migrations`: passed.
-- `uv run mypy`: passed for 40 source files.
-- `uv build --wheel`: built `living_agent-0.1.0-py3-none-any.whl`.
+- `uv run pytest -q`：22 项通过，出现一条上游 Starlette `TestClient` 弃用警告。
+- `uv run ruff check src tests migrations`：通过。
+- `uv run mypy`：40 个源文件通过。
+- `uv build --wheel`：成功构建 `living_agent-0.1.0-py3-none-any.whl`。
 
-## Deferred
+## 延后内容
 
-No real LLM provider, long-term memory store, persistent psyche, interruptible
-utterance session, general task planner, or plugin process is claimed by this phase.
-The HTTP transport currently trusts adapter-supplied identity after deployment
-authentication; production must authenticate the adapter or gateway itself.
+本阶段不包含真实模型提供方、长期记忆库、持久心理状态、可中断发言 Session、通用任务规划器或插件进程。HTTP 传输在部署认证之后信任适配器提供的身份；生产环境必须认证适配器或网关本身。

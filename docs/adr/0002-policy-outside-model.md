@@ -1,27 +1,18 @@
-# ADR 0002: Policy and effects stay outside the model
+# ADR 0002：策略与实际影响位于模型之外
 
-- Status: Accepted
-- Date: 2026-07-20
+- 状态：已接受
+- 日期：2026-07-20
 
-## Context
+## 背景
 
-All text visible to a model can contain adversarial instructions. Prompt-only
-controls cannot reliably distinguish intent from data or enforce side effects.
+模型可见的所有文本都可能包含对抗性指令。只依赖提示词的控制无法可靠区分意图与数据，也无法强制约束实际影响。
 
-## Decision
+## 决策
 
-Normalize ingress as a source-aware `TrustedEvent`. Compile typed context
-sections instead of concatenating sources. Treat model actions as proposals.
-Every effect crosses a deterministic `CapabilityBroker` that evaluates actor,
-authority, session, declared grant, argument schema, taint, operation class,
-resource scope, and confirmation. Audit all decisions before execution.
+把所有入口标准化为保留来源的 `TrustedEvent`。编译类型化上下文区段，不直接拼接不同来源。模型动作只视为提案。任何实际影响都必须经过确定性的 `CapabilityBroker`，检查操作者、权限、会话、已声明授权、参数模式、污染标签、操作类别、资源范围和确认状态，并在执行前记录所有裁决。
 
-Plugins receive request data and a temporary grant, never the agent object,
-database handle, raw environment, chat history, or long-term memory. Free-text
-plugin output re-enters as untrusted data.
+插件只接收请求数据和临时授权，永远拿不到 Agent 对象、数据库句柄、原始环境、聊天历史或长期记忆。插件自由文本输出以不可信数据身份重新进入系统。
 
-## Consequences
+## 后果
 
-The application remains secure under the narrower goal that model compromise
-does not equal permission compromise. Policy rules are explicit and testable,
-at the cost of additional schemas and broker plumbing for every new capability.
+系统采用一个更窄但可落实的安全目标：模型失陷不等于权限失陷。每项新能力都需要额外模式和能力代理接线，但策略规则因此明确且可测试。

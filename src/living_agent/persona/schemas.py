@@ -20,7 +20,8 @@ class IdentitySchema(StrictSchema):
     @field_validator("identity_statement")
     @classmethod
     def require_digital_identity(cls, value: str) -> str:
-        if "digital" not in value.lower():
+        normalized = value.lower()
+        if "digital" not in normalized and "数字人格" not in value:
             raise ValueError("identity statement must identify the persona as digital")
         return value
 

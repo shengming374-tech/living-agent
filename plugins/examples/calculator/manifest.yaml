@@ -1,6 +1,6 @@
 manifest_version: 1
 id: com.livingagent.calculator
-name: Calculator
+name: 计算器
 version: 0.1.0
 entrypoint: plugin.main
 plugin_type: tool
@@ -13,7 +13,7 @@ capabilities:
       - calculator/arithmetic
 operations:
   calculate:
-    description: Evaluate bounded arithmetic without eval or shell access.
+    description: 在不使用 eval 或 Shell 的情况下计算受限算术表达式。
     capability: calculator.evaluate
     broker_operation: execute
     resource_scope: calculator/arithmetic

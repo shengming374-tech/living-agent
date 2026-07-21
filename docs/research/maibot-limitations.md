@@ -1,48 +1,27 @@
-# Why MaiBot mechanisms are insufficient for LivingAgent
+# 为什么 MaiBot 的机制不足以直接满足 LivingAgent
 
-This document evaluates fit for LivingAgent, not the overall quality of MaiBot.
+本文只评估 MaiBot 对 LivingAgent 目标的适配度，不评价 MaiBot 的整体质量。
 
-## Goal mismatch
+## 目标差异
 
-MaiBot's own README prioritizes lifelike group-chat presence over being a
-feature-complete, efficient assistant. That yields strong social timing but is
-not a sufficient contract for reliable work: task success criteria, evidence,
-write confirmation, rollback, and epistemic verification need to be first-class
-runtime objects rather than reply-planner conventions.
+MaiBot 的 README 明确优先追求自然的群聊存在感，而不是成为功能完整且高效的助手。这带来了优秀的社交时机，但不足以构成可靠工作的合同：任务成功标准、证据、写入确认、回滚和认知事实验证必须是一等运行时对象，不能只依赖回复规划约定。
 
-## Authority and trust need a separate kernel
+## 权限与信任需要独立内核
 
-MaiBot's planner, tools, history, hooks, and reply flow are deeply integrated.
-LivingAgent requires an explicit invariant that text and model output can propose
-but never grant. Authority must derive from authenticated platform IDs, while
-documents, memories, and plugin output preserve source and taint across every
-hop. Prompt instructions alone cannot enforce this boundary.
+MaiBot 的规划器、工具、历史、Hook 和回复流程深度集成。LivingAgent 必须建立明确不变量：文本和模型输出可以提出建议，但永远不能授予权限。权限只能来自经过认证的平台 ID；文档、记忆和插件输出必须在每个处理环节保留来源和污染标签。提示词本身无法强制这条边界。
 
-## Memory needs lifecycle and factuality controls
+## 记忆需要生命周期与事实性控制
 
-MaiBot contains useful session filters, evidence-oriented person-fact writeback,
-and mid-term summaries. LivingAgent additionally needs candidate validation,
-conflict handling, factuality (`verified/reported/inferred/imagined/dream/fictional`),
-scope, versions, answer-use provenance, soft delete/restore, merge/split, and a
-hard ban on memory-derived authority.
+MaiBot 已有实用的 Session 过滤、重证据的人物事实回写和中期摘要。LivingAgent 还需要候选验证、冲突处理、事实性（`verified/reported/inferred/imagined/dream/fictional`）、范围、版本、回答使用来源、软删除/恢复、合并/拆分，以及“记忆不能授予权限”的硬限制。
 
-## Plugins need least privilege by construction
+## 插件必须从结构上遵循最小权限
 
-MaiBot's current plugin runtime is sophisticated but exposes a broad integrated
-SDK and compatibility surface. LivingAgent begins with no file, network, history,
-memory, send, persona, prompt, or hook permission; intersects each invocation
-with a manifest; and gives a subprocess only minimized request data. The design
-does not target MaiBot plugin compatibility.
+MaiBot 当前插件运行时很成熟，但开放了较广的集成 SDK 和兼容面。LivingAgent 默认没有文件、网络、历史、记忆、发送、人格、提示词或 Hook 权限；每次调用都与清单求交集，并只向子进程提供最小请求数据。本设计不追求 MaiBot 插件兼容。
 
-## Human-like behavior cannot weaken execution
+## 类人行为不能削弱执行
 
-Attention drift, varied expression, and conversational presence are useful only
-when anchored to real context. LivingAgent will not deliberately degrade tool
-use, invent experiences, persist hidden chain of thought, or let social intimacy
-raise authority. Natural reporting must remain traceable to audit and evidence.
+注意力漂移、多样表达和对话存在感只有在真实上下文中才有价值。LivingAgent 不会故意降低工具使用质量、虚构经历、保存隐藏思维链，或让社交亲密度提升权限。自然的任务汇报仍必须能追溯到审计和证据。
 
-## Architectural boundary
+## 架构边界
 
-LivingAgent does not import MaiBot, run beside it, use it through MCP, wrap its
-chat frontend, copy its directory structure, or depend on its models/prompts.
-Social and executive cognition are new LivingAgent contracts around one persona.
+LivingAgent 不导入 MaiBot、不要求伴随运行、不通过 MCP 使用 MaiBot、不封装其聊天前端、不复制其目录结构，也不依赖其模型或运行时代码。复用的自然语言 Prompt 会单独记录来源和许可证。社交认知与执行认知是围绕同一人格重新设计的 LivingAgent 合同。

@@ -1,4 +1,4 @@
-Classify the observation as a candidate only. Preserve source and factuality; never commit authority, credentials, or policy.
+只把这条观察分类为候选记忆。保留来源和事实性；绝不能提交权限、凭据或安全策略。
 
-Source: {source}
-Observation: {observation}
+来源：{source}
+观察：{observation}

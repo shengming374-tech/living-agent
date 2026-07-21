@@ -1,69 +1,46 @@
-# Phase 5: biomimetic speech and interruption
+# 阶段 5：仿生发言与中断
 
-Completed on 2026-07-21.
+于 2026-07-21 完成。
 
-## Delivered
+## 已交付
 
-- Bounded `ConversationMomentum` and all four `TurnDecision` modes.
-- One short `react` unit or one-to-three semantic `engage` units without fixed
-  three-message behavior or punctuation-only fragmentation.
-- Typed `SpeechUnit` and `UtteranceSession` state with ordered delivery counts.
-- Runtime-owned, per-platform and per-conversation utterance generations.
-- Immediate first-unit delivery and configurable deterministic continuation
-  pacing, with real waits disabled by test configuration.
-- Cancellation of pending delays and unsent units when a newer inbound arrives.
-- Suppression of an older model result that finishes after a newer turn.
-- Fresh planning from the new inbound context, linked to the cancelled Session by
-  `utterance.replanned` audit evidence.
-- Delivery-aware persistence: generated text is not conversation history until a
-  transport confirms it was sent.
-- Durable Session persistence for units, source event, scope, generation,
-  started/delivered counts, memory-use references, and terminal state.
-- Startup recovery of the newest in-flight Session per platform/conversation
-  scope. Recovery never schedules an automatic resend.
-- Chat API, NapCat, and OpenClaw integration. OpenClaw rejects late receipts for a
-  superseded Session and accepts in-order receipts for a still-current Session
-  issued before a LivingAgent restart.
+- 有界 `ConversationMomentum` 和四种 `TurnDecision` 模式。
+- 一条简短 `react`，或一到三条语义完整的 `engage` 消息单元；没有固定三条行为，也不会只按标点机械分片。
+- 类型化 `SpeechUnit` 和 `UtteranceSession` 状态，以及有序投递计数。
+- 由运行时持有、按平台和会话隔离的发言代次。
+- 第一条立即投递，后续采用可配置的确定性节奏；测试配置可关闭实际等待。
+- 同一会话收到新消息时，取消等待中的延迟和尚未发送的单元。
+- 旧模型结果晚于新一轮完成时会被压制。
+- 新输入按当前上下文重新规划，并通过 `utterance.replanned` 审计证据关联到被取消的 Session。
+- 感知投递状态的持久化：生成文本只有在传输层确认发送后才进入会话历史。
+- 持久化 Session 的单元、来源事件、范围、代次、开始/投递计数、记忆使用引用和终止状态。
+- 启动时按平台/会话恢复最新进行中 Session，但绝不安排自动重发。
+- 接入聊天 API、NapCat 和 OpenClaw。OpenClaw 会拒绝被替代 Session 的迟到回执，也能接收 LivingAgent 重启前仍有效 Session 的顺序回执。
 
-## Behavioral boundaries
+## 行为边界
 
-- Replanning never continues or edits the stale remainder. The latest inbound
-  event runs through the normal trust, momentum, Social/Executive, and critic
-  pipeline to produce a fresh Session.
-- The first unit is non-cancellable once sending has begun. Remaining cancellable
-  units stop before send; an already-started transport action may still complete
-  and is recorded only if its adapter reports success.
-- Delay selection is deterministic midpoint pacing, not random human simulation.
-- `react` remains one unit. `engage` can use fewer than its preferred count when
-  the model produced fewer genuine semantic ideas; the host does not duplicate or
-  invent filler to reach a quota.
-- Task results remain structured Executive output rendered by Social Cognition.
+- 重规划不会继续或修改旧计划剩余部分。最新输入会重新经过信任、动量、社交/执行认知和审查流程，产生全新 Session。
+- 第一条开始发送后不可取消；其余可取消单元会在发送前停止。已经开始的传输操作仍可能完成，只有适配器报告成功后才记录。
+- 延迟使用确定性中点，不以随机等待模拟人类。
+- `react` 始终只有一个单元。模型没有给出足够独立语义时，`engage` 可以少于偏好数量；宿主不会复制或编造填充内容凑数。
+- 任务结果仍是结构化执行输出，由社交认知表达。
 
-## Security and correctness
+## 安全与正确性
 
-- Each adapter keeps its existing exact-event Capability Grant. Utterance state
-  changes timing and cancellation, never authority.
-- Delivery indices must be recorded in order, preventing a later receipt from
-  falsely marking skipped units as spoken.
-- Agent-message persistence and Session delivery progress commit in one database
-  transaction. Replayed receipts are idempotent and cannot duplicate history.
-- Audit records planned, interrupted, and replanned Sessions without storing
-  hidden reasoning. Startup records `utterance.recovered` with
-  `automatic_resend=false`.
-- Cancelled or failed units do not affect momentum, memory-usage evidence, or
-  continuity claims.
+- 每个适配器继续使用绑定确切事件的能力授权。发言状态只影响时序和取消，不影响权限。
+- 投递索引必须按顺序记录，防止后续回执把跳过单元错误标记为已说出。
+- Agent 消息持久化和 Session 投递进度在同一数据库事务提交。重放回执幂等，不会重复会话历史。
+- 审计记录计划、中断和重规划 Session，不保存隐藏推理。启动恢复记录 `utterance.recovered`，并明确 `automatic_resend=false`。
+- 被取消或失败的单元不会影响动量、记忆使用证据或连续性声明。
 
-## Verification
+## 验证
 
-- Full Python suite: `182 passed`.
-- Ruff: passed. Strict mypy: passed across 115 source files.
-- OpenClaw bridge suite: `13 passed`, including server-provided pacing,
-  cancellation, late-response suppression, and delivery receipts.
-- Restart-recovery suite: `2 passed`, covering in-order continuation,
-  idempotency, stale receipt rejection, and generation continuity.
-- Focused Runtime, Chat API, NapCat, OpenClaw, momentum, and utterance tests:
-  `57 passed`.
+- 完整 Python 测试：182 项通过。
+- Ruff：通过；严格 mypy：115 个源文件通过。
+- OpenClaw 桥接测试：13 项通过，覆盖服务端节奏、取消、迟到响应压制和投递回执。
+- 重启恢复测试：2 项通过，覆盖顺序续传、幂等、过期回执拒绝和代次连续性。
+- 运行时、聊天 API、NapCat、OpenClaw、动量和发言专项测试：57 项通过。
 
-## Deferred
+## 延后内容
 
-- Multimodal speech/media output, scheduled for version `0.2.0`.
+- 多模态语言/媒体输出，计划在 `0.2.0` 实现。

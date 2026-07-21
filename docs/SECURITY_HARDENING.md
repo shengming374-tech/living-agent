@@ -1,50 +1,34 @@
-# Security hardening record
+# 安全加固记录
 
-Completed on 2026-07-21 after the Phase 7 control-plane audit.
+于 2026-07-21 阶段 7 控制面审计后完成。
 
-## Management authentication
+## 管理认证
 
-- Production configuration requires a dedicated management API token with at
-  least 32 characters and refuses to start without one.
-- All `/v1` control-plane routes require `Authorization: Bearer <token>` before
-  their existing stable Owner-ID checks run.
-- `/v1/chat` and `/v1/adapters/*` remain separate ingress boundaries and retain
-  their adapter/gateway authentication requirements.
-- Rejected management authentication is audited with bounded reason codes; token
-  values never enter audit details.
-- Control Studio stores the token only in browser `sessionStorage` and exposes an
-  authentication dialog on desktop and mobile.
+- 生产配置要求至少 32 个字符的专用管理 API 令牌；未配置时拒绝启动。
+- 所有 `/v1` 控制面路由会先验证 `Authorization: Bearer <token>`，再执行原有稳定所有者 ID 检查。
+- `/v1/chat` 和 `/v1/adapters/*` 仍是独立入口边界，保留各自的适配器/网关认证要求。
+- 管理认证拒绝会以受限原因码写入审计；令牌值绝不会进入审计详情。
+- 管理控制台只把令牌保存在浏览器 `sessionStorage`，并在桌面和移动端提供认证对话框。
 
-## Plugin OS sandbox
+## 插件操作系统沙箱
 
-- Every plugin call remains a one-shot isolated Python worker with minimal
-  environment, bounded stdio, timeout, and process-group termination.
-- On macOS, `sandbox-exec` additionally denies network access, all host writes,
-  sensitive host reads, process fork, and arbitrary process execution. Tests
-  exercise each denied operation against a probe plugin.
-- Supported Linux deployments use Bubblewrap with an unshared network/process
-  namespace, read-only host mount, hidden home directory, and private temporary
-  storage.
-- Production forces sandbox mode to `required`; no detected backend is a startup
-  error. Development `auto` mode uses a backend when present.
-- Native-code provenance, signatures, CPU/memory quotas, and container/VM
-  isolation remain production supply-chain responsibilities.
+- 每次插件调用仍使用单次隔离 Python 工作进程，具有最小环境、受限标准输入输出、超时和进程组终止。
+- macOS 上的 `sandbox-exec` 额外禁止网络访问、全部宿主写入、敏感宿主读取、进程 Fork 和任意进程执行。测试会使用探测插件逐项验证拒绝。
+- 受支持 Linux 部署使用 Bubblewrap，隔离网络/进程命名空间，只读挂载宿主，隐藏主目录并提供私有临时存储。
+- 生产环境强制沙箱模式为 `required`；未检测到后端时启动失败。开发环境 `auto` 模式会在后端存在时启用。
+- 原生代码来源、签名、CPU/内存配额和容器/虚拟机隔离仍是生产供应链责任。
 
-## OpenClaw ingress idempotency
+## OpenClaw 入站幂等
 
-- The database stores a hash-keyed channel/account/message identity, request
-  fingerprint, processing state, and a reply record with visible text removed.
-- A completed request replays after restart without re-entering Runtime or
-  emitting a second visible response.
-- Reusing a message ID with different content is a conflict.
-- A request interrupted while processing fails closed under the same message ID;
-  it is not automatically retried because duplicate effects are more dangerous
-  than requiring the sender to submit a new message.
+- 数据库保存以哈希为键的通道/账户/消息身份、请求指纹、处理状态，以及删除可见文本后的回复记录。
+- 已完成请求在重启后重放时不会重新进入运行时，也不会发出第二条可见回复。
+- 同一消息 ID 携带不同内容时会产生冲突。
+- 处理期间被中断的请求在同一消息 ID 下失败关闭，不会自动重试，因为重复产生实际影响比要求发送方提交新消息更危险。
 
-## Verification
+## 验证
 
-- Full Python suite: `188 passed`.
-- Ruff: passed.
-- Strict mypy: passed across 118 source files.
-- OpenClaw Node bridge suite: `13 passed`.
-- Studio and bridge JavaScript syntax checks: passed.
+- 完整 Python 测试：188 项通过。
+- Ruff：通过。
+- 严格 mypy：118 个源文件通过。
+- OpenClaw Node 桥接测试：13 项通过。
+- 控制台与桥接 JavaScript 语法检查：通过。

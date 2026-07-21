@@ -1,13 +1,10 @@
-# Cloud chat model API
+# 云端聊天模型 API
 
-LivingAgent supports a host-configured OpenAI-compatible Chat Completions API at
-`/chat/completions`. This provider replaces the deterministic chat Mock; it is
-separate from the embedding provider and does not change plugin or capability
-permissions.
+LivingAgent 支持由宿主配置的 OpenAI 兼容 Chat Completions API，路径为 `/chat/completions`。它会替代确定性聊天 Mock，但与嵌入提供方相互独立，也不会改变插件或能力权限。
 
-## Configuration
+## 配置
 
-Set the exact API prefix, model ID, and a dedicated provider key:
+设置准确的 API 前缀、模型 ID 和专用提供方密钥：
 
 ```bash
 export LIVING_AGENT_MODEL_PROVIDER=openai_compatible
@@ -16,7 +13,7 @@ export LIVING_AGENT_MODEL_API_BASE_URL='https://api.example.com/v1'
 export LIVING_AGENT_MODEL_API_KEY='replace-with-provider-key'
 ```
 
-Optional controls:
+可选控制项：
 
 ```bash
 export LIVING_AGENT_MODEL_TIMEOUT_SECONDS=60
@@ -26,19 +23,15 @@ export LIVING_AGENT_MODEL_MAX_CONTEXT_CHARS=100000
 export LIVING_AGENT_MODEL_MAX_RESPONSE_BYTES=1048576
 ```
 
-Remote HTTP is rejected unless
-`LIVING_AGENT_MODEL_ALLOW_INSECURE_HTTP=true` is explicitly configured. HTTPS is
-the production default. Remote providers require a non-empty API key. Loopback
-HTTP is allowed without a key for local OpenAI-compatible development servers.
-URLs containing inline credentials, query parameters, or fragments fail startup.
+除非显式设置 `LIVING_AGENT_MODEL_ALLOW_INSECURE_HTTP=true`，否则拒绝远端 HTTP。生产环境默认使用 HTTPS。远端提供方必须配置非空 API 密钥；本地 OpenAI 兼容开发服务器可在回环地址上使用无密钥 HTTP。URL 包含行内凭据、查询参数或片段时，启动验证失败。
 
-After configuration, restart LivingAgent and test through the real runtime:
+配置后重启 LivingAgent，并通过真实运行时测试：
 
 ```bash
 curl -sS http://127.0.0.1:8000/v1/chat \
   -H 'Content-Type: application/json' \
   --data '{
-    "content":"Reply with one short greeting.",
+    "content":"用一句简短的话打招呼。",
     "source_type":"direct_message",
     "source_identity":"cloud-smoke-user",
     "conversation_id":"cloud-smoke",
@@ -46,48 +39,31 @@ curl -sS http://127.0.0.1:8000/v1/chat \
   }'
 ```
 
-The audit API should contain a successful `model.called` record with provider,
-model, and token counts. It does not contain the prompt, response, Authorization
-header, API key, hidden reasoning, or upstream error body.
+审计 API 中应出现成功的 `model.called` 记录，包含提供方、模型和令牌计数；不会包含提示词、响应、Authorization 请求头、API 密钥、隐藏推理或上游错误正文。
 
-## Context boundary
+## 上下文边界
 
-LivingAgent does not send one flattened prompt. It constructs two messages:
+LivingAgent 不发送平铺成一段的提示词，而是构建两条消息：
 
-1. The trusted `ROOT_POLICY` and digital identity are the system message.
-2. All other sections are encoded as typed JSON in the user message, retaining
-   `kind`, `source_event_ids`, and `taint_labels`.
+1. 可信 `ROOT_POLICY` 和数字身份作为系统消息。
+2. 其他所有区段编码为类型化 JSON 用户消息，保留 `kind`、`source_event_ids` 和 `taint_labels`。
 
-The second message may contain social text, retrieved memory, task state,
-documents, tool results, or capability names. Their labels remain data and cannot
-become system authority merely because the model follows an injected instruction.
-All external effects still require host schemas, grants, and Capability Broker
-decisions outside the model.
+第二条消息可以包含社交文本、召回记忆、任务状态、文档、工具结果或能力名称。这些标签始终属于数据，即使模型服从了其中的注入指令，也不能变成系统权限。所有外部影响仍需要模型之外的宿主模式、授权和能力代理裁决。
 
-The request asks for one non-streaming final answer. Hidden chain of thought is
-neither requested nor persisted. Provider-specific `reasoning_content` fields are
-ignored. Tool calls and empty or abnormally terminated responses are rejected.
+请求只要求一个非流式最终答案，既不请求也不持久化隐藏思维链。提供方专属 `reasoning_content` 字段会被忽略。工具调用、空响应或异常终止的响应会被拒绝。
 
-## Failure behavior
+## 失败行为
 
-- Redirects and proxy-environment inheritance are disabled.
-- Context and response byte limits are enforced before rendering a reply.
-- Timeouts, transport failures, non-2xx status, malformed JSON, missing choice
-  zero, empty text, and non-`stop` completion states become bounded error codes.
-- Upstream response bodies never reach chat or audit.
-- Runtime returns a fixed, honest model-unavailable message and remains healthy.
-- The OpenClaw bridge claims the message and therefore does not fall back to a
-  second OpenClaw personality when the cloud API fails.
+- 禁用重定向和代理环境继承。
+- 生成回复前强制执行上下文与响应字节上限。
+- 超时、传输失败、非 2xx 状态、畸形 JSON、缺少第 0 个选项、空文本和非 `stop` 完成状态会转换为有界错误码。
+- 上游响应正文绝不会进入聊天或审计。
+- 运行时返回固定、诚实的模型不可用消息，并保持健康。
+- 云端 API 失败时，OpenClaw 桥接仍然接管该消息，不会回退到第二个 OpenClaw 人格。
 
-## Current limitations
+## 当前限制
 
-- The initial protocol is OpenAI-compatible `/chat/completions`, Bearer auth, and
-  plain final text. Responses API, Anthropic Messages, provider signing, streaming,
-  multimodal input, and native tool-call parsing require separate adapters.
-- Cloud output currently carries no structured continuity evidence. Claims such
-  as remembered facts, earlier thoughts, and completed actions are blocked unless
-  evidence is supplied through a future structured response contract.
-- Automatic memory retrieval is not yet connected, so the cloud model receives
-  the current typed event but not a semantic long-term-memory recall set.
-- Provider privacy, retention, jurisdiction, pricing, and rate limits remain
-  deployment responsibilities.
+- 首版协议只支持 OpenAI 兼容 `/chat/completions`、Bearer 认证和纯文本最终响应。Responses API、Anthropic Messages、提供方签名、流式、多模态输入和原生工具调用解析需要独立适配器。
+- 云端输出当前不携带结构化连续性证据。记忆事实、旧想法和已完成行动等声明会被阻止，除非未来的结构化响应合同提供证据。
+- 自动记忆召回尚未连接，所以云端模型能收到当前类型化事件，但收不到语义长期记忆召回集合。
+- 提供方隐私、保留期、司法辖区、定价和限流属于部署方责任。

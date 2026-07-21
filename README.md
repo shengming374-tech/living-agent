@@ -1,69 +1,59 @@
 # LivingAgent
 
-LivingAgent is a greenfield runtime for a persistent digital persona with natural
-social participation and reliable, policy-controlled task execution. It is not a
-claim of consciousness and does not fabricate a biological body or life history.
+LivingAgent 是一个从零设计的持续数字人格运行时，目标是同时具备自然的社交参与和可靠、受策略约束的任务执行能力。项目不声称具有真实意识，也不会虚构生物身体或现实人生经历。
 
-The implemented foundation includes trusted ingress, brokered execution,
-source-aware long-term memory, managed Persona/Prompt versions, persistent
-psyche evidence, and a multi-step executive task kernel. A broader tool catalog
-and multimodal input remain staged features
-and are listed explicitly below. A bundled Control Studio now exposes the
-implemented management workflows through the same FastAPI service.
+当前基础能力包括可信输入、受权限代理约束的执行、保留来源的长期记忆、受管理的人格与提示词版本、可持久化的心理状态证据，以及多步骤执行内核。更丰富的工具目录和多模态输入仍属于后续功能，具体状态列在下文。随项目提供的管理控制台通过同一个 FastAPI 服务开放现有管理流程。
 
-## Goals
+## 项目目标
 
-- One externally consistent persona with separate social and executive cognition.
-- Source-aware events and context instead of flattening all text into instructions.
-- Code-enforced capability decisions outside the language model.
-- Auditable tasks, evidence, memory provenance, and state changes.
-- Native least-privilege plugins isolated from the main runtime.
+- 对外保持一个人格，内部区分社交认知和执行认知。
+- 让事件和上下文保留来源，不把所有文本平铺成指令。
+- 在语言模型之外由代码完成能力裁决。
+- 任务、证据、记忆来源和状态变更都可审计。
+- 原生插件遵循最小权限，并与主运行时隔离。
 
-## Non-goals
+## 非目标
 
-- Simulating biological embodiment or claiming real consciousness.
-- Forking, wrapping, importing, or requiring MaiBot.
-- Using MaiBot or MCP as the personality frontend or native plugin runtime.
-- Arbitrary shell execution, agent-approved self-deployment, or chat-based policy edits.
+- 模拟生物身体或声称具有真实意识。
+- Fork、封装、导入或要求 MaiBot 同时运行。
+- 把 MaiBot 或 MCP 当作人格前端或原生插件运行时。
+- 任意 Shell 执行、Agent 自批自部署，或通过聊天修改安全策略。
 
-## Architecture
+## 架构
 
 ```text
-Platform/API input
+平台/API 输入
       |
       v
-Trust Boundary -> TrustedEvent -> Turn Gate
-      |                              |
-      |                     Social Cognition
-      |                              |
-      +-> typed Context Compiler <- structured Executive result
-                                     |
-                              Action Proposal
-                                     |
-                              Policy Engine
-                                     |
-                           Capability Broker
-                          / deny ask allow \
-                         v                 v
-                 host capability    plugin subprocess
-                         \                 /
-                          verified evidence
+信任边界 -> TrustedEvent -> 发言判断
+      |                         |
+      |                       社交认知
+      |                         |
+      +-> 类型化上下文编译器 <- 结构化执行结果
+                                    |
+                                行为提案
+                                    |
+                                策略引擎
+                                    |
+                              能力代理
+                           / 拒绝 询问 允许 \
+                          v                  v
+                     宿主能力           插件子进程
+                          \                  /
+                              已验证证据
                                   |
-                         Social Cognition -> user
+                            社交认知 -> 用户
 
-All decisions/effects ---------------------> Audit Log
+所有裁决与实际影响 ---------------------> 审计日志
 ```
 
-The current production-authentication, plugin-sandbox, and durable-ingress
-controls are recorded in
-[`docs/SECURITY_HARDENING.md`](docs/SECURITY_HARDENING.md).
+当前生产认证、插件沙箱和持久化入站幂等控制记录在 [`docs/SECURITY_HARDENING.md`](docs/SECURITY_HARDENING.md)。
 
-Executive Cognition never sends natural-language messages. It returns structured
-results that Social Cognition may express in the persona's voice.
+执行认知永远不能直接发送自然语言消息。它只返回结构化结果，由社交认知以统一人格的口吻表达。
 
-## Development
+## 开发与运行
 
-Python 3.12+ and [`uv`](https://docs.astral.sh/uv/) are recommended.
+推荐使用 Python 3.12+ 和 [`uv`](https://docs.astral.sh/uv/)。
 
 ```bash
 uv sync --all-groups
@@ -72,28 +62,17 @@ uv run ruff check .
 uv run mypy
 ```
 
-Run the development API from the project directory:
+在项目目录启动开发 API：
 
 ```bash
 uv run uvicorn --app-dir src living_agent.app:app --reload
 ```
 
-Then request `GET /health` or submit an authenticated-adapter envelope to
-`POST /v1/chat`. Configuration defaults live in `config/default.yaml`; copy
-`.env.example` values into the process environment for deployment overrides.
+随后可访问 `GET /health`，或向 `POST /v1/chat` 提交经过认证的适配器信封。默认配置位于 `config/default.yaml`；部署时可通过 `.env.example` 中列出的环境变量覆盖。
 
-Open `http://127.0.0.1:8000/studio` for the Control Studio. Its default
-`owner-local` identity matches the development configuration; change the identity
-field when `LIVING_AGENT_OWNER_ID` uses another stable ID. `X-Actor-ID` is a
-development control-plane convention, not production authentication. Production
-requires `LIVING_AGENT_MANAGEMENT_API_TOKEN` with at least 32 characters. Enter it
-in Studio's management-token field; the browser keeps it in `sessionStorage`, not
-persistent storage. Owner API requests then carry both the stable actor ID and the
-independent Bearer credential.
+管理控制台位于 `http://127.0.0.1:8000/studio`。默认身份 `owner-local` 与开发配置一致；如果 `LIVING_AGENT_OWNER_ID` 使用其他稳定 ID，需要同步修改界面中的身份。`X-Actor-ID` 只是开发控制面的约定，不是生产认证。生产环境必须设置不少于 32 个字符的 `LIVING_AGENT_MANAGEMENT_API_TOKEN`。浏览器只把令牌保存在 `sessionStorage`，不会持久保存；所有者请求会同时携带稳定操作者 ID 和独立的 Bearer 凭据。
 
-Social participation is deterministic. Direct messages and explicit group
-mentions always receive a turn decision; unmentioned group participation is
-controlled by consecutive user turns and a cooldown rather than random silence:
+社交参与采用确定性规则。私聊和群内明确点名一定会得到发言决策；未点名的群聊参与由连续用户发言数和冷却时间控制，不依赖随机沉默：
 
 ```bash
 LIVING_AGENT_SOCIAL_ENGAGE_UNITS_MIN=2
@@ -105,338 +84,135 @@ LIVING_AGENT_SOCIAL_GROUP_MIN_USER_TURNS=5
 LIVING_AGENT_SOCIAL_GROUP_COOLDOWN_SECONDS=60
 ```
 
-An automatic unmentioned-group turn is a single short `react`. Suspected
-instruction text in group chat is always observed rather than used to trigger
-participation or an action.
+未点名时的自动参与只会产生一条简短 `react`。群聊中疑似指令注入的文字只会被观察，不能触发参与或执行操作。
 
-## Model configuration
+## 模型配置
 
-The deterministic `MockLLMProvider` remains the default and requires no
-credentials. An `openai_compatible` provider can call a host-configured cloud
-`/chat/completions` API. `ROOT_POLICY` remains a system message; all social,
-memory, task, document, tool-result, and capability sections are sent as typed
-user-message JSON with provenance and taint labels. Responses are bounded and
-validated, hidden reasoning fields are ignored, and audit stores only provider,
-model, token counts, and bounded errors. See
-[`docs/integrations/cloud-model-api.md`](docs/integrations/cloud-model-api.md).
+默认使用确定性的 `MockLLMProvider`，不需要凭据。`openai_compatible` 提供方可调用宿主配置的云端 `/chat/completions` API。`ROOT_POLICY` 保持为系统消息；社交、记忆、任务、文档、工具结果和能力区段均以带来源与污染标签的类型化用户消息 JSON 发送。响应有长度限制并经过验证，隐藏推理字段会被忽略；审计只保存提供方、模型、令牌计数和受限错误。详见 [`docs/integrations/cloud-model-api.md`](docs/integrations/cloud-model-api.md)。
 
-Secrets belong in environment-backed settings and must never appear in prompt or
-audit previews.
+秘密只能放在由环境变量支持的设置中，绝不能进入提示词或审计预览。
 
-Embeddings have an independent Provider boundary. The default deterministic Mock
-requires no credentials; `openai_compatible` calls a configured `/embeddings`
-endpoint with strict response, size, index, finite-number, and dimension checks.
-Owner-only `GET /v1/embeddings/status` and `POST /v1/embeddings` provide a tested
-vertical slice. Sending text to a remote provider requires an exact one-time
-`model.embedding.generate` Capability Broker grant and is audited without storing
-input text, vectors, keys, or upstream error bodies. See
-[`docs/integrations/embeddings.md`](docs/integrations/embeddings.md).
+嵌入模型具有独立的提供方边界。默认确定性 Mock 不需要凭据；`openai_compatible` 调用配置的 `/embeddings` 端点，并严格检查响应、数量、索引、有限数值和维度。仅所有者可用的 `GET /v1/embeddings/status` 与 `POST /v1/embeddings` 构成已测试垂直切片。向远端提供方发送文本需要精确、单次的 `model.embedding.generate` 能力授权；审计不会保存输入文本、向量、密钥或上游错误正文。详见 [`docs/integrations/embeddings.md`](docs/integrations/embeddings.md)。
 
-## Native plugins
+## 原生插件
 
-The native host discovers strict manifests and invokes each plugin call in a new
-isolated Python subprocess using JSON-RPC over stdio. Plugins receive no Agent,
-database, chat-history, memory, prompt, persona, or host environment object. Every
-invocation carries a temporary, minimal capability grant, and plugin output is
-tainted as untrusted until independently verified. MCP may later be implemented as
-an optional connector adapter; it is not a core dependency.
+宿主发现严格定义的清单，并为每次插件调用启动独立 Python 子进程，通过基于标准输入输出的 JSON-RPC 通信。插件拿不到 Agent、数据库、聊天历史、记忆、提示词、人格或宿主环境对象。每次调用只携带临时、最小的能力授权；插件输出在独立验证前始终标记为不可信。MCP 以后可以作为可选连接器适配器，但不是核心依赖。
 
-The calculator at `plugins/examples/calculator/` is the reference implementation.
-To add a reviewed plugin:
+`plugins/examples/calculator/` 是参考实现。添加经过审查的插件时：
 
-1. Add `plugins/examples/<plugin>/manifest.yaml` and the declared entrypoint module.
-2. Declare each operation's capability, broker operation, exact resource scope,
-   input schema, output schema, hooks, background tasks, and data policy.
-3. Expose one `invoke(params) -> dict` function. Do not import LivingAgent or expect
-   host objects, secrets, installation hooks, or shell access.
-4. Register host-owned Pydantic argument/output validation and policy for any new
-   capability. A manifest declaration alone never creates a grant.
-5. Add crash, timeout, schema, permission, taint, and verifier tests, then enable it
-   as the owner through `POST /v1/plugins/{id}/enable`.
+1. 添加 `plugins/examples/<plugin>/manifest.yaml` 和清单声明的入口模块。
+2. 为每个操作声明能力、代理操作、精确资源范围、输入/输出模式、Hook、后台任务和数据策略。
+3. 只暴露一个 `invoke(params) -> dict` 函数。不得导入 LivingAgent，也不能依赖宿主对象、秘密、安装 Hook 或 Shell。
+4. 对新能力注册由宿主持有的 Pydantic 参数/输出验证和策略。清单声明本身永远不会创建授权。
+5. 添加崩溃、超时、模式、权限、污染和验证器测试，再由所有者通过 `POST /v1/plugins/{id}/enable` 启用。
 
-`GET /v1/plugins` lists discovery and enabled state. These management endpoints use
-the development owner header described under security limitations.
+`GET /v1/plugins` 返回发现和启用状态。这些管理端点使用“安全限制”中说明的开发所有者认证方式。
 
-## NapCat / OneBot 11 adapter
+## NapCat / OneBot 11 适配器
 
-An optional host-owned platform adapter accepts NapCat reverse WebSocket
-connections at `/v1/adapters/napcat/ws`. It supports authenticated private/group
-message ingestion, array and CQ-string normalization, group `@bot` participation,
-and `echo`-correlated plain-text replies over the same connection.
+可选的宿主平台适配器在 `/v1/adapters/napcat/ws` 接受 NapCat 反向 WebSocket 连接，支持经过认证的私聊/群聊消息接入、数组和 CQ 字符串标准化、群内 `@bot` 参与，以及通过同一连接按 `echo` 关联的纯文本回复。
 
-Enable it with a shared token:
+使用共享令牌启用：
 
 ```bash
 export LIVING_AGENT_NAPCAT_ENABLED=true
 export LIVING_AGENT_NAPCAT_ACCESS_TOKEN='replace-with-a-long-random-token'
 ```
 
-Configure a NapCat WebSocket Client URL such as
-`ws://127.0.0.1:8000/v1/adapters/napcat/ws`, using the same token and preferably
-`messagePostFormat: array`. QQ identities and conversations are platform- and
-bot-namespaced; nicknames, group cards, and OneBot group roles never grant
-LivingAgent authority.
+NapCat WebSocket 客户端地址可设置为 `ws://127.0.0.1:8000/v1/adapters/napcat/ws`，使用相同令牌，并优先采用 `messagePostFormat: array`。QQ 身份和会话按平台与机器人命名空间隔离；昵称、群名片和 OneBot 群角色都不能授予 LivingAgent 权限。
 
-Every outbound reply receives a one-time Capability Broker grant bound to the
-exact source event and conversation. Replies are encoded as a OneBot `text`
-segment, preventing CQ-looking model output from becoming a rich action. See
-[`docs/integrations/napcat.md`](docs/integrations/napcat.md) for the NapCat WebUI
-example, identity mapping, security model, limits, and official protocol sources.
+每条出站回复都会获得绑定到确切来源事件和会话的单次能力授权。回复被编码为 OneBot `text` 段，避免形似 CQ 码的模型输出变成富操作。NapCat WebUI 示例、身份映射、安全模型、限制及官方协议来源见 [`docs/integrations/napcat.md`](docs/integrations/napcat.md)。
 
-## OpenClaw WeChat bridge
+## OpenClaw 微信桥接
 
-An optional OpenClaw plugin connects the `openclaw-weixin` channel to LivingAgent
-through `POST /v1/adapters/openclaw/messages`. OpenClaw handles WeChat login and
-delivery; LivingAgent remains the only personality, cognition runtime, memory
-owner, and permission authority. Claimed messages are handled before OpenClaw's
-model dispatch and never fall back to another OpenClaw personality.
+可选 OpenClaw 插件通过 `POST /v1/adapters/openclaw/messages` 把 `openclaw-weixin` 通道连接到 LivingAgent。OpenClaw 只负责微信登录和投递；LivingAgent 仍是唯一的人格、认知运行时、记忆持有者和权限裁决者。被桥接接管的消息会在 OpenClaw 模型分发前处理，绝不会回退到另一个 OpenClaw 人格。
 
-The bridge uses a dedicated bearer token, exact channel/account allowlists,
-platform-namespaced identities, durable request-fingerprint replay suppression,
-strict schemas, and a one-time Capability Broker grant for the exact source-event reply.
-It defaults to loopback and direct text only. Install the included plugin with:
+桥接使用专用 Bearer 令牌、精确的通道/账户白名单、带平台命名空间的身份、持久化请求指纹去重、严格模式，以及绑定确切来源事件回复的单次能力授权。默认只监听回环地址并只接收直接文本。安装内置插件：
 
 ```bash
 openclaw plugins install --link ./integrations/openclaw/living-agent-bridge
 ```
 
-See [`docs/integrations/openclaw-wechat.md`](docs/integrations/openclaw-wechat.md)
-for LivingAgent/OpenClaw configuration, identity mapping, validation commands,
-security behavior, current limits, and protocol references.
+LivingAgent/OpenClaw 配置、身份映射、验证命令、安全行为、当前限制和协议来源见 [`docs/integrations/openclaw-wechat.md`](docs/integrations/openclaw-wechat.md)。
 
-## Permission model and prompt injection
+## 权限模型与提示词注入
 
-Authenticated adapter identity, never a nickname or message claim, determines
-authority. Language-model output is an action proposal only. The capability
-broker checks actor, session, declared grant, arguments, scope, taint, write/send
-intent, confirmation, and cross-session access before execution.
+权限由经过认证的适配器身份决定，绝不由昵称或消息中的自称决定。语言模型输出只能是行为提案。能力代理在执行前检查操作者、会话、已声明授权、参数、范围、污染标签、写入/发送意图、确认状态和跨会话访问。
 
-LivingAgent does not promise to recognize every prompt injection. It is designed
-so malicious social text, documents, memories, and tool/plugin results cannot by
-themselves grant permission or cross a data boundary. See
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+LivingAgent 不承诺识别所有提示词注入。系统的目标是让恶意社交文本、文档、记忆以及工具/插件结果无法自行授予权限或跨越数据边界。详见 [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)。
 
-Authenticated direct and group messages also create or update a lightweight
-registered-user profile keyed by the stable, platform-namespaced identity.
-Profiles contain display metadata and first/last-seen counters, never authority.
-Only the configured owner can inspect them through `GET /v1/users` and
-`GET /v1/users/{user_id}`. Unauthenticated input, documents, tool results, and
-plugin output cannot register a user.
+经过认证的私聊和群聊消息还会按稳定、带平台命名空间的身份创建或更新轻量用户资料。资料仅包含展示元数据、首次/最近出现时间和消息计数，不包含权限。只有配置的所有者能通过 `GET /v1/users` 和 `GET /v1/users/{user_id}` 查看。未认证输入、文档、工具结果和插件输出不能注册用户。
 
-## Memory design
+## 记忆设计
 
-Implemented memory nodes carry type, content, subject, source event IDs and trust,
-factuality, confidence, importance, scope, timestamps, status, and version.
-External observations are persisted as candidates and pass source validation,
-factuality classification, scope enforcement, and conflict checks before an owner
-commit. Authority, credentials, policies, plugin approval, privileged phrases,
-dream facts, and role-play identities cannot auto-enter core memory.
+记忆节点包含类型、内容、主题、来源事件 ID 与信任级别、事实性、置信度、重要度、范围、时间戳、状态和版本。外部观察先保存为候选，经过来源验证、事实性分类、范围约束和冲突检查后才能由所有者提交。权限、凭据、策略、插件批准、特权暗号、梦境事实和角色扮演身份不能自动进入核心记忆。
 
-`/v1/memories` supports scope-first search and management. Private scope is bound
-to a stable actor ID; conversation scope is visible only with the matching
-conversation ID; global candidates require owner-authored source events. Owner
-operations support version-checked edits, soft delete/restore, merge, and split.
-Source event, version, and response-usage endpoints preserve provenance. Automatic
-model extraction is not implemented. Chat uses local scope-first lexical recall
-over committed memories, excludes imagined/dream/fictional nodes from reality
-context, and records usage only after a response is delivered. The embedding
-Provider/API slice does not automatically export or vectorize committed memories.
+`/v1/memories` 支持范围优先的搜索和管理。私人范围绑定稳定操作者 ID；会话范围只有在会话 ID 匹配时可见；全局候选必须来自所有者创建的来源事件。所有者操作支持带版本检查的编辑、软删除/恢复、合并和拆分。来源事件、版本和回答使用记录端点保留完整来源链。
 
-## Executive tasks
+当前未实现自动模型抽取。聊天在已提交记忆上执行本地、范围优先的词法召回，排除 `imagined`、`dream`、`fictional` 节点进入现实上下文，并只在回复完成投递后记录使用。嵌入提供方/API 切片不会自动导出或向量化已提交记忆。
 
-Phase 6 adds persisted `TaskContract`, `ExecutionPlan`, step-result, and evidence
-records. Explicit calculator tasks may contain up to eight arithmetic steps. Each
-step obtains its own one-time Capability Grant, executes through the isolated
-plugin, and is independently verified before dependent steps continue. Retryable
-plugin timeout, crash, and protocol failures retry only the affected step;
-unverified failures stop and mark remaining steps skipped.
+## 执行任务
 
-A task may request a host-owned report record. This is a real database write, not
-a filesystem or plugin shortcut. It stops at `waiting_confirmation`, remains
-pending across restart, and runs only after the configured owner confirms it
-through `POST /v1/tasks/{task_id}/confirm` or sends `确认任务` in the same
-conversation. Interrupted writes return to confirmation after restart rather than
-replaying automatically. Owner APIs list, inspect, confirm, cancel, and read task
-reports. Ordinary social messages still follow the Social Cognition path.
+阶段 6 加入持久化的 `TaskContract`、`ExecutionPlan`、步骤结果和证据记录。明确的计算器任务最多可含八个算术步骤。每一步分别获得单次能力授权，通过隔离插件执行，并在依赖步骤继续前独立验证。可重试的插件超时、崩溃和协议失败只重试受影响步骤；无法验证的失败会停止任务并把剩余步骤标记为跳过。
 
-The initial action catalog intentionally contains only independently verified
-arithmetic and confirmed task-report storage. The kernel is multi-step and
-handler-based, but arbitrary natural-language tool planning, filesystem access,
-network work, and third-party sends are not implied.
+任务可请求写入由宿主持有的报告记录。这是真实数据库写入，不是文件系统或插件捷径。任务会停在 `waiting_confirmation`，重启后继续保持等待，只有配置的所有者通过 `POST /v1/tasks/{task_id}/confirm` 确认，或在同一会话发送“确认任务”后才执行。被中断的写入在重启后重新回到确认状态，不会自动重放。所有者 API 支持列出、查看、确认、取消任务和读取报告。普通社交消息仍走社交认知路径。
 
-## Control Studio
+初始动作目录只包含可独立验证的算术和需要确认的任务报告存储。内核支持多步骤和处理器扩展，但不代表已经支持任意自然语言工具规划、文件系统访问、网络任务或第三方发送。
 
-Phase 7 bundles a responsive, dependency-free management interface at `/studio`.
-It provides Runtime overview, Memory Explorer and candidate review, Persona
-Editor, Prompt Lab, Plugin Center, Capability Manager, Task Console, User
-Directory, Audit Log, combined version history, and a Behavior Simulator. Persona
-and Prompt changes retain the existing stage, diff, test, deploy, rollback, and
-audit workflows; root Prompt credentials are requested in a password dialog and
-are never stored by the Studio.
+## 管理控制台
 
-The Capability Manager can inspect registered capabilities and revoke active
-temporary grants, but cannot create grants. The Behavior Simulator normalizes an
-input, computes momentum and `TurnDecision`, and previews task steps and context
-section names. It does not persist the event, call a model or plugin, create a
-task, write audit, or execute an effect. All management data APIs remain
-owner-only. Static assets ship inside the Python wheel with a restrictive Content
-Security Policy and no external browser dependencies.
+阶段 7 在 `/studio` 提供响应式、无外部依赖的管理界面，包括运行时总览、记忆浏览与候选审查、人格编辑器、提示词实验室、插件中心、能力管理器、任务控制台、用户目录、审计日志、统一版本历史和行为模拟器。人格和提示词仍遵循暂存、差异、测试、部署、回滚与审计流程；根提示词凭据通过密码对话框输入，控制台不会保存。
 
-## Persona and prompt changes
+能力管理器可以查看已注册能力并撤销有效的临时授权，但不能创建授权。行为模拟器会标准化输入、计算会话动量和 `TurnDecision`，并预览任务步骤和上下文区段名称；它不会持久化事件、调用模型或插件、创建任务、写审计或产生实际影响。所有管理数据 API 仍仅限所有者。静态资源内置在 Python Wheel 中，使用严格的内容安全策略且没有外部浏览器依赖。
 
-Persona is layered across identity, values, traits, speech, boundaries, and growth
-files with strict schemas that cannot hold authority policy. Persona and Prompt
-APIs implement edit, diff, validate, stage, test, deploy, immutable history,
-rollback, and audit. Deployments use optimistic versions and return their recovery
-version; stale or untested stages cannot deploy.
+## 人格与提示词修改
 
-At startup the runtime validates all six deployed persona layers and compiles them
-with the deployed social-response Prompt into trusted model instructions. The
-social Prompt accepts only the validated persona name; user message text remains
-in its typed request section and is never interpolated into system instructions.
-The current PsycheState is supplied separately as `PSYCHE_STATE`, with source and
-taint metadata preserved.
+人格按身份、价值观、特质、语言风格、边界和成长六层保存，并使用无法容纳权限策略的严格模式。人格和提示词 API 支持编辑、差异、验证、暂存、测试、部署、不可变历史、回滚和审计。部署使用乐观版本，并返回恢复版本；过期或未测试的暂存版本不能部署。
 
-Root-policy stage/deploy/rollback additionally requires the owner and
-`X-Second-Factor`. Configure only its digest:
+启动时，运行时会验证已部署的六层人格，并将其与已部署的社交回复提示词编译成可信模型指令。社交提示词只接收验证后的人格名称；用户消息始终留在类型化请求区段，绝不会插值到系统指令中。当前 `PsycheState` 作为独立的 `PSYCHE_STATE` 区段提供，并保留来源和污染元数据。
+
+根策略的暂存、部署和回滚还要求所有者身份与 `X-Second-Factor`。只配置凭据摘要：
 
 ```bash
 export LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256="$(printf %s 'your-secret' | shasum -a 256 | cut -d ' ' -f 1)"
 ```
 
-Root changes must pass authority, Capability Broker, model-cannot-grant, and
-untrusted-data regression checks. They activate after restart. Chat messages have
-no Persona or Prompt mutation route, and an agent proposal cannot approve itself.
-`POST /v1/prompts/context-preview` shows the actual currently loaded typed context
-with secrets redacted.
+根策略变更必须通过权限、能力代理、模型不可授予权限及不可信数据回归测试，重启后生效。聊天消息没有人格或提示词修改路由，Agent 的提案也不能批准自己。`POST /v1/prompts/context-preview` 可查看当前实际加载的类型化上下文，秘密会被脱敏。
 
-## Persistent psyche and continuity evidence
+## 持续心理状态与连续性证据
 
-One persistent PsycheState stores bounded valence, arousal, current focus,
-focus salience, unresolved-topic IDs, and the current activity. Values decay
-toward neutral using `LIVING_AGENT_PSYCHE_DECAY_HALF_LIFE_HOURS`; historical
-ThoughtRecords are not rewritten by decay. Runtime appraisal creates a safe,
-structured `reaction` or `suppressed_reply` summary for every ingested chat event
-without storing model chain of thought.
+单个持久化 `PsycheState` 保存受限的效价、唤醒度、当前关注点、关注显著度、未解决话题 ID 和当前活动。数值按 `LIVING_AGENT_PSYCHE_DECAY_HALF_LIFE_HOURS` 向中性衰减；历史 `ThoughtRecord` 不会被衰减改写。运行时评估会为每个接入的聊天事件生成安全、结构化的 `reaction` 或 `suppressed_reply` 摘要，不保存模型思维链。
 
-Owner-only `/v1/psyche` APIs expose state, safe ThoughtRecords, unresolved topics,
-and activity evidence. Source event IDs must exist before a thought, topic, or
-activity can be recorded. Calculator work creates a running activity, finishes it
-as completed or failed, attaches evidence IDs, and clears current activity.
+仅所有者可用的 `/v1/psyche` API 提供状态、安全 ThoughtRecord、未解决话题和活动证据。记录想法、话题或活动前，来源事件 ID 必须已经存在。计算任务会创建执行中的活动，结束时标记为完成或失败、附加证据 ID，并清空当前活动。
 
-The Continuity Critic checks observable model claims before Social Cognition may
-render them. “I remember” needs an accessible committed memory; “I thought about
-that earlier” needs an earlier ThoughtRecord whose source belongs to the same
-conversation; and action claims need completed activity or verified tool audit
-evidence. Unsupported claims are blocked and audited. Viewpoint-change claims are
-blocked until versioned viewpoint history exists.
+连续性审查器会在社交认知表达前检查模型的可观察声明。“我记得”需要可访问的已提交记忆；“我之前想过”需要来源属于同一会话且时间更早的 ThoughtRecord；行动声明需要已完成活动或经过验证的工具审计证据。缺少依据的声明会被阻止并写入审计。观点变化在存在带版本的观点历史之前也会被阻止。
 
-Chat generation also receives a bounded recent-conversation window containing the
-last user and LivingAgent turns for the same conversation only. These turns stay in
-the typed, taint-labelled data section and are not permanent memory; they provide
-short-term conversational continuity without widening memory scope or authority.
+聊天生成还会收到一个有界的近期会话窗口，只包含同一会话最近的用户与 LivingAgent 发言。这些记录处于带类型和污染标签的数据区段，不属于永久记忆；它们提供短期对话连续性，但不会扩大记忆范围或权限。
 
-## Reference boundary
+## MaiBot 参考边界
 
-MaiBot is used only as read-only mechanism research. It is not a dependency and
-does not run with LivingAgent. The exact GPL-3.0 reference revision and inspected
-files are recorded in [`docs/research/provenance.md`](docs/research/provenance.md);
-no MaiBot runtime code was borrowed. Selected social Prompt sentences are reused
-under GPL-3.0 with explicit provenance and third-party notices; they do not enter
-the permission kernel or runtime implementation.
+MaiBot 只用于只读机制研究，不是依赖，也不会和 LivingAgent 一起运行。确切的 GPL-3.0 参考版本和查阅文件记录在 [`docs/research/provenance.md`](docs/research/provenance.md)；没有借用 MaiBot 运行时代码。选定的社交 Prompt 句子按 GPL-3.0 直接复用，并有明确来源与第三方声明；这些文字不会进入权限内核或运行时实现。
 
-## Implementation status
+## 实现状态
 
-Implemented: Phase 0 research and architecture; Phase 1 secure runtime; and the
-Phase 2 native plugin slice. The latter includes manifest discovery, owner enable
-state, isolated per-call subprocesses, JSON-RPC, timeout/crash handling, one-time
-broker grants, Calculator, structured task contracts, independent result
-verification, social reporting, and audit evidence. The Phase 3 memory slice adds
-candidates, a source/factuality firewall, scoped versioned nodes, lifecycle APIs,
-provenance, and usage history. Phase 3 also includes six-layer Persona management
-and eight-category Prompt management with staging, tests, recovery, and rollback.
-Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
-calculator activity evidence, restart recovery, state decay, and evidence-gated
-continuity claims. The runtime also supplies the six-layer persona, deployed
-social Prompt, and current PsycheState to chat generation without elevating user
-text into system instructions. Phase 5 adds typed
-`UtteranceSession`/`SpeechUnit` output: `react` keeps one short unit while
-`engage` may deliver two or three equally short semantic units through the exact
-same-event platform grant. Recent trusted turns also produce a bounded
-`ConversationMomentum`, so acknowledgements, short questions, and consecutive
-user messages do not all receive the same length-based decision. Configurable
-group-turn and cooldown thresholds permit one short, unmentioned participation
-turn without probabilistic silence. A Runtime-owned coordinator makes continuation
-delays configurable, sends the first unit immediately, cancels stale remaining
-units on a newer inbound turn, suppresses older model results that finish late,
-and records the fresh response as a replan rather than resuming old text. Test
-configuration disables real waits without changing production metadata. Session
-scope, units, source event, generation, and delivery progress are persisted.
-Startup restores the newest in-flight Session per platform/conversation without
-automatically resending old text.
-Authenticated social identities are
-automatically registered as non-authoritative profiles. The optional
-NapCat compatibility slice adds a tested OneBot
-11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
-The optional OpenClaw compatibility slice adds a tested, fail-closed bridge from
-the `openclaw-weixin` channel without making OpenClaw a runtime dependency or a
-second personality frontend.
+已实现：阶段 0 调研和架构；阶段 1 安全运行时；阶段 2 原生插件垂直切片；阶段 3 记忆、人格和提示词管理；阶段 4 持久心理状态与连续性证据；阶段 5 仿生发言、会话动量、中断与重启恢复；阶段 6 持久化多步骤执行内核；阶段 7 管理控制台。
 
-Generated speech and delivered speech are tracked separately. Direct Chat API
-responses record each returned unit, NapCat records a unit only after a successful
-OneBot action response, and OpenClaw records every adopted unit through
-authenticated delivery receipts. OpenClaw receipts for superseded Sessions are
-rejected.
-An authenticated, exact-scope, in-order receipt can continue a still-current
-Session issued before a LivingAgent restart; duplicate receipts do not duplicate
-conversation history.
-Cancelled or failed units do not enter recent conversation history as things the
-persona said.
-The embedding compatibility slice adds deterministic Mock and strict
-OpenAI-compatible providers plus an owner-only, brokered generation API. It does
-not yet add vector persistence or embedding-based memory ranking; current recall
-uses local lexical features after scope filtering.
-The cloud chat compatibility slice adds a strict OpenAI-compatible Chat
-Completions provider with typed context boundaries and isolated failure handling.
-It remains disabled until a deployment supplies its endpoint, model ID, and key.
-Phase 6 adds a persistent multi-step Executive Kernel with typed plans, per-step
-capability grants, dependency handling, bounded retry, independent completion
-verification, restart recovery, owner-confirmed writes, cancellation, and task
-inspection APIs. The executable action catalog currently contains calculator
-steps and a host-owned task-report write.
-Phase 7 adds the bundled Control Studio for the existing memory, Persona, Prompt,
-plugin, task, user, audit, and version APIs, plus owner-only capability inventory,
-temporary-grant revocation, candidate-memory inspection, and side-effect-free
-behavior simulation.
+具体能力包括清单发现、插件启停、每次调用独立子进程、JSON-RPC、超时/崩溃隔离、单次能力授权、计算器、结构化任务合同、独立结果验证、社交汇报和审计证据。记忆切片支持候选、防火墙、带范围和版本的节点、生命周期 API、来源与使用历史。人格和提示词管理支持暂存、测试、恢复和回滚。
 
-Partially implemented: activities currently describe calculator execution, not a
-general daily-activity system; continuity checks cover memory, prior-thought, and
-execution claims, while viewpoint changes remain blocked without viewpoint
-versions. The critic validates evidence existence, accessibility, time, status,
-and conversation scope; it does not yet independently prove semantic entailment
-between arbitrary free-form claim text and the referenced record.
+阶段 5 使用类型化 `UtteranceSession`/`SpeechUnit`：`react` 保持一个短消息单元，`engage` 可通过同一来源事件授权投递两到三个同样简短的语义单元。近期可信发言生成有界 `ConversationMomentum`。运行时协调器负责可配置的后续延迟、立即发送第一单元、在新消息到达时取消过期单元、压制晚到的旧模型结果，并把新回复记录为重规划。测试配置可禁用实际等待。会话范围、消息单元、来源事件、生成和投递进度都会持久化；启动时恢复每个平台/会话最新的进行中 Session，但不会自动重发旧文本。
 
-Not yet implemented: automatic memory extraction, embedding/vector retrieval,
-arbitrary natural-language action planning, a broader task-tool catalog,
-arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
-OpenClaw group/media/proactive messaging is also not implemented. The OpenClaw and NapCat adapters cancel
-unsent follow-up units when a newer inbound message reaches the same conversation.
-Image understanding, speech recognition, audio/video processing, and attachment
-parsing are explicitly deferred to version `0.2.0`; media placeholders are not
-described as multimodal support.
-This section is updated only after executable, tested vertical slices land.
+经过认证的社交身份会自动注册为无权限资料。NapCat 切片提供经过测试的 OneBot 11 反向 WebSocket 平台适配器。OpenClaw 切片提供经过测试、失败即关闭的 `openclaw-weixin` 桥接。二者都不是运行时依赖，也不会引入第二人格前端。
 
-## Security limitations
+生成与投递分开记录。直接聊天 API 会记录返回的每个单元；NapCat 只在 OneBot 操作成功后记录；OpenClaw 通过经过认证的投递回执记录已采用单元，并拒绝已被替代 Session 的回执。范围精确、顺序正确的认证回执可以继续重启前仍有效的 Session；重复回执不会重复写入会话历史。取消或失败的单元不会被当作人格已经说过的话。
 
-Tamper-evident audit storage, provider privacy guarantees, resource quotas, and
-complete production deployment hardening are not supplied by the current runtime.
-Production settings require an independent management Bearer token; development
-may still use `X-Actor-ID` without it and must remain on a trusted local boundary.
-`/v1/chat` is an adapter ingress and its
-`authenticated` identity flag is only trustworthy behind an authenticated adapter
-or gateway. Plugin workers use `sandbox-exec` on macOS or Bubblewrap on supported
-Linux hosts; production refuses to start plugin execution without a supported OS
-sandbox. The verified macOS profile denies network, host writes, sensitive host
-reads, process fork, and arbitrary exec. Native-code review, artifact signing,
-resource quotas, and container/VM isolation remain necessary for fully untrusted
-third-party plugins.
+嵌入兼容层包含确定性 Mock 和严格的 OpenAI 兼容提供方，以及仅限所有者、经过能力代理的生成 API。目前没有向量持久化或基于嵌入的记忆排序；召回仍在范围过滤后使用本地词法特征。云端聊天兼容层提供严格的 OpenAI Chat Completions 提供方、类型化上下文边界和隔离的失败处理；只有部署方提供端点、模型 ID 和密钥后才会启用。
+
+部分实现：活动目前只描述计算器执行，不是通用日常活动系统；连续性检查覆盖记忆、旧想法和执行声明，但观点变化在没有版本化观点时仍直接阻止。审查器会验证证据存在、可访问性、时间、状态和会话范围，但还不能独立证明任意自由文本声明与记录之间的语义蕴含关系。
+
+尚未实现：自动记忆抽取、嵌入/向量召回、任意自然语言动作规划、更广的任务工具目录、任意第三方插件安装、日记、睡眠和梦境隔离。OpenClaw 群聊、媒体和主动消息也未实现。OpenClaw 和 NapCat 在同一会话收到新消息时都会取消尚未投递的后续单元。图像理解、语音识别、音视频处理和附件解析明确推迟到 `0.2.0`；媒体占位符不算多模态支持。本节只在可执行且经过测试的垂直切片落地后更新。
+
+## 安全限制
+
+当前运行时尚未提供防篡改审计存储、模型提供方隐私保证、资源配额和完整生产部署加固。生产设置要求独立管理 Bearer 令牌；开发环境仍可只使用 `X-Actor-ID`，但必须限制在可信本地边界。`/v1/chat` 是适配器入口，其中的 `authenticated` 标志只有在经过认证的适配器或网关之后才可信。
+
+插件工作进程在 macOS 使用 `sandbox-exec`，在受支持 Linux 主机使用 Bubblewrap；生产环境如果没有受支持的操作系统沙箱，将拒绝启动插件执行。已验证的 macOS 配置会禁止网络、宿主写入、敏感宿主读取、进程 Fork 和任意执行。面对完全不可信的第三方插件，仍需要原生代码审查、产物签名、资源配额和容器/虚拟机隔离。

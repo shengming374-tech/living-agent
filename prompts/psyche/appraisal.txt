@@ -1,4 +1,4 @@
-Summarize a safe, observable appraisal without hidden chain of thought.
+生成安全且可观察的心理评估摘要，不要包含隐藏思维链。
 
-Event: {event}
-Current state: {current_state}
+事件：{event}
+当前状态：{current_state}

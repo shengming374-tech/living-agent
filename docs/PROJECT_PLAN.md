@@ -1,159 +1,77 @@
-# LivingAgent delivery plan
+# LivingAgent 交付计划
 
-## Architecture objective
+## 架构目标
 
-LivingAgent is a standalone runtime around one externally visible digital
-persona. Social Cognition owns participation and expression; Executive
-Cognition returns structured task evidence and cannot send user-facing text.
-Every external effect crosses a code-enforced capability broker.
+LivingAgent 是围绕单个对外数字人格构建的独立运行时。社交认知负责是否参与和如何表达；执行认知只返回结构化任务证据，不能发送用户可见文本。任何外部影响都必须经过代码强制的能力代理。
 
-## Phase status
+## 阶段状态
 
-| Phase | Scope | Current status |
+| 阶段 | 范围 | 当前状态 |
 | --- | --- | --- |
-| 0 | Research, ADRs, threat model, tooling baseline | Complete |
-| 1 | Trusted event to audited chat response | Complete |
-| 2 | Brokered calculator plugin in an isolated process | Complete |
-| 3 | Managed memory, persona, and prompt APIs | Complete |
-| 4 | Persistent psyche and safe thought records | Complete |
-| 5 | Momentum, utterance sessions, interruption | Complete |
-| 6 | Multi-step executive kernel and verification | Complete |
-| 7 | Control Studio | Complete |
-| 8 | Activities, journaling, dream isolation, proposals | Planned |
+| 0 | 调研、ADR、威胁模型、工具基线 | 已完成 |
+| 1 | 从可信事件到带审计的聊天回复 | 已完成 |
+| 2 | 隔离进程中的代理计算器插件 | 已完成 |
+| 3 | 受管理的记忆、人格和提示词 API | 已完成 |
+| 4 | 持久心理状态和安全想法记录 | 已完成 |
+| 5 | 会话动量、发言 Session 和中断 | 已完成 |
+| 6 | 多步骤执行内核和验证 | 已完成 |
+| 7 | 管理控制台 | 已完成 |
+| 8 | 活动、日记、梦境隔离和提案 | 已规划 |
 
-Each implemented phase must pass pytest, Ruff, and mypy before its phase commit.
-Later-phase schemas are added only when needed by an executable slice, avoiding
-placeholder modules.
+每个已实现阶段都必须在阶段提交前通过 pytest、Ruff 和 mypy。后续阶段的模式只在可执行切片需要时加入，避免占位模块。
 
-The current Phase 5 slice derives a ten-minute `ConversationMomentum` from recent
-trusted turns. It distinguishes a new exchange, back-and-forth conversation, and
-consecutive user messages; the turn gate keeps acknowledgements brief while
-allowing short questions or continued thoughts to receive a few short units.
-Direct messages and explicit mentions remain responsive. Optional unmentioned
-group participation uses a deterministic consecutive-user-turn threshold and
-time-since-last-agent cooldown, produces one short reaction, and cannot be
-triggered by a suspected instruction. The frequency calculation can inspect up to
-128 persisted turns while model context remains limited to the latest eight.
-`UtteranceSession.sent_count` and state advance only when a transport records
-delivery. Recent conversation history is built from those delivered units rather
-than the complete generated plan. Session plans, units, generations, source
-events, and progress are durable. Startup restores the newest in-flight Session
-per platform/conversation without automatically resending any old unit. A shared
-coordinator now owns per-platform,
-per-conversation generations: a newer inbound turn cancels the active Session,
-wakes any continuation delay, suppresses late older model output, and links the
-fresh Session through an audited `utterance.replanned` record. It deterministically
-uses the configured delay midpoint; tests disable waits through Settings.
+当前阶段 5 切片从近期可信发言计算十分钟的 `ConversationMomentum`，区分新会话、来回对话和连续用户消息。发言判断让确认性消息保持简短，同时允许短问题或继续展开的想法使用少量短消息单元。私聊和明确点名保持响应；可选的未点名群聊参与使用确定性的连续用户发言阈值和距上次 Agent 发言的冷却时间，只产生一条短反应，且疑似指令不能触发。频率计算最多读取 128 条持久化发言，模型上下文仍只保留最近 8 条。
 
-Authenticated social events now auto-register a stable platform identity with
-display name, first/last seen timestamps, message count, and last conversation.
-Registration occurs after trust normalization and never stores authority.
-Owner-only read APIs expose profiles; unauthenticated and non-social sources are
-excluded.
+`UtteranceSession.sent_count` 和状态只有在传输层确认投递时才推进。近期会话历史来自已投递单元，而不是完整生成计划。Session 计划、单元、代次、来源事件和进度均持久化；启动时按平台/会话恢复最新进行中 Session，但不自动重发。共享协调器持有每个平台/会话的代次：新输入会取消活动 Session、唤醒后续延迟、压制迟到的旧模型输出，并通过 `utterance.replanned` 审计记录关联新的 Session。延迟使用配置区间中点；测试通过 Settings 禁用等待。
 
-Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
-as a host-owned adapter with authenticated ingress and brokered same-event
-replies. It can deliver the short units in a brokered `UtteranceSession`
-sequentially. A newer inbound message in the same conversation cancels any units
-that have not begun sending and records started, delivered, and unsent counts in
-the audit log.
+经过认证的社交事件会按稳定平台身份自动注册用户，保存展示名、首次/最近出现时间、消息计数和最近会话。注册发生在信任标准化后且不保存权限。仅所有者的读取 API 可查看资料；未认证和非社交来源被排除。
 
-OpenClaw WeChat compatibility is implemented as a transport bridge using the
-typed `before_dispatch` synthetic-reply contract. It authenticates and namespaces
-ingress, applies channel/account allowlists, brokers exact same-event replies, and
-fails closed without delegating personality or permissions to OpenClaw. A new
-inbound message cancels unsent follow-up units in that same conversation and
-suppresses an older model response that finishes late. The server also rejects
-late delivery receipts for an interrupted Session, preventing cancelled text from
-entering conversation history. An authenticated, correctly scoped, in-order
-receipt may finish a still-current Session after a LivingAgent restart; duplicate
-receipts remain idempotent. Direct
-text and durable inbound replay keys are implemented; group/media/proactive
-messaging remains future work.
+平台兼容切片：NapCat OneBot 11 反向 WebSocket 作为宿主持有的适配器实现，提供认证入口和绑定同一事件的代理回复。它能顺序投递 `UtteranceSession` 中的短单元。同一会话收到新消息时，会取消尚未开始发送的单元，并在审计中记录开始、投递和未发送数量。
 
-Embedding provider compatibility is implemented as a separate vertical slice:
-deterministic Mock and OpenAI-compatible providers, strict transport/response
-validation, owner-only API access, and a brokered one-time external-send grant.
-Runtime chat now has local lexical recall after repository scope filtering, with
-reality-factuality filtering and delivered-response usage records. Vector
-persistence, memory backfill, embedding ranking, and index migration remain
-planned rather than implied by this slice.
+OpenClaw 微信兼容层使用类型化 `before_dispatch` 合成回复合同。它认证并划分入口命名空间、应用通道/账户白名单、代理绑定同一事件的回复，并在失败时关闭，不把人格或权限交给 OpenClaw。同一会话的新消息会取消未发送的后续单元并压制迟到旧结果；服务端还拒绝被中断 Session 的迟到投递回执。LivingAgent 重启后，经过认证、范围正确且顺序一致的回执仍可完成当前 Session；重复回执保持幂等。私聊文本和持久化入站重放键已实现；群聊、媒体和主动消息仍是后续工作。
 
-Cloud chat compatibility is implemented as a separate provider slice using
-OpenAI-compatible non-streaming Chat Completions. It preserves root/data context
-separation, validates bounded final text, isolates provider failures, and records
-only safe operational metadata. A real deployment remains configuration-dependent
-and requires an owner-supplied endpoint, model ID, and credential.
+嵌入提供方是独立垂直切片：确定性 Mock、OpenAI 兼容提供方、严格传输/响应验证、仅所有者 API 和单次外部发送授权。运行时聊天在仓库范围过滤后执行本地词法召回，并过滤非现实事实性，只为已投递回复记录使用。向量持久化、记忆回填、嵌入排序和索引迁移仍属于计划内容。
 
-Phase 6 is implemented as a persistent typed task kernel. Deterministic task
-understanding creates bounded calculator/report plans; every step carries one
-CapabilityRequest, dependency set, retry bound, result, and evidence. The runner
-supports multiple plugin calls, stops dependent work after failure, retries only
-transient process failures, independently verifies completion, survives restart,
-and never resumes an interrupted write without renewed owner confirmation.
-Owner APIs expose task status, reports, confirmation, and cancellation. Social
-Cognition alone renders the structured result. The first action catalog is
-deliberately limited to verified arithmetic and confirmed database reports.
+云端聊天兼容层使用 OpenAI 兼容、非流式 Chat Completions，保留根策略/数据上下文分离，验证有界最终文本，隔离提供方失败，并只记录安全操作元数据。真实部署依赖所有者提供端点、模型 ID 和凭据。
 
-Phase 7 is implemented as a same-origin Control Studio bundled with FastAPI. It
-operates the existing memory, Persona, Prompt, plugin, task, user, audit, and
-version APIs, adds read/revoke capability inventory, and adds a read-only Behavior
-Simulator. The simulator follows the real trust, momentum, turn-gate, and bounded
-executive proposal paths without event/task/audit persistence, model/plugin calls,
-or external effects. The Studio cannot mint capability grants.
+阶段 6 是持久化类型化任务内核。确定性任务理解生成有界计算/报告计划；每个步骤包含一个 CapabilityRequest、依赖集合、重试上限、结果和证据。执行器支持多次插件调用，在失败后停止依赖步骤，只重试瞬时进程失败，独立验证完成状态，支持重启恢复，并且没有重新取得所有者确认时绝不恢复被中断写入。所有者 API 提供任务状态、报告、确认和取消。只有社交认知能表达结构化结果。首个动作目录刻意只包含已验证算术和已确认数据库报告。
 
-## Minimum viable vertical slice
+阶段 7 是与 FastAPI 同源并内置发布的管理控制台。它操作现有记忆、人格、提示词、插件、任务、用户、审计和版本 API，增加只读能力清单/撤销和只读行为模拟器。模拟器走真实的信任、动量、发言判断和有界执行提案路径，但不持久化事件/任务/审计，不调用模型/插件，也不产生外部影响。控制台不能创建能力授权。
 
-1. An authenticated adapter submits a message with a platform identity.
-2. The trust boundary creates a `TrustedEvent`, assigning authority in code and
-   tainting message content as external data.
-3. A turn gate produces a structured `TurnDecision`.
-4. A context compiler labels policy, owner request, social chat, untrusted data,
-   task, memory, and capabilities without flattening their trust semantics.
-5. A model provider proposes text or a structured action, but grants nothing.
-6. The capability broker validates identity, session, schema, scope, taint, write
-   intent, confirmation, cross-session access, and external sending.
-7. Runtime or a subprocess plugin executes only an allowed grant.
-8. Verification produces structured evidence; Social Cognition renders the one
-   visible persona as one short reaction or a few short semantic units.
-9. Security decisions and effects are written to an append-only application
-   audit service inaccessible to plugin code.
+## 最小可用垂直切片
 
-## Delivery criteria for this execution
+1. 经过认证的适配器提交带平台身份的消息。
+2. 信任边界创建 `TrustedEvent`，在代码中分配权限，并把消息内容标记为外部数据。
+3. 发言判断生成结构化 `TurnDecision`。
+4. 上下文编译器分别标记策略、所有者请求、社交聊天、不可信数据、任务、记忆和能力，不抹平其信任语义。
+5. 模型提供方可提出文本或结构化动作，但不能授予权限。
+6. 能力代理验证身份、会话、模式、范围、污染、写入意图、确认、跨会话访问和外部发送。
+7. 运行时或子进程插件只执行已经允许的授权。
+8. 验证器生成结构化证据；社交认知以同一个人格表达一条短反应或少量短语义单元。
+9. 安全裁决和实际影响写入插件代码无法访问的只追加应用审计服务。
 
-### Phase 0
+## 本轮交付标准
 
-- Pinned mechanism research and provenance with no borrowed source code.
-- Explicit independent-runtime and license boundary.
-- ADRs, threat model, assumptions, packaging, lint, type, and test baseline.
+### 阶段 0
 
-### Phase 1
+- 固定版本的机制研究和来源记录，不借用源代码。
+- 明确独立运行时与许可证边界。
+- ADR、威胁模型、工程假设、打包、Lint、类型和测试基线。
 
-- FastAPI health and chat endpoints backed by migrated SQLite.
-- Trusted events, authority, taint propagation, audit log, capability decisions,
-  context compiler, event bus, and deterministic mock model.
-- Tests for impersonation, untrusted instructions, unauthorized writes, audit,
-  migrations, health, and chat.
+### 阶段 1
 
-### Phase 2
+- 由迁移后 SQLite 支持的 FastAPI 健康检查和聊天端点。
+- 可信事件、权限、污染传播、审计日志、能力裁决、上下文编译器、事件总线和确定性 Mock 模型。
+- 覆盖冒充、不可信指令、未授权写入、审计、迁移、健康检查和聊天的测试。
 
-- Strict manifest and request/result schemas.
-- Plugin discovery plus one subprocess per invocation, JSON-RPC over stdio,
-  minimal environment, timeout, termination, and crash isolation.
-- Calculator task contract through broker, verified result, and social rendering.
+### 阶段 2
 
-## Later milestones
+- 严格的清单和请求/结果模式。
+- 插件发现、每次调用一个子进程、标准输入输出 JSON-RPC、最小环境、超时、终止和崩溃隔离。
+- 计算任务合同经过能力代理，得到验证结果，再由社交认知表达。
 
-Phase 3 added a source-aware memory firewall and management/version APIs before
-long-term recall claims were enabled. Phase 4 added persistent safe thought
-summaries, psyche state decay, unresolved topics, task activities, and continuity
-evidence constraints. Phase 5 added interruptible, paced, replanned speech.
-Phase 6 adds persistent
-typed task planning, execution recovery, and evidence verification. Phase 7 added
-the owner control surface after those persistence and security contracts matured.
-Phase 8 remains last because journaling, dream, and daily-activity features need
-strict fact-isolation and self-modification approval semantics.
+## 后续里程碑
 
-Multimodal input and output are scheduled for version `0.2.0`, after the current
-text/runtime phases. Existing media segment placeholders are transport metadata,
-not image, audio, video, or attachment understanding.
+阶段 3 在允许长期召回声明前加入保留来源的记忆防火墙和管理/版本 API。阶段 4 加入持久安全想法摘要、心理状态衰减、未解决话题、任务活动和连续性证据约束。阶段 5 加入可中断、有节奏、可重规划的发言。阶段 6 加入持久化类型化任务规划、执行恢复和证据验证。阶段 7 在持久化与安全合同成熟后加入所有者控制面。
+
+阶段 8 最后实现，因为日记、梦境和日常活动需要严格的事实隔离及自我修改批准语义。多模态输入输出计划在 `0.2.0` 开始，现有媒体段占位符只是传输元数据，不代表已理解图像、音频、视频或附件。

@@ -1,56 +1,39 @@
-# Phase 3 completion record
+# 阶段 3 完成记录
 
-Completed on 2026-07-20 across the memory control commit and the
-`feat(control): add persona and prompt version workflows` commit.
+于 2026-07-20 在记忆控制提交和 `feat(control): add persona and prompt version workflows` 提交中完成。
 
-## Memory control
+## 记忆控制
 
-- Candidate observations persist separately and never auto-commit.
-- Owner commit checks source existence, conversation/private/global scope,
-  factuality, forbidden categories, and conflicts.
-- External `verified` claims become `reported`; dreams remain `dream`.
-- Core identity, owner/admin transfer, credentials, root/security policy, plugin
-  authorization, privileged phrases, and role-play identities are rejected.
-- Nodes support scoped search, optimistic edits, factuality/confidence changes,
-  soft delete/restore, merge/split, source events, immutable history, and usage.
+- 候选观察单独持久化，绝不会自动提交。
+- 所有者提交时检查来源存在性、会话/私人/全局范围、事实性、禁止类别和冲突。
+- 外部来源声称的 `verified` 会降为 `reported`；梦境保持 `dream`。
+- 核心身份、所有者/管理员转让、凭据、根/安全策略、插件授权、特权暗号和角色扮演身份都会被拒绝。
+- 节点支持带范围搜索、乐观编辑、事实性/置信度修改、软删除/恢复、合并/拆分、来源事件、不可变历史和使用记录。
 
-## Persona control
+## 人格控制
 
-- Six deployed YAML layers: identity, values, traits, speech, boundaries, growth.
-- Each layer has a strict Pydantic schema; unknown authority, secret, or prompt
-  fields are rejected rather than becoming personality data.
-- Workflow is edit/stage with diff, schema validation, full-pack test, deploy,
-  immutable version history, recovery version, rollback, and audit.
-- Stale stages cannot overwrite a newer deployment. Persona changes activate on
-  restart and contribute the identity statement to the runtime root context.
+- 六个已部署 YAML 层：身份、价值观、特质、语言风格、边界和成长。
+- 每层使用严格 Pydantic 模式；未知权限、秘密或提示词字段会被拒绝，不能混入人格数据。
+- 工作流包括编辑/暂存、差异、模式验证、整套测试、部署、不可变版本历史、恢复版本、回滚和审计。
+- 过期暂存版本不能覆盖新部署。人格变更在重启后启用，并把身份声明加入运行时根上下文。
 
-## Prompt control
+## 提示词控制
 
-- Managed host, interaction, psyche, social, executive, speech, memory, and
-  evaluation prompts with fixed paths and per-prompt variable allowlists.
-- APIs provide content, token estimate, variable validation, diff, history,
-  staging, automated render/security tests, deploy, rollback, and redacted render.
-- Context preview uses the currently loaded Runtime policy, preserves typed source
-  sections, and redacts structured and inline secret patterns.
-- Root policy mutation requires owner authority plus a SHA-256-configured second
-  factor. It creates a recovery version, must pass authority/broker/untrusted-data
-  regression tests, and only activates after restart. Group chat has no mutation path.
+- 管理宿主、交互、心理、社交、执行、表达、记忆和评估提示词，路径固定，每个提示词有变量白名单。
+- API 提供内容、令牌估算、变量验证、差异、历史、暂存、自动渲染/安全测试、部署、回滚和脱敏渲染。
+- 上下文预览使用当前加载的运行时策略，保留类型化来源区段，并脱敏结构化和行内秘密模式。
+- 修改根策略需要所有者权限和由 SHA-256 摘要配置的二次认证。修改会创建恢复版本，必须通过权限/能力代理/不可信数据回归测试，并只在重启后启用。群聊没有修改路由。
 
-## Phase gate
+## 阶段验收
 
-- `uv run pytest -q`: 65 passed with no warnings.
-- `uv run ruff check src tests migrations plugins`: passed.
-- `uv run mypy`: passed for 72 source files.
+- `uv run pytest -q`：65 项通过，无警告。
+- `uv run ruff check src tests migrations plugins`：通过。
+- `uv run mypy`：72 个源文件通过。
 
-Tests cover memory pollution and cross-session leakage, every memory lifecycle
-operation, invalid persona authority fields, stale deploys, premature deploys,
-prompt variable/render validation, secret redaction, root second authentication,
-unsafe root rejection, recovery/rollback, restart activation, and chat isolation.
+测试覆盖记忆污染与跨会话泄露、全部记忆生命周期操作、人格中的非法权限字段、过期/提前部署、提示词变量与渲染、秘密脱敏、根策略二次认证、不安全根策略拒绝、恢复/回滚、重启启用和聊天隔离。
 
-## Deferred beyond Phase 3
+## 阶段 3 之后延后
 
-- Automatic memory extraction and model-driven candidate generation.
-- Embedding/vector ranking and persistent vector indexes. Runtime recall currently
-  uses local lexical features only after repository-enforced scope filtering.
-- Persistent psyche and ThoughtRecord, interruptible utterance sessions, general
-  multi-step execution, Control Studio frontend, and dream/activity systems.
+- 自动记忆抽取和模型驱动的候选生成。
+- 嵌入/向量排序和持久向量索引；当前运行时先由仓库强制范围过滤，再使用本地词法特征召回。
+- 持久心理状态与 ThoughtRecord、可中断发言 Session、通用多步骤执行、管理控制台，以及梦境/活动系统。

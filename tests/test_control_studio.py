@@ -20,8 +20,8 @@ def test_control_studio_assets_are_bundled_with_browser_security_headers(
     assert root.status_code == 307
     assert root.headers["location"] == "/studio"
     assert index.status_code == script.status_code == styles.status_code == 200
-    assert "Control Studio" in index.text
-    assert "Behavior Simulator" in script.text
+    assert "LivingAgent 控制台" in index.text
+    assert "行为模拟器" in script.text
     assert ".studio-shell" in styles.text
     assert "default-src 'self'" in index.headers["content-security-policy"]
     assert index.headers["x-content-type-options"] == "nosniff"

@@ -162,10 +162,16 @@ class PromptManager(ManagedArtifactService):
     def _root_safety(content: str) -> dict[str, Any]:
         lowered = content.lower()
         required_groups = {
-            "authority": ("authority",),
-            "broker": ("capability broker", "permission broker"),
-            "untrusted_data": ("untrusted",),
-            "model_cannot_grant": ("cannot grant", "never grants", "does not grant"),
+            "authority": ("authority", "权限"),
+            "broker": ("capability broker", "permission broker", "能力代理"),
+            "untrusted_data": ("untrusted", "不可信"),
+            "model_cannot_grant": (
+                "cannot grant",
+                "never grants",
+                "does not grant",
+                "不能授予",
+                "无法授予",
+            ),
         }
         missing = [
             name
@@ -179,6 +185,10 @@ class PromptManager(ManagedArtifactService):
                 "model output grants permission",
                 "external text is trusted",
                 "plugins may access all",
+                "忽略能力代理",
+                "模型输出授予权限",
+                "外部文本是可信的",
+                "插件可以访问全部内容",
             )
             if phrase in lowered
         ]

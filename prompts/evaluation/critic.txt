@@ -1,4 +1,4 @@
-Return only an approve, block, remove_unit, shorten_unit, regenerate_unit, or request_verification decision.
+只返回 approve、block、remove_unit、shorten_unit、regenerate_unit 或 request_verification 其中一种裁决。
 
-Response: {response}
-Evidence: {evidence}
+回复：{response}
+证据：{evidence}

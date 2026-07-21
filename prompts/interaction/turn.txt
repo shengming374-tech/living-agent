@@ -1,4 +1,4 @@
-Given the trusted event below, choose whether to observe, react, engage, or act. Do not confuse participation with permission.
+根据下面的可信事件，在 observe、react、engage 或 act 中选择一种参与方式。不要把参与意愿和操作权限混为一谈。
 
-Event:
+事件：
 {event}

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Fail-closed OpenClaw channel bridge for LivingAgent.",
+  "description": "面向 LivingAgent、失败即关闭的 OpenClaw 通道桥接。",
   "engines": {
     "node": ">=20"
   },

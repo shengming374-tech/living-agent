@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "living-agent"
 version = "0.1.0"
-description = "A greenfield persistent-personality agent runtime with code-enforced trust boundaries."
+description = "从零构建、由代码强制信任边界的持续人格 Agent 运行时。"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

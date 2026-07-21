@@ -1,56 +1,39 @@
-# Phase 7: Control Studio
+# 阶段 7：管理控制台
 
-Completed on 2026-07-21.
+于 2026-07-21 完成。
 
-## Delivered
+## 已交付
 
-- Bundled same-origin Studio at `/studio`, included in the installable wheel and
-  protected by CSP, no-sniff, no-referrer, and no-store browser headers.
-- Overview, Memory Explorer, Persona Editor, Prompt Lab, Plugin Center,
-  Capability Manager, Task Console, User Directory, Audit Log, Version History,
-  and Behavior Simulator views.
-- Owner-only memory-candidate listing with status filtering.
-- Capability definition and active-grant inventory plus audited grant revocation.
-- Side-effect-free simulation of trust normalization, conversation momentum,
-  `TurnDecision`, typed context sections, and bounded executive task proposals.
-- Human-readable API validation errors and responsive desktop/mobile layouts.
+- 同源 `/studio` 管理界面，包含在可安装 Wheel 中，并由 CSP、禁止 MIME 猜测、禁止来源和不缓存响应头保护。
+- 总览、记忆浏览器、人格编辑器、提示词实验室、插件中心、能力管理器、任务控制台、用户目录、审计日志、版本历史和行为模拟器。
+- 仅所有者可访问的候选记忆列表与状态筛选。
+- 能力定义、有效授权清单和带审计的授权撤销。
+- 无副作用模拟信任标准化、会话动量、`TurnDecision`、类型化上下文区段和有界执行任务提案。
+- 易读的 API 验证错误和响应式桌面/移动布局。
 
-## Security boundaries
+## 安全边界
 
-- Studio never creates a capability grant and every data API independently checks
-  the configured stable owner identity.
-- Root Prompt staging, deployment, and rollback still require a fresh second
-  factor. The password value is held only for the current request and is not saved
-  in browser storage.
-- Simulator returns before all persistence and effect paths. It does not call the
-  LLM, plugin worker, platform adapter, audit service, or task repository.
-- Memory and audit content is escaped before DOM insertion. Studio JavaScript has
-  no inline handlers, dynamic code evaluation, or external dependencies.
-- `X-Actor-ID` remains a development identity selector. Production requires an
-  independent management Bearer token; Studio stores it only in `sessionStorage`
-  and attaches it to control-plane API requests.
+- 控制台永远不能创建能力授权；每个数据 API 都会独立检查配置的稳定所有者身份。
+- 根提示词的暂存、部署和回滚仍需要新鲜的二次认证。密码只在当前请求中持有，不保存到浏览器存储。
+- 模拟器在进入任何持久化或实际影响路径前返回，不调用模型、插件工作进程、平台适配器、审计服务或任务仓库。
+- 记忆和审计内容进入 DOM 前会转义。控制台 JavaScript 没有行内处理器、动态代码求值或外部依赖。
+- `X-Actor-ID` 仍只是开发身份选择器。生产环境要求独立管理 Bearer 令牌；控制台只把它保存在 `sessionStorage` 并附加到控制面 API 请求。
 
-## Verification
+## 验证
 
-- Full Python suite: `175 passed`.
-- Ruff: passed. Strict mypy: passed across 112 source files.
-- OpenClaw bridge regression suite: `13 passed`.
-- Pytest covers asset headers and routing, owner denial, memory inventory,
-  capability listing/revocation audit, side-effect-free task simulation, and
-  injection containment.
-- Ruff and strict mypy cover the Python implementation; Node syntax checking
-  covers the browser script.
-- Headless Chromium exercised all eleven views, the simulator submission, and the
-  wrong-owner error state at 1440x960.
-- Chromium mobile checks at 390x844 exercised Overview, Memory, Persona, Prompt,
-  Task, and Simulator views with no document-level horizontal overflow.
-- A built wheel was inspected to confirm all three Studio assets are packaged.
+- 完整 Python 测试：175 项通过。
+- Ruff：通过；严格 mypy：112 个源文件通过。
+- OpenClaw 桥接回归测试：13 项通过。
+- Pytest 覆盖静态资源响应头与路由、非所有者拒绝、记忆清单、能力列表/撤销审计、无副作用任务模拟和注入隔离。
+- Ruff 和严格 mypy 覆盖 Python 实现；Node 语法检查覆盖浏览器脚本。
+- 无头 Chromium 在 1440x960 下走通全部 11 个视图、模拟器提交和错误所有者状态。
+- Chromium 在 390x844 下检查总览、记忆、人格、提示词、任务和模拟器，没有页面级横向溢出。
+- 已检查构建出的 Wheel，确认三个控制台资源全部打包。
 
-## Deferred
+## 延后内容
 
-- Multi-factor or external identity-provider login beyond the production Bearer
-  credential.
-- Multi-user management roles beyond the configured owner boundary.
-- Persistent Studio preferences beyond the non-secret development actor ID.
-- Multimodal inspection, which remains scheduled for version `0.2.0`.
-- Phase 8 journaling, sleep, dreams, daily activities, and self-change proposals.
+- 在生产 Bearer 凭据之外的多因素或外部身份提供方登录。
+- 超出单一配置所有者边界的多用户管理角色。
+- 除非秘密的开发操作者 ID 外，其他控制台偏好不做持久保存。
+- 多模态查看，仍计划在 `0.2.0` 实现。
+- 阶段 8 的日记、睡眠、梦境、日常活动和自我变更提案。

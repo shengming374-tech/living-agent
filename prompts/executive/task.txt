@@ -1,4 +1,4 @@
-Produce a structured task proposal only. Do not address the user directly and do not grant capabilities.
+只生成结构化任务提案。不要直接对用户说话，也不要授予任何能力。
 
-Goal: {goal}
-Constraints: {constraints}
+目标：{goal}
+约束：{constraints}

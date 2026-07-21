@@ -1,45 +1,27 @@
-# Phase 2 completion record
+# 阶段 2 完成记录
 
-Completed on 2026-07-20 in the `feat(plugins): add isolated calculator plugin` commit.
+于 2026-07-20 在提交 `feat(plugins): add isolated calculator plugin` 中完成。
 
-## Implemented
+## 已实现
 
-- Strict Pydantic manifest, capability, operation, JSON-RPC, request, response,
-  `TaskContract`, executive proposal, plugin result, and verification schemas.
-- Plugin discovery and runtime enable/disable state with owner checks and audit.
-- One independent Python subprocess for every plugin invocation, `-I` isolated
-  interpreter mode, explicit minimal environment, JSON-RPC over stdio, response
-  size checks, timeout, cancellation cleanup, process-group termination, and
-  generic errors that do not expose plugin stderr.
-- Manifest permission intersection before the global capability broker; every
-  successful call consumes a one-time, conversation-scoped grant.
-- A standalone calculator plugin using a bounded AST interpreter with no `eval`,
-  shell, host imports, network API, or storage API.
-- Executive calculation detection, `TaskContract`, capability proposal,
-  calculator executor, independent host arithmetic verifier, evidence record, and
-  Social Cognition rendering of the verified result.
-- Plugin inventory and enable/disable APIs. Arbitrary plugin invocation and agent
-  installation are intentionally absent.
-- Post-phase hardening adds OS sandbox execution: macOS `sandbox-exec` denies
-  network, host writes, sensitive host reads, process fork, and arbitrary exec;
-  supported Linux deployments use Bubblewrap. Production requires an available
-  backend and fails closed otherwise.
+- 严格的 Pydantic 插件清单、能力、操作、JSON-RPC、请求、响应、`TaskContract`、执行提案、插件结果和验证模式。
+- 带所有者检查与审计的插件发现、运行时启用和禁用状态。
+- 每次插件调用使用一个独立 Python 子进程：`-I` 隔离解释器模式、明确的最小环境、基于标准输入输出的 JSON-RPC、响应大小检查、超时、取消清理、进程组终止，以及不会暴露插件标准错误的通用错误。
+- 进入全局能力代理前先求插件清单权限交集；每次成功调用都会消耗一个绑定会话的单次授权。
+- 独立计算器插件使用受限 AST 解释器，不使用 `eval`、Shell、宿主导入、网络 API 或存储 API。
+- 计算任务识别、`TaskContract`、能力提案、计算执行器、宿主独立算术验证器、证据记录，以及由社交认知表达的验证结果。
+- 插件清单与启停 API。刻意不提供任意插件调用和 Agent 自动安装。
+- 后续加固加入操作系统沙箱：macOS `sandbox-exec` 禁止网络、宿主写入、敏感读取、进程 Fork 和任意执行；受支持的 Linux 部署使用 Bubblewrap。生产环境必须检测到可用后端，否则失败关闭。
 
-## Phase gate
+## 阶段验收
 
-- `uv run pytest -q`: 39 passed with no warnings.
-- `uv run ruff check src tests migrations plugins`: passed.
-- `uv run mypy`: passed for 53 source files.
-- `uv build --wheel`: built `living_agent-0.1.0-py3-none-any.whl`.
+- `uv run pytest -q`：39 项通过，无警告。
+- `uv run ruff check src tests migrations plugins`：通过。
+- `uv run mypy`：53 个源文件通过。
+- `uv build --wheel`：成功构建 `living_agent-0.1.0-py3-none-any.whl`。
 
-Tests include manifest validation, discovery, RPC, input/output schema validation,
-undeclared permissions, minimal environment, hostile output taint, timeout,
-process crash, code-expression rejection, forged-success rejection, successful
-chat execution, owner plugin controls, and tool/plugin/capability audit entries.
+测试覆盖清单验证、发现、RPC、输入/输出模式、未声明权限、最小环境、恶意输出污染、超时、进程崩溃、代码表达式拒绝、伪造成功拒绝、成功聊天执行、所有者插件控制，以及工具/插件/能力审计。
 
-## Residual boundary
+## 剩余边界
 
-The OS profile is an additional enforcement boundary, not proof that arbitrary
-native code is safe. Production third-party plugins still need artifact signing,
-dependency review, resource quotas, and preferably a restricted service account,
-container, or VM. The current example is repository-owned and reviewed.
+操作系统配置是额外的强制边界，并不能证明任意原生代码安全。生产环境中的第三方插件仍需要产物签名、依赖审查、资源配额，并优先使用受限服务账户、容器或虚拟机。当前示例由仓库持有并经过审查。

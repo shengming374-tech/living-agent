@@ -30,9 +30,7 @@ def test_persona_stage_test_deploy_history_and_rollback(
     original_content = current["content"]
     payload = yaml.safe_load(original_content)
     payload["name"] = "LivingAgent Test Persona"
-    payload["identity_statement"] = (
-        "I am a persistent digital persona made from an artificial intelligence system."
-    )
+    payload["identity_statement"] = "我是由人工智能系统构成并持续存在的数字人格。"
     staged_response = client.post(
         "/v1/persona/identity/stage",
         headers=OWNER_HEADERS,

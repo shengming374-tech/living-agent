@@ -1,8 +1,8 @@
 {
   "id": "living-agent-bridge",
-  "name": "LivingAgent Channel Bridge",
+  "name": "LivingAgent 通道桥接",
   "version": "0.1.0",
-  "description": "Routes selected OpenClaw channel messages to LivingAgent before OpenClaw agent dispatch.",
+  "description": "在 OpenClaw Agent 分发前，把选定通道消息转发给 LivingAgent。",
   "activation": {
     "onStartup": true
   },
@@ -12,26 +12,26 @@
     "properties": {
       "endpoint": {
         "type": "string",
-        "description": "LivingAgent OpenClaw bridge endpoint."
+        "description": "LivingAgent OpenClaw 桥接端点。"
       },
       "token": {
         "type": "string",
-        "description": "Shared LivingAgent bridge token. Prefer tokenEnv for managed deployments."
+        "description": "共享的 LivingAgent 桥接令牌。受管理部署优先使用 tokenEnv。"
       },
       "tokenEnv": {
         "type": "string",
-        "description": "Environment variable containing the shared bridge token."
+        "description": "保存共享桥接令牌的环境变量。"
       },
       "channelId": {
         "type": "string",
-        "description": "OpenClaw channel id to claim."
+        "description": "需要接管的 OpenClaw 通道 ID。"
       },
       "allowedAccountIds": {
         "type": "array",
         "items": {
           "type": "string"
         },
-        "description": "Optional exact OpenClaw account allowlist."
+        "description": "可选的精确 OpenClaw 账户白名单。"
       },
       "timeoutMs": {
         "type": "integer",
@@ -42,7 +42,7 @@
         "type": "integer",
         "minimum": 100,
         "maximum": 5000,
-        "description": "Delay between additional LivingAgent speech units."
+        "description": "LivingAgent 后续语言单元之间的延迟。"
       },
       "maxMessageChars": {
         "type": "integer",
@@ -51,13 +51,13 @@
       },
       "allowRemoteEndpoint": {
         "type": "boolean",
-        "description": "Allow a non-loopback HTTPS LivingAgent endpoint."
+        "description": "允许使用非回环 HTTPS LivingAgent 端点。"
       }
     }
   },
   "uiHints": {
     "token": {
-      "label": "Bridge token",
+      "label": "桥接令牌",
       "sensitive": true
     }
   }

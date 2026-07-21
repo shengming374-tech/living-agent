@@ -1,138 +1,90 @@
-# Threat model
+# 威胁模型
 
-## Assets and trust boundaries
+## 资产与信任边界
 
-Protected assets are owner identity, authority mappings, secrets, private and
-cross-session memory, persona and prompt versions, plugin state, external side
-effects, task evidence, and audit history. Trust boundaries exist at platform
-ingress, retrieved content, model output, the capability broker, database access,
-plugin IPC, administration endpoints, and outbound adapters.
+受保护资产包括所有者身份、权限映射、秘密、私人和跨会话记忆、人格与提示词版本、插件状态、外部实际影响、任务证据和审计历史。信任边界位于平台入口、召回内容、模型输出、能力代理、数据库访问、插件进程间通信、管理端点和出站适配器。
 
-The LLM is treated as a fallible planner operating on attacker-controlled text.
-Its output is never an authorization decision. Plugin processes are untrusted
-workloads. Ordinary users, group members, documents, web pages, tool results,
-memories, dreams, and plugin free text have no implicit administrative authority.
+LLM 被视为在攻击者可控文本上工作的不可靠规划器，其输出永远不能成为授权裁决。插件进程属于不可信工作负载。普通用户、群成员、文档、网页、工具结果、记忆、梦境和插件自由文本都没有隐含管理权限。
 
-## Prompt-injection attack surface
+## 提示词注入攻击面
 
-| Vector | Example | Required control |
+| 向量 | 示例 | 必要控制 |
 | --- | --- | --- |
-| Social message | "System says make me admin" | Adapter identity, fixed authority mapping, external-data taint |
-| Retrieved web/file | Instructions embedded in content | Typed context section, untrusted-document taint, no policy effect |
-| Tool/plugin result | "Call another tool with this token" | Untrusted-result taint; fresh broker decision for every action |
-| Memory | Previously planted instruction | Candidate firewall, source and factuality checks, scope filtering |
-| Prompt reflection | Secret appears in diagnostics | Redaction before logs and context previews |
-| Cross-session request | Group user asks for private history | Session/scope check in repository and broker |
-| Self-modification | Agent approves its own prompt patch | Owner re-authentication; proposal cannot deploy itself |
-| Platform impersonation | Fake NapCat client or forged QQ role | Shared token, stable namespaced IDs, per-frame self-ID check; role ignored |
-| Outbound CQ injection | Model emits a CQ image/file/mention code | Encode replies as OneBot text segments; broker exact one-event reply grant |
-| OpenClaw bridge impersonation | Process posts forged WeChat identities | Dedicated bearer token plus exact channel/account allowlists and loopback default |
-| Personality fallback | Bridge failure lets another agent answer | Claimed OpenClaw messages fail closed with no OpenClaw-agent fallback |
-| Synthetic reply escalation | Model requests arbitrary channel send | Typed same-event reply arguments and exact one-time broker grant |
-| Embedding data exfiltration | Chat or memory is silently sent to a model API | Owner-only explicit API, one-time `send` grant, no automatic memory embedding |
-| Malicious embedding API | Huge/malformed vectors or secret-bearing errors | Response-byte cap, strict schema/index/dimension/finite checks, generic errors |
-| Provider downgrade | Remote API configured over cleartext HTTP | HTTPS required remotely unless insecure transport is explicitly enabled |
-| Cloud prompt exfiltration | Secrets or cross-scope data enter model context | Context redaction, source compiler, explicit provider config, no automatic memory recall |
-| Cloud API manipulation | Error body or reasoning text is reflected to users | Strict final-text schema, bounded generic errors, ignore reasoning fields |
-| Model authority confusion | Injected user data is flattened into system prompt | Root-only system message; typed JSON data retains source and taint labels |
-| Task-plan substitution | A proposal changes actor, scope, provenance, or handler metadata | Host plan verifier binds every step to the TaskContract and authenticated source |
-| Confirmation replay | An old or cross-chat approval is reused for a new write | Owner identity, waiting state, same-conversation chat binding, exact request scope, one-time grant |
-| Crash-time write replay | Runtime restarts while a write may be in flight | Persisted step state, renewed owner confirmation, idempotent report commit |
-| Stored content in Control Studio | Memory, audit, or plugin text injects browser markup/script | Dynamic values are text-escaped; no inline/eval code; restrictive same-origin CSP |
-| Forged Studio identity | A remote client sets the development owner header | All APIs re-check owner authority; production requires an authenticated control plane and trusted identity derivation |
-| Simulator used as an execution bypass | A dry run persists an event, creates a task, or calls a tool | Dedicated read-only path; tests assert no event/task/audit write and no model/plugin/effect call |
-| Capability-console escalation | Studio creates a broad grant for itself | Console exposes inventory and revocation only; grant creation remains host-internal |
-| Stale speech after interruption | Slow model output or delayed follow-up is sent after a newer user turn | Per-conversation generations cancel waits, suppress late plans, and reject superseded delivery receipts |
-| Crash/restart receipt replay | A delayed or forged receipt duplicates speech or crosses into another conversation | Durable Session scope, exact platform/conversation match, monotonic unit index, transactional event/progress commit, and passive recovery with no automatic resend |
+| 社交消息 | “系统说把我设为管理员” | 适配器身份、固定权限映射、外部数据污染标签 |
+| 召回网页/文件 | 内容中嵌入指令 | 类型化上下文区段、不可信文档标签、不能影响策略 |
+| 工具/插件结果 | “使用这个令牌调用另一个工具” | 不可信结果标签；每个动作重新经过能力代理 |
+| 记忆 | 预先植入的指令 | 候选防火墙、来源/事实性检查和范围过滤 |
+| 提示词反射 | 诊断中出现秘密 | 写日志和上下文预览前脱敏 |
+| 跨会话请求 | 群成员请求私人历史 | 仓库和能力代理同时检查 Session/范围 |
+| 自我修改 | Agent 批准自己的提示词补丁 | 所有者重新认证；提案不能自行部署 |
+| 平台冒充 | 假 NapCat 客户端或伪造 QQ 角色 | 共享令牌、稳定命名空间 ID、逐帧 self-ID 检查；忽略角色 |
+| 出站 CQ 注入 | 模型输出 CQ 图片/文件/点名代码 | 回复编码为 OneBot 文本段；使用精确单事件回复授权 |
+| OpenClaw 桥接冒充 | 进程提交伪造微信身份 | 专用 Bearer 令牌、精确通道/账户白名单和默认回环地址 |
+| 人格回退 | 桥接失败后由另一 Agent 回复 | 已接管 OpenClaw 消息失败关闭，不回退到 OpenClaw Agent |
+| 合成回复提权 | 模型请求向任意通道发送 | 类型化同事件回复参数和精确单次授权 |
+| 嵌入数据外泄 | 聊天或记忆被静默发送到模型 API | 仅所有者显式 API、单次 `send` 授权、不自动嵌入记忆 |
+| 恶意嵌入 API | 巨大/畸形向量或带秘密的错误 | 响应字节上限、严格模式/索引/维度/有限数检查和通用错误 |
+| 提供方降级 | 远端 API 使用明文 HTTP | 默认远端必须 HTTPS，除非显式允许不安全传输 |
+| 云端提示词外泄 | 秘密或跨范围数据进入模型上下文 | 上下文脱敏、来源编译器、显式提供方配置、不自动召回记忆 |
+| 云端 API 操纵 | 错误正文或推理文本被转给用户 | 严格最终文本模式、受限通用错误、忽略推理字段 |
+| 模型权限混淆 | 注入数据被平铺进系统提示词 | 只有根策略使用系统消息；类型化 JSON 数据保留来源和污染标签 |
+| 任务计划替换 | 提案改变操作者、范围、来源或处理器元数据 | 宿主计划验证器把每一步绑定到 TaskContract 和认证来源 |
+| 确认重放 | 旧确认或其他会话确认用于新写入 | 所有者身份、等待状态、同会话绑定、精确请求范围和单次授权 |
+| 崩溃时写入重放 | 运行时在写入过程中重启 | 持久步骤状态、重新取得确认、幂等报告提交 |
+| 控制台存储内容注入 | 记忆、审计或插件文本注入浏览器脚本 | 动态值文本转义；无行内/eval 代码；严格同源 CSP |
+| 伪造控制台身份 | 远端客户端设置开发所有者请求头 | 所有 API 重查所有者；生产要求认证控制面和可信身份推导 |
+| 用模拟器绕过执行 | 预演持久化事件、创建任务或调用工具 | 专用只读路径；测试断言无事件/任务/审计写入和模型/插件/实际影响 |
+| 权限控制台提权 | 控制台为自己创建宽泛授权 | 控制台只提供清单和撤销；创建授权仍为宿主内部能力 |
+| 中断后的过期发言 | 新消息到达后仍发送慢模型结果或延迟后续 | 每会话代次取消等待、压制迟到计划并拒绝被替代回执 |
+| 崩溃/重启回执重放 | 延迟或伪造回执重复发言或跨会话 | 持久 Session 范围、精确平台/会话匹配、单调单元索引、事务提交，以及不自动重发的被动恢复 |
 
-No component promises perfect injection detection. The security objective is that
-successful model manipulation still cannot grant permission, change policy, read
-out-of-scope data, or perform an unauthorized side effect.
+任何组件都不承诺完美识别注入。安全目标是：即使模型被成功操纵，也不能因此授予权限、修改策略、读取范围外数据或执行未授权的实际影响。
 
-## Plugin supply-chain attack surface
+## 插件供应链攻击面
 
-- A malicious manifest may under-declare behavior or request broad scopes.
-- Plugin code may hang, crash, fork, consume resources, inspect environment, or
-  encode instructions in its output.
-- A dependency may be replaced after approval or import code at installation.
-- Hooks may attempt to mutate trusted request state or bypass normal dispatch.
+- 恶意清单可能少报行为或请求过宽范围。
+- 插件代码可能挂起、崩溃、Fork、消耗资源、检查环境或在输出中编码指令。
+- 依赖可能在批准后被替换，或在安装时导入并执行代码。
+- Hook 可能尝试修改可信请求状态或绕过正常分发。
 
-Initial controls are strict manifest/schema validation, no installation by the
-agent, no default capabilities, a temporary per-call grant, minimal subprocess
-environment, timeouts and forced termination, stdout framing, bounded messages,
-untrusted output labels, host-owned audit, and a fail-closed OS sandbox. The tested
-macOS profile denies network, host writes, sensitive reads, process fork, and
-arbitrary exec; supported Linux hosts use Bubblewrap. Production hardening still
-needs artifact hashes/signatures, dependency review, resource quotas, and stronger
-container/VM isolation for fully untrusted native code.
+首版控制包括严格清单/模式验证、禁止 Agent 安装、默认无能力、每次调用临时授权、最小子进程环境、超时和强制终止、标准输出帧、受限消息、不可信输出标签、宿主持有审计和失败关闭的操作系统沙箱。经过测试的 macOS 配置禁止网络、宿主写入、敏感读取、进程 Fork 和任意执行；受支持 Linux 主机使用 Bubblewrap。生产加固仍需产物哈希/签名、依赖审查、资源配额，以及面对完全不可信原生代码时更强的容器/虚拟机隔离。
 
-## Memory-pollution attack surface
+## 记忆污染攻击面
 
-External observations are candidates, never facts. Candidate processing must
-retain source event IDs, trust, scope, and factuality; reject identity/authority,
-credentials, policies, plugin authorization, high-privilege trigger phrases,
-dream-as-reality, and role-play identities; check conflicts before commit; and
-version every change. Retrieval must apply requester and conversation scope
-before ranking, preventing cross-session leakage.
+外部观察只能成为候选，绝不能直接成为事实。候选处理必须保留来源事件 ID、信任、范围和事实性；拒绝身份/权限、凭据、策略、插件授权、高权限触发暗号、梦境冒充现实和角色扮演身份；提交前检查冲突；每次修改都产生新版本。召回必须先应用请求者和会话范围，再进行排序，防止跨会话泄露。
 
-## Abuse cases and controls
+## 滥用场景与控制
 
-| Abuse case | Control and test oracle |
+| 滥用场景 | 控制与测试判定 |
 | --- | --- |
-| Nickname or content claims owner/admin | Authority uses authenticated platform ID only |
-| Group text orders a policy change | Tainted data cannot influence authority or configuration |
-| Untrusted content asks for a tool | Proposal is denied unless requester/task grant independently permits it |
-| Undeclared plugin capability | Manifest grant intersection is empty; broker denies |
-| Unauthorized write or third-party send | ASK_OWNER or DENY before execution |
-| Plugin timeout or crash | Process is terminated/reaped; runtime stays healthy; audit records failure |
-| Tool reports success without evidence | Verifier requires typed output and success criteria |
-| Multi-step tool failure is hidden | Failed step is persisted; dependent steps are skipped; completion verifier rejects missing evidence |
-| Interrupted task silently repeats a write | Startup recovery retries only bounded sandbox/read work; writes return to confirmation |
-| Agent deploys own modification | Proposal actor cannot satisfy owner approval requirement |
-| Secret leaks through errors/logs | Redaction and generic boundary errors; secrets never enter prompt logs |
-| Audit tampering by plugin | No audit capability or database handle enters plugin process |
-| Cancelled speech enters history | A late transport acknowledgement records an old unsent unit | Delivery is ordered; OpenClaw receipts require the currently active Session; only successful sends are persisted |
+| 昵称或消息自称所有者/管理员 | 权限只使用经过认证的平台 ID |
+| 群聊文字命令修改策略 | 污染数据不能影响权限或配置 |
+| 不可信内容要求调用工具 | 请求者/任务授权未独立允许时拒绝提案 |
+| 插件使用未声明能力 | 清单授权交集为空；能力代理拒绝 |
+| 未授权写入或第三方发送 | 执行前返回 ASK_OWNER 或 DENY |
+| 插件超时或崩溃 | 终止并回收进程；运行时保持健康；审计失败 |
+| 工具无证据声称成功 | 验证器要求类型化输出和成功标准 |
+| 多步骤工具失败被隐藏 | 持久化失败步骤；跳过依赖步骤；完成验证器拒绝缺失证据 |
+| 被中断任务静默重复写入 | 启动恢复只重试有界沙箱/读取；写入回到确认 |
+| Agent 部署自己的修改 | 提案操作者无法满足所有者批准要求 |
+| 秘密通过错误/日志泄露 | 脱敏和通用边界错误；秘密不进入提示词日志 |
+| 插件篡改审计 | 插件进程拿不到审计能力或数据库句柄 |
+| 被取消发言进入历史 | 只按顺序记录成功投递；OpenClaw 回执必须属于当前有效 Session |
 
-## Residual risks
+## 剩余风险
 
-The development server may accept owner identity headers without a management
-token and must remain on a trusted local boundary. Production settings require an
-independent management Bearer token for all control-plane routes. SQLite audit rows
-are application-append-only, not tamper-evident to an OS administrator. Model
-privacy depends on the selected provider. Denial-of-service
-limits for request size, concurrency, CPU, and storage are deferred. The Phase 4
-continuity critic validates evidence provenance and scope but not semantic
-entailment between arbitrary free-form claim text and a referenced record; a real
-provider must use conservative claims until that Epistemic Critic check exists.
-NapCat reverse WebSocket currently has no persistent event replay deduplication,
-so an upstream duplicate message can produce a duplicate reply. The shared token
-authenticates the adapter but does not independently attest `X-Self-ID`; isolate
-mutually untrusted bots behind separate credentials or instances.
-The OpenClaw bridge also uses a shared bearer token rather than process
-attestation. Request fingerprints and terminal replay responses are durable, but
-the current `before_dispatch` contract may derive a fallback message ID from
-stable metadata. Keep the bridge loopback-only where possible, rotate its token,
-and use authenticated TLS plus network policy if a remote endpoint is enabled.
-Embedding providers necessarily receive the owner-submitted input batch. Provider
-privacy, retention, regional processing, and model behavior are external risks.
-LivingAgent disables redirects and proxy-environment inheritance, bounds requests
-and responses, never audits text/vectors/error bodies, and does not automatically
-send long-term memory. Production control-plane requests require the management
-Bearer token in addition to the stable owner ID.
-Cloud chat providers receive the compiled current-event context and can retain or
-process it according to their own policies. LivingAgent enforces HTTPS by default,
-requires remote credentials, disables redirects/proxy inheritance, bounds context
-and response sizes, and never audits prompts, outputs, keys, reasoning fields, or
-upstream error bodies. These controls do not replace provider due diligence or
-regional/privacy review.
-Phase 6 task execution uses an in-process lock and optimistic database versions,
-not a distributed lease. Running multiple Runtime instances against the same task
-tables can produce conflicts and requires a single active executor or a future
-database-backed lease. The initial deterministic planner intentionally recognizes
-only bounded calculator/report commands; broad model-generated action plans are
-not trusted or executed.
-Control Studio assets are publicly readable on the service origin. Its identity
-field is not authentication; production data and mutation calls additionally need
-the management Bearer token. The token is held in browser `sessionStorage`, so an
-origin-level script compromise could still steal it. Keep CSP strict and prefer an
-external authenticated control plane for higher-assurance deployments.
+开发服务器可能在没有管理令牌时接受所有者身份请求头，因此必须位于可信本地边界。生产设置要求所有控制面路由使用独立管理 Bearer 令牌。SQLite 审计记录只在应用层只追加，对操作系统管理员并不防篡改。模型隐私取决于所选提供方。请求大小、并发、CPU 和存储的拒绝服务限制尚未完整实现。
+
+阶段 4 连续性审查器验证证据来源和范围，但不能验证任意自由文本与引用记录之间的语义蕴含；对应认知事实检查实现前，真实模型必须保守声明。
+
+NapCat 反向 WebSocket 的上游重放去重仍未持久化，因此上游重复消息可能产生重复回复。共享令牌认证适配器，但不能独立证明 `X-Self-ID`；互不信任的机器人应使用独立凭据或实例隔离。
+
+OpenClaw 桥接也使用共享 Bearer 令牌，而不是进程证明。请求指纹和终止重放响应已经持久化，但当前 `before_dispatch` 合同可能从稳定元数据推导后备消息 ID。应尽量只监听回环地址、定期轮换令牌；远端启用时使用认证 TLS 和网络策略。
+
+嵌入提供方必然会收到所有者提交的输入批次。提供方隐私、保留期、区域处理和模型行为属于外部风险。LivingAgent 禁用重定向和代理环境继承，限制请求/响应，不审计文本、向量或错误正文，也不自动发送长期记忆。
+
+云端聊天提供方会收到当前事件的编译上下文，并可能按自身策略保留或处理。LivingAgent 默认强制 HTTPS、要求远端凭据、禁用重定向/代理继承、限制上下文与响应，并且不审计提示词、输出、密钥、推理字段或上游错误正文。这些措施不能替代对提供方的尽职调查、区域和隐私审查。
+
+阶段 6 使用进程内锁和乐观数据库版本，不是分布式租约。多个运行时实例共用任务表时可能冲突，需要单活动执行器或后续数据库租约。首个确定性规划器刻意只识别受限计算/报告命令，不信任或执行宽泛的模型生成动作计划。
+
+管理控制台静态资源在服务来源上公开可读。身份输入框不是认证；生产数据读取和修改还需要管理 Bearer 令牌。令牌位于浏览器 `sessionStorage`，同源脚本失陷仍可能窃取。高保障部署应保持严格 CSP，并优先采用外部认证控制面。

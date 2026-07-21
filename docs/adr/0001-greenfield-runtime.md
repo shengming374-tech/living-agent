@@ -1,30 +1,18 @@
-# ADR 0001: Greenfield standalone runtime
+# ADR 0001：从零构建独立运行时
 
-- Status: Accepted
-- Date: 2026-07-20
+- 状态：已接受
+- 日期：2026-07-20
 
-## Context
+## 背景
 
-LivingAgent needs reliable work execution and continuous social behavior without
-inheriting the compatibility and licensing constraints of a chat-focused bot.
-MaiBot is GPL-3.0 and optimized around group-chat naturalness.
+LivingAgent 需要可靠的工作执行和持续社交行为，同时不能继承聊天机器人已有的兼容与许可证约束。MaiBot 使用 GPL-3.0，主要围绕群聊自然度优化。
 
-## Decision
+## 决策
 
-Build an independent Python 3.12 runtime using FastAPI, Pydantic v2, SQLAlchemy
-2, Alembic, asyncio, and SQLite/PostgreSQL-compatible models. MaiBot is a pinned,
-ignored research checkout only. LivingAgent never imports it, requires its
-service, or targets its internal interfaces. MCP is a future connector adapter,
-not the native plugin protocol.
+使用 Python 3.12、FastAPI、Pydantic v2、SQLAlchemy 2、Alembic、asyncio 和兼容 SQLite/PostgreSQL 的模型构建独立运行时。MaiBot 只作为固定版本、被 Git 忽略的研究副本。LivingAgent 永不导入 MaiBot、不要求其服务运行，也不面向其内部接口。MCP 是未来连接器适配器，不是原生插件协议。
 
-One persona has two internal cognitive views. Executive Cognition emits only
-structured plans, capability proposals, evidence, and status. Social Cognition
-alone renders user-visible language.
+一个人格具有两个内部认知侧面。执行认知只输出结构化计划、能力提案、证据和状态；只有社交认知可以生成用户可见语言。
 
-## Consequences
+## 后果
 
-Mechanisms and runtime code must be re-derived and independently tested. MaiBot
-code is not copied. Selected natural-language social Prompt excerpts may be reused
-only with explicit provenance and license notices; they cannot change authority,
-capability, memory, or execution contracts. Feature
-parity is not a goal; security invariants take precedence over compatibility.
+所有机制和运行时代码必须重新推导并独立测试，不复制 MaiBot 代码。只有在明确记录来源和许可证声明时，才可复用选定的自然语言社交 Prompt；这些文字不能改变权限、能力、记忆或执行合同。功能完全对齐不是目标，安全不变量优先于兼容性。

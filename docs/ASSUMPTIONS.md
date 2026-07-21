@@ -1,122 +1,36 @@
-# Engineering assumptions
+# 工程假设
 
-1. The repository is greenfield and has no compatibility contract with MaiBot.
-2. Python 3.12 is provisioned by `uv`; the host's system Python need not be upgraded.
-3. Development uses SQLite through SQLAlchemy asyncio. Models avoid SQLite-only
-   types so a PostgreSQL URL can replace it later.
-4. A platform adapter authenticates `source_identity`. Display names and message
-   content never establish identity or authority.
-5. The first runtime has one configured owner ID and treats all other identities
-   as members unless an authenticated adapter supplies a stronger mapping.
-6. The Phase 1 model provider is deterministic and local. Real model credentials
-   are deliberately deferred behind the same provider protocol.
-7. Plugin calls combine one-shot subprocesses, a minimal environment, brokered
-   grants, and an OS sandbox. macOS uses a tested `sandbox-exec` profile; supported
-   Linux hosts use Bubblewrap. Production requires a detected backend and fails
-   closed otherwise. Native-code review and resource isolation still require
-   stronger container or VM controls for fully untrusted plugins.
-8. `references/maibot/` is deliberately ignored by the main repository. Research
-   provenance pins the inspected upstream revision without vendoring GPL code.
-9. Phase 5 supports one-unit reactions and configurable one-to-three-unit engaged
-   replies. A Runtime-owned coordinator invalidates stale generations across Chat
-   API, NapCat, and OpenClaw. Replanning means producing a fresh response from the
-   newer inbound event and current conversation state; cancelled old units are
-   never mechanically resumed or rewritten in place.
-10. Root prompt mutation is disabled when
-    `LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256` is unset. Only the digest is
-    configured; the raw second factor is supplied per privileged request.
-11. Managed Persona and Prompt files are single-process resources. The repository
-    prevents stale-version deployment, but multi-instance production deployment
-    also needs an external deployment lock or single control-plane writer.
-12. Phase 4 has one `primary` PsycheState for the single LivingAgent persona.
-    Thought and activity evidence remains source-bound, and continuity claims may
-    only use evidence whose source events belong to the active conversation.
-13. Psyche state and ThoughtRecord inspection/mutation are owner control-plane
-    operations. `X-Actor-ID` is sufficient only in development and tests;
-    production additionally requires the configured management Bearer token.
-14. NapCat integration uses OneBot 11 reverse WebSocket because it supports event
-    ingress and correlated API replies on one authenticated connection. QQ actor
-    and conversation IDs are namespaced by bot `self_id`; nickname, group card,
-    and group role remain untrusted display metadata.
-15. A LivingAgent-generated reply to the same authenticated source event is an
-    allowed system `reply`, not an unsolicited third-party `send`. It still needs
-    an exact, one-time Capability Grant. Unsolicited and cross-conversation sends
-    remain unimplemented.
-16. The OpenClaw integration uses the typed `before_dispatch` hook available in
-    OpenClaw 2026.6.10. OpenClaw owns WeChat login and delivery only; LivingAgent
-    remains the sole personality, cognition runtime, memory owner, and capability
-    authority. Claimed messages never fall back to the OpenClaw agent.
-17. OpenClaw stores a keyed request fingerprint and terminal replay response before
-    returning a reply. Completed requests replay without visible messages after
-    restart. A prior invocation left processing/failed is not retried under the
-    same message ID, because avoiding duplicate effects takes precedence over an
-    automatic retry.
-18. Direct WeChat text is the initial compatibility target. Group chat, media,
-    proactive sends, and alternate OpenClaw channels remain denied or unclaimed.
-    OpenClaw channels that omit typed sender/conversation IDs use a stable opaque
-    hash of authenticated channel/account/session routing as the direct identity;
-    missing all stable identity inputs remains a hard rejection.
-19. Embedding generation is initially an explicit owner control-plane operation.
-    It never automatically exports chat history or committed memories. Remote
-    calls are external sends requiring a one-time broker grant and owner
-    confirmation; audit stores only bounded operational metadata.
-20. `openai_compatible` means the JSON `POST /embeddings` contract with optional
-    Bearer authentication. Provider-specific authentication and payload variants
-    require separate adapters rather than weakening response validation.
-21. The first cloud chat adapter targets OpenAI-compatible non-streaming
-    `/chat/completions`. The owner-selected endpoint/model/key are deployment
-    configuration and cannot be changed by chat, model output, or plugins.
-22. Cloud chat receives the trusted root as system content and all remaining
-    context as typed, taint-labelled user data. Provider-specific reasoning fields
-    are discarded; structured continuity evidence remains future work.
-23. The owner has stated that the deployed WeChat participants already know the
-    persona is AI. The default deployment persona therefore identifies herself as
-    凤笑梦, understood as a non-biological digital persona constituted by AI, and
-    does not repeat AI-disclosure boilerplate in ordinary conversation.
-24. Short-term conversational continuity uses only a bounded, same-conversation
-    window of persisted user and Agent turns. It is typed model context, not an
-    automatic permanent-memory commit. Long-term recall reads only committed,
-    scope-accessible reality memories and uses local lexical ranking; it never
-    turns the current message into a permanent memory.
-25. Speaking frequency is deterministic. Direct messages and explicit mentions
-    stay responsive; optional unmentioned group participation requires a configured
-    consecutive-user-turn threshold and cooldown, then emits one short reaction.
-    Random reply probabilities are not used.
-26. In-flight `UtteranceSession` state is durable, but recovery is passive: startup
-    restores authorization and delivery progress without resending old text.
-    OpenClaw may finish an already-issued Session with authenticated, exact-scope,
-    in-order receipts. NapCat and Chat API Sessions wait for a new inbound turn,
-    which cancels the stale remainder, because those transports have no durable
-    post-restart receipt channel.
-27. User auto-registration accepts only authenticated direct/group events and keys
-    profiles by stable platform identity. Display names are mutable metadata and
-    never establish owner/admin authority. Registration does not grant memory,
-    prompt, plugin, or capability access.
-28. Multimodal understanding is deferred to version `0.2.0`. Until then, image,
-    audio, video, voice, and file segments may be represented as transport
-    placeholders but are never claimed as parsed or understood content.
-29. Phase 6 task understanding uses an explicit deterministic grammar for bounded
-    calculations, task-report requests, and confirmation commands. This keeps
-    actions testable and prevents model prose from becoming authority. Arbitrary
-    natural-language planning requires later typed model-proposal adapters and a
-    broader independently verified action catalog.
-30. Task runs and step evidence persist in the primary database. Single-process
-    execution uses an in-process lock plus optimistic row versions; multi-instance
-    production requires a distributed task lease. Startup may retry interrupted
-    sandbox/read steps, but an interrupted write always returns to owner
-    confirmation before any effect is attempted again.
-31. Control Studio is served from the same FastAPI origin and uses the existing
-    owner APIs. Its `X-Actor-ID` selector is convenient for local development;
-    production also requires the management Bearer token, retained only for the
-    current browser session. External identity-provider integration remains future
-    deployment hardening.
-32. Behavior simulation may read bounded, same-conversation history to reproduce
-    momentum, but it performs no event, task, memory, or audit write and calls no
-    model, plugin, or platform adapter. Its output is a deterministic preview, not
-    permission to execute the previewed proposal.
-33. An authenticated owner may inspect the complete memory inventory without a
-    conversation header. Non-owner reads still apply global, stable private-actor,
-    and exact conversation scope filters before search.
-34. Production configuration requires a dedicated management API token of at least
-    32 characters. All `/v1` control-plane routes require it; `/v1/chat` and
-    `/v1/adapters/*` retain their separate platform/gateway authentication models.
+1. 本仓库是从零开发项目，不承担与 MaiBot 的兼容契约。
+2. Python 3.12 由 `uv` 提供，不要求升级宿主系统 Python。
+3. 开发环境通过 SQLAlchemy asyncio 使用 SQLite。模型避免 SQLite 专属类型，以便以后直接替换为 PostgreSQL URL。
+4. 平台适配器负责认证 `source_identity`。展示名称和消息内容永远不能建立身份或权限。
+5. 首版运行时只有一个配置的所有者 ID；除非认证适配器提供更强映射，其他身份都视为普通成员。
+6. 阶段 1 的模型提供方是确定性本地实现。真实模型凭据刻意延后，并隐藏在同一提供方协议之后。
+7. 插件调用结合单次子进程、最小环境、代理授权和操作系统沙箱。macOS 使用经过测试的 `sandbox-exec` 配置，受支持的 Linux 主机使用 Bubblewrap。生产环境必须检测到可用后端，否则失败关闭。面对完全不可信的原生插件，代码审查和资源隔离仍需要更强的容器或虚拟机控制。
+8. `references/maibot/` 刻意不纳入主仓库。研究来源固定查阅的上游版本，不把 GPL 代码复制进项目。
+9. 阶段 5 支持单条短反应和可配置的一到三条主动参与回复。运行时协调器会跨聊天 API、NapCat 和 OpenClaw 使过期代次失效。重规划是根据较新的输入事件和当前会话状态生成全新回复；被取消的旧单元绝不机械续发或原地改写。
+10. 未设置 `LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256` 时，禁止修改根提示词。配置中只保存摘要；原始二次认证值由每个特权请求单独提供。
+11. 受管理的人格和提示词文件按单进程资源设计。仓库能阻止过期版本部署，但多实例生产部署还需要外部部署锁，或保证控制面只有一个写入者。
+12. 阶段 4 为单个 LivingAgent 人格维护一个 `primary` PsycheState。想法和活动证据始终绑定来源；连续性声明只能使用来源事件属于当前会话的证据。
+13. 查看或修改心理状态和 ThoughtRecord 都属于所有者控制面操作。`X-Actor-ID` 只在开发和测试中足够；生产环境还必须提供配置的管理 Bearer 令牌。
+14. NapCat 集成采用 OneBot 11 反向 WebSocket，因为它能在一条认证连接上同时处理事件接入和关联 API 回复。QQ 操作者和会话 ID 按机器人 `self_id` 划分命名空间；昵称、群名片和群角色始终是不可信展示元数据。
+15. LivingAgent 对同一认证来源事件生成的回复属于允许的系统 `reply`，不是主动向第三方 `send`。它仍然需要精确、单次的能力授权。主动发送和跨会话发送尚未实现。
+16. OpenClaw 集成使用 OpenClaw 2026.6.10 提供的类型化 `before_dispatch` Hook。OpenClaw 只持有微信登录和投递；LivingAgent 仍是唯一的人格、认知运行时、记忆持有者和能力裁决者。被接管消息绝不回退到 OpenClaw Agent。
+17. OpenClaw 在返回回复前持久化带密钥的请求指纹和终止重放结果。已完成请求在重启后重放时不产生可见消息。先前停在处理/失败状态的调用不会在同一消息 ID 下重试，因为避免重复实际影响优先于自动重试。
+18. 首个兼容目标是微信私聊文本。群聊、媒体、主动发送和其他 OpenClaw 通道仍会拒绝或不接管。缺少类型化发送者/会话 ID 时，使用认证通道、账户和 Session 路由的稳定不透明哈希作为私聊身份；所有稳定身份输入都缺失时必须拒绝。
+19. 嵌入生成最初只作为显式所有者控制面操作。它不会自动导出聊天历史或已提交记忆。远端调用属于外部发送，需要单次代理授权和所有者确认；审计只保存有界操作元数据。
+20. `openai_compatible` 指带可选 Bearer 认证的 JSON `POST /embeddings` 契约。提供方专属认证和载荷变体必须使用独立适配器，不能以放宽响应验证来兼容。
+21. 首个云端聊天适配器面向 OpenAI 兼容、非流式 `/chat/completions`。所有者选择的端点、模型 ID 和密钥属于部署配置，聊天、模型输出或插件都不能修改。
+22. 云端聊天把可信根策略作为系统内容，其余上下文全部作为带类型和污染标签的用户数据。提供方专属推理字段会被丢弃；结构化连续性证据仍是后续工作。
+23. 所有者已说明，部署所在的微信参与者都知道该人格是 AI。因此默认人格将自己认定为凤笑梦，即由 AI 构成的非生物数字人格，普通对话不会重复 AI 声明套话。
+24. 短期对话连续性只使用持久化用户和 Agent 发言中同一会话的有界窗口。它是类型化模型上下文，不会自动提交为永久记忆。长期召回只读取已提交、范围可访问的现实记忆，并采用本地词法排序；当前消息不会直接变成永久记忆。
+25. 发言频率使用确定性规则。私聊和明确点名保持响应；可选的群聊未点名参与必须达到连续用户发言阈值并结束冷却，只发出一条短反应。不使用随机回复概率。
+26. 进行中的 `UtteranceSession` 会持久化，但恢复是被动的：启动时恢复授权和投递进度，不重发旧文本。OpenClaw 可通过认证、范围精确且顺序正确的回执完成重启前已签发的 Session。NapCat 和聊天 API 没有持久回执通道，因此其 Session 等待新输入，再由新输入取消过期剩余部分。
+27. 用户自动注册只接受经过认证的私聊/群聊事件，并按稳定平台身份建立资料键。展示名是可变元数据，绝不能建立所有者/管理员权限。注册不会授予记忆、提示词、插件或能力访问权。
+28. 多模态理解延后到 `0.2.0`。在此之前，图像、音频、视频、语音和文件段可以表示为传输占位符，但绝不能声称已经解析或理解其内容。
+29. 阶段 6 使用明确、确定性的语法理解受限计算、任务报告请求和确认命令。这样能保持操作可测试，并防止模型散文变成权限。任意自然语言规划需要后续类型化模型提案适配器，以及更广且可独立验证的动作目录。
+30. 任务运行和步骤证据保存在主数据库中。单进程执行使用进程内锁和乐观行版本；多实例生产环境需要分布式任务租约。启动时可重试被中断的沙箱/读取步骤，但被中断的写入在再次尝试实际影响前必须重新取得所有者确认。
+31. 管理控制台由同一个 FastAPI 来源提供，并使用现有所有者 API。其 `X-Actor-ID` 选择器便于本地开发；生产环境还要求管理 Bearer 令牌，且只在当前浏览器会话保留。外部身份提供方集成属于后续部署加固。
+32. 行为模拟可以读取有界同会话历史来重现动量，但不会写入事件、任务、记忆或审计，也不调用模型、插件或平台适配器。输出只是确定性预览，不会授予执行所预览提案的权限。
+33. 经过认证的所有者无需会话请求头即可查看完整记忆清单。非所有者读取仍会先应用全局、稳定私人操作者和精确会话范围过滤，再执行搜索。
+34. 生产配置要求至少 32 个字符的专用管理 API 令牌。所有 `/v1` 控制面路由都要求该令牌；`/v1/chat` 和 `/v1/adapters/*` 保持各自的平台/网关认证模型。
