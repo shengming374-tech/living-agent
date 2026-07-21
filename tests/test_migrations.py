@@ -35,4 +35,5 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         "task_runs",
         "task_reports",
         "utterance_sessions",
+        "openclaw_ingress_keys",
     } <= set(table_names)

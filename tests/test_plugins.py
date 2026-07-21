@@ -20,6 +20,7 @@ from living_agent.plugins.process import (
     PluginTimeoutError,
 )
 from living_agent.plugins.registry import PluginRegistry
+from living_agent.plugins.sandbox import PluginSandbox, PluginSandboxUnavailableError
 
 
 class SendArguments(BaseModel):
@@ -147,6 +148,42 @@ async def test_plugin_process_receives_minimal_environment(
         "secret_visible": False,
         "plugin_id": "test.plugin.environment-probe",
     }
+
+
+async def test_plugin_os_sandbox_blocks_host_access(tmp_path: Path) -> None:
+    process = PluginProcess(sandbox_mode="auto")
+    if process.sandbox_backend is None:
+        pytest.skip("no supported OS sandbox backend is installed")
+    secret_path = tmp_path / "host-secret.txt"
+    secret_path.write_text("do-not-read", encoding="utf-8")
+    write_path = tmp_path / "plugin-write.txt"
+    record = failure_fixture_registry().get("test.plugin.sandbox-probe")
+
+    result = await process.invoke(
+        record,
+        operation="probe",
+        arguments={
+            "read_path": str(secret_path),
+            "write_path": str(write_path),
+        },
+    )
+
+    assert result.output == {
+        "read_succeeded": False,
+        "write_succeeded": False,
+        "network_succeeded": False,
+        "process_succeeded": False,
+    }
+    assert not write_path.exists()
+
+
+def test_required_plugin_sandbox_fails_closed_without_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(PluginSandbox, "_detect_backend", staticmethod(lambda: None))
+
+    with pytest.raises(PluginSandboxUnavailableError):
+        PluginSandbox(mode="required")
 
 
 async def test_untrusted_plugin_text_cannot_trigger_another_tool(client: TestClient) -> None:

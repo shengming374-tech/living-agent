@@ -54,6 +54,10 @@ Trust Boundary -> TrustedEvent -> Turn Gate
 All decisions/effects ---------------------> Audit Log
 ```
 
+The current production-authentication, plugin-sandbox, and durable-ingress
+controls are recorded in
+[`docs/SECURITY_HARDENING.md`](docs/SECURITY_HARDENING.md).
+
 Executive Cognition never sends natural-language messages. It returns structured
 results that Social Cognition may express in the persona's voice.
 
@@ -81,7 +85,11 @@ Then request `GET /health` or submit an authenticated-adapter envelope to
 Open `http://127.0.0.1:8000/studio` for the Control Studio. Its default
 `owner-local` identity matches the development configuration; change the identity
 field when `LIVING_AGENT_OWNER_ID` uses another stable ID. `X-Actor-ID` is a
-development control-plane convention, not production authentication.
+development control-plane convention, not production authentication. Production
+requires `LIVING_AGENT_MANAGEMENT_API_TOKEN` with at least 32 characters. Enter it
+in Studio's management-token field; the browser keeps it in `sessionStorage`, not
+persistent storage. Owner API requests then carry both the stable actor ID and the
+independent Bearer credential.
 
 Social participation is deterministic. Direct messages and explicit group
 mentions always receive a turn decision; unmentioned group participation is
@@ -184,8 +192,8 @@ owner, and permission authority. Claimed messages are handled before OpenClaw's
 model dispatch and never fall back to another OpenClaw personality.
 
 The bridge uses a dedicated bearer token, exact channel/account allowlists,
-platform-namespaced identities, bounded in-memory replay suppression, strict
-schemas, and a one-time Capability Broker grant for the exact source-event reply.
+platform-namespaced identities, durable request-fingerprint replay suppression,
+strict schemas, and a one-time Capability Broker grant for the exact source-event reply.
 It defaults to loopback and direct text only. Install the included plugin with:
 
 ```bash
@@ -409,8 +417,7 @@ between arbitrary free-form claim text and the referenced record.
 Not yet implemented: automatic memory extraction, embedding/vector retrieval,
 arbitrary natural-language action planning, a broader task-tool catalog,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
-OpenClaw group/media/proactive messaging and persistent inbound-message
-idempotency are also not implemented. The OpenClaw and NapCat adapters cancel
+OpenClaw group/media/proactive messaging is also not implemented. The OpenClaw and NapCat adapters cancel
 unsent follow-up units when a newer inbound message reaches the same conversation.
 Image understanding, speech recognition, audio/video processing, and attachment
 parsing are explicitly deferred to version `0.2.0`; media placeholders are not
@@ -419,12 +426,15 @@ This section is updated only after executable, tested vertical slices land.
 
 ## Security limitations
 
-HTTP authentication, OS-level plugin sandboxing, tamper-evident audit storage,
-provider privacy guarantees, resource quotas, and production deployment hardening
-are not supplied by the current runtime. `/v1/chat` is an adapter ingress and its
+Tamper-evident audit storage, provider privacy guarantees, resource quotas, and
+complete production deployment hardening are not supplied by the current runtime.
+Production settings require an independent management Bearer token; development
+may still use `X-Actor-ID` without it and must remain on a trusted local boundary.
+`/v1/chat` is an adapter ingress and its
 `authenticated` identity flag is only trustworthy behind an authenticated adapter
-or gateway. The development `X-Actor-ID` audit header is not production-grade
-authentication. Never run unreviewed plugin code merely because process isolation
-exists. The subprocess boundary minimizes data and contains crashes/timeouts, but
-it is not an OS sandbox against hostile Python file or network syscalls; production
-third-party plugins require a container, platform sandbox, or VM.
+or gateway. Plugin workers use `sandbox-exec` on macOS or Bubblewrap on supported
+Linux hosts; production refuses to start plugin execution without a supported OS
+sandbox. The verified macOS profile denies network, host writes, sensitive host
+reads, process fork, and arbitrary exec. Native-code review, artifact signing,
+resource quotas, and container/VM isolation remain necessary for fully untrusted
+third-party plugins.

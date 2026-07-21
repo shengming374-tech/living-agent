@@ -92,6 +92,8 @@ class CalculatorTaskExecutor:
                     "plugin_id": proposal.plugin_id,
                     "task_id": proposal.task.task_id,
                     "error_code": exc.error_code,
+                    "sandbox_backend": self._process.sandbox_backend,
+                    "sandbox_enforced": self._process.sandbox_enforced,
                 },
             )
             return VerifiedTaskResult(
@@ -117,6 +119,8 @@ class CalculatorTaskExecutor:
                 "taint_labels": plugin_result.taint_labels,
                 "evidence_count": len(verified.evidence),
                 "errors": verified.errors,
+                "sandbox_backend": self._process.sandbox_backend,
+                "sandbox_enforced": self._process.sandbox_enforced,
             },
         )
         await self._audit.append(

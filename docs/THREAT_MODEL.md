@@ -60,9 +60,11 @@ out-of-scope data, or perform an unauthorized side effect.
 Initial controls are strict manifest/schema validation, no installation by the
 agent, no default capabilities, a temporary per-call grant, minimal subprocess
 environment, timeouts and forced termination, stdout framing, bounded messages,
-untrusted output labels, and host-owned audit. Production hardening must add
-artifact hashes/signatures, dependency lock review, resource quotas, and an OS
-sandbox. Python subprocess isolation alone does not contain hostile native code.
+untrusted output labels, host-owned audit, and a fail-closed OS sandbox. The tested
+macOS profile denies network, host writes, sensitive reads, process fork, and
+arbitrary exec; supported Linux hosts use Bubblewrap. Production hardening still
+needs artifact hashes/signatures, dependency review, resource quotas, and stronger
+container/VM isolation for fully untrusted native code.
 
 ## Memory-pollution attack surface
 
@@ -93,11 +95,11 @@ before ranking, preventing cross-session leakage.
 
 ## Residual risks
 
-The development server does not authenticate HTTP clients; deployment must place
-it behind an authenticated local control plane or implement platform-signed
-adapters. SQLite audit rows are application-append-only, not tamper-evident to an
-OS administrator. Model privacy depends on the selected provider. Subprocess
-plugins need OS sandboxing before accepting third-party code. Denial-of-service
+The development server may accept owner identity headers without a management
+token and must remain on a trusted local boundary. Production settings require an
+independent management Bearer token for all control-plane routes. SQLite audit rows
+are application-append-only, not tamper-evident to an OS administrator. Model
+privacy depends on the selected provider. Denial-of-service
 limits for request size, concurrency, CPU, and storage are deferred. The Phase 4
 continuity critic validates evidence provenance and scope but not semantic
 entailment between arbitrary free-form claim text and a referenced record; a real
@@ -107,16 +109,16 @@ so an upstream duplicate message can produce a duplicate reply. The shared token
 authenticates the adapter but does not independently attest `X-Self-ID`; isolate
 mutually untrusted bots behind separate credentials or instances.
 The OpenClaw bridge also uses a shared bearer token rather than process
-attestation. Its replay cache is bounded but not persistent, and the current
-OpenClaw `before_dispatch` contract requires deriving a fallback message ID from
+attestation. Request fingerprints and terminal replay responses are durable, but
+the current `before_dispatch` contract may derive a fallback message ID from
 stable metadata. Keep the bridge loopback-only where possible, rotate its token,
 and use authenticated TLS plus network policy if a remote endpoint is enabled.
 Embedding providers necessarily receive the owner-submitted input batch. Provider
 privacy, retention, regional processing, and model behavior are external risks.
 LivingAgent disables redirects and proxy-environment inheritance, bounds requests
 and responses, never audits text/vectors/error bodies, and does not automatically
-send long-term memory. A production control plane must authenticate the owner API;
-the development `X-Actor-ID` header alone is insufficient.
+send long-term memory. Production control-plane requests require the management
+Bearer token in addition to the stable owner ID.
 Cloud chat providers receive the compiled current-event context and can retain or
 process it according to their own policies. LivingAgent enforces HTTPS by default,
 requires remote credentials, disables redirects/proxy inheritance, bounds context
@@ -129,8 +131,8 @@ tables can produce conflicts and requires a single active executor or a future
 database-backed lease. The initial deterministic planner intentionally recognizes
 only bounded calculator/report commands; broad model-generated action plans are
 not trusted or executed.
-Control Studio assets are publicly readable on the service origin and its
-development identity field is not authentication. Data and mutation endpoints
-still require owner authority, but `X-Actor-ID` can be forged by any client that
-can reach an unprotected development server. Do not expose it to an untrusted
-network; add authenticated sessions or a trusted reverse proxy before production.
+Control Studio assets are publicly readable on the service origin. Its identity
+field is not authentication; production data and mutation calls additionally need
+the management Bearer token. The token is held in browser `sessionStorage`, so an
+origin-level script compromise could still steal it. Keep CSP strict and prefer an
+external authenticated control plane for higher-assurance deployments.

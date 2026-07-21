@@ -3,6 +3,7 @@ environment: development
 database_url: sqlite+aiosqlite:///./living_agent.db
 owner_id: owner-local
 admin_ids: []
+management_api_token: null
 log_level: INFO
 model_provider: mock
 model_name: mock-chat-v1
@@ -31,6 +32,7 @@ plugin_root: plugins/examples
 enabled_plugins:
   - com.livingagent.calculator
 plugin_timeout_seconds: 2.0
+plugin_sandbox_mode: auto
 persona_root: personas/default
 prompt_root: prompts
 root_prompt_second_factor_sha256: null

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
-import sys
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -19,6 +18,7 @@ from living_agent.plugins.rpc import (
     RpcRequest,
     RpcResponse,
 )
+from living_agent.plugins.sandbox import PluginSandbox, PluginSandboxMode
 
 
 class PluginProcessError(RuntimeError):
@@ -42,12 +42,27 @@ class PluginInvocationError(PluginProcessError):
 
 
 class PluginProcess:
-    def __init__(self, *, timeout_seconds: float = 2.0, max_output_bytes: int = 1_000_000) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 2.0,
+        max_output_bytes: int = 1_000_000,
+        sandbox_mode: PluginSandboxMode = "auto",
+    ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("plugin timeout must be positive")
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
         self._worker_path = Path(__file__).with_name("worker.py").resolve()
+        self._sandbox = PluginSandbox(mode=sandbox_mode)
+
+    @property
+    def sandbox_backend(self) -> str | None:
+        return self._sandbox.status.backend
+
+    @property
+    def sandbox_enforced(self) -> bool:
+        return self._sandbox.status.enforced
 
     async def invoke(
         self,
@@ -63,16 +78,16 @@ class PluginProcess:
         environment = {
             "PYTHONIOENCODING": "utf-8",
             "PYTHONUNBUFFERED": "1",
+            "PYTHONDONTWRITEBYTECODE": "1",
             "LIVING_AGENT_PLUGIN_ID": record.manifest.id,
         }
+        command = self._sandbox.command(
+            worker_path=self._worker_path,
+            plugin_root=record.root,
+            entrypoint=record.manifest.entrypoint,
+        )
         process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-I",
-            str(self._worker_path),
-            "--plugin-dir",
-            str(record.root),
-            "--entrypoint",
-            record.manifest.entrypoint,
+            *command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

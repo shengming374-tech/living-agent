@@ -26,8 +26,9 @@ Completed on 2026-07-21.
   LLM, plugin worker, platform adapter, audit service, or task repository.
 - Memory and audit content is escaped before DOM insertion. Studio JavaScript has
   no inline handlers, dynamic code evaluation, or external dependencies.
-- `X-Actor-ID` remains a development mechanism. Production deployment requires a
-  real authenticated control plane.
+- `X-Actor-ID` remains a development identity selector. Production requires an
+  independent management Bearer token; Studio stores it only in `sessionStorage`
+  and attaches it to control-plane API requests.
 
 ## Verification
 
@@ -47,7 +48,8 @@ Completed on 2026-07-21.
 
 ## Deferred
 
-- Production HTTP authentication and CSRF/session handling.
+- Multi-factor or external identity-provider login beyond the production Bearer
+  credential.
 - Multi-user management roles beyond the configured owner boundary.
 - Persistent Studio preferences beyond the non-secret development actor ID.
 - Multimodal inspection, which remains scheduled for version `0.2.0`.

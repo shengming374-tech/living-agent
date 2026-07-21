@@ -38,6 +38,11 @@
             <input id="actor-id" autocomplete="off" spellcheck="false" value="owner-local">
             <button class="icon-button" id="save-actor" title="应用管理身份" aria-label="应用管理身份">✓</button>
           </div>
+          <label for="management-token">管理 Token</label>
+          <div class="identity-row">
+            <input id="management-token" type="password" autocomplete="off" spellcheck="false">
+            <button class="icon-button" id="save-token" title="应用管理 Token" aria-label="应用管理 Token">✓</button>
+          </div>
         </div>
       </aside>
 
@@ -52,6 +57,7 @@
           </div>
           <div class="header-actions">
             <span class="runtime-status is-pending" id="runtime-status"><i></i>检查中</span>
+            <button class="button is-small" id="open-auth" type="button">认证</button>
             <button class="icon-button" id="refresh-view" title="刷新当前视图" aria-label="刷新当前视图">↻</button>
           </div>
         </header>

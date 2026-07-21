@@ -68,8 +68,8 @@ late delivery receipts for an interrupted Session, preventing cancelled text fro
 entering conversation history. An authenticated, correctly scoped, in-order
 receipt may finish a still-current Session after a LivingAgent restart; duplicate
 receipts remain idempotent. Direct
-text is implemented; group/media/proactive messaging and persistent replay keys
-remain future work.
+text and durable inbound replay keys are implemented; group/media/proactive
+messaging remains future work.
 
 Embedding provider compatibility is implemented as a separate vertical slice:
 deterministic Mock and OpenAI-compatible providers, strict transport/response

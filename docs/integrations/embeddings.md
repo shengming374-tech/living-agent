@@ -56,10 +56,12 @@ The development API uses the configured owner identity:
 
 ```bash
 curl -sS http://127.0.0.1:8000/v1/embeddings/status \
-  -H 'X-Actor-ID: owner-local'
+  -H 'X-Actor-ID: owner-local' \
+  -H 'Authorization: Bearer <management-token>'
 
 curl -sS http://127.0.0.1:8000/v1/embeddings \
   -H 'X-Actor-ID: owner-local' \
+  -H 'Authorization: Bearer <management-token>' \
   -H 'Content-Type: application/json' \
   --data '{"input":["first text","second text"]}'
 ```
@@ -68,9 +70,9 @@ curl -sS http://127.0.0.1:8000/v1/embeddings \
 plus the configured provider name and validated dimensions. The request cannot
 override the configured model. Unknown fields and empty input are rejected.
 
-`X-Actor-ID` is only a development control-plane mechanism. Production must put
-these endpoints behind authenticated owner administration; a caller-controlled
-header is not production authentication.
+`X-Actor-ID` is only the stable identity selector. Production settings require an
+independent management Bearer token before these endpoints are reached. A reverse
+proxy or external identity provider may add stronger operator authentication.
 
 ## Permission and data boundary
 

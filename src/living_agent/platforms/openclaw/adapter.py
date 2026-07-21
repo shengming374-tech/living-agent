@@ -28,6 +28,10 @@ from living_agent.platforms.openclaw.models import (
     OpenClawDeliveryResponse,
     normalize_openclaw_message,
 )
+from living_agent.platforms.openclaw.storage import (
+    IngressClaimDisposition,
+    OpenClawIngressRepository,
+)
 from living_agent.runtime.runtime import AgentRuntime
 
 _ALLOW_OUTCOMES = {
@@ -75,6 +79,7 @@ class OpenClawBridgeAdapter:
         runtime: AgentRuntime,
         broker: CapabilityBroker,
         audit: AuditService,
+        ingress: OpenClawIngressRepository,
     ) -> None:
         self._enabled = enabled
         self._access_token = access_token.get_secret_value() if access_token is not None else None
@@ -85,6 +90,7 @@ class OpenClawBridgeAdapter:
         self._runtime = runtime
         self._broker = broker
         self._audit = audit
+        self._ingress = ingress
         self._cache_lock = asyncio.Lock()
         self._completed: OrderedDict[tuple[str, str, str], tuple[str, OpenClawBridgeResponse]] = (
             OrderedDict()
@@ -129,7 +135,32 @@ class OpenClawBridgeAdapter:
                 cached = await self._cached(key, fingerprint)
                 if cached is not None:
                     return cached
-                response = await self._handle_once(request)
+                claim = await self._ingress.claim(key, fingerprint=fingerprint)
+                if claim.disposition is IngressClaimDisposition.REPLAY:
+                    assert claim.response is not None
+                    return claim.response
+                if claim.disposition is IngressClaimDisposition.CONFLICT:
+                    raise OpenClawBridgeConflictError(
+                        "message id was reused with different OpenClaw content"
+                    )
+                if claim.disposition is IngressClaimDisposition.INCOMPLETE:
+                    raise OpenClawBridgeConflictError(
+                        "message id belongs to an incomplete prior invocation"
+                    )
+                try:
+                    response = await self._handle_once(request)
+                except BaseException as exc:
+                    await self._ingress.fail(
+                        key,
+                        fingerprint=fingerprint,
+                        failure_code=type(exc).__name__,
+                    )
+                    raise
+                await self._ingress.complete(
+                    key,
+                    fingerprint=fingerprint,
+                    response=response,
+                )
                 await self._remember(key, fingerprint, response)
                 return response
         finally:

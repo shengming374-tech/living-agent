@@ -5,6 +5,7 @@ const viewTitle = document.querySelector("#view-title");
 const viewMeta = document.querySelector("#view-meta");
 const runtimeStatus = document.querySelector("#runtime-status");
 const actorInput = document.querySelector("#actor-id");
+const managementTokenInput = document.querySelector("#management-token");
 const modal = document.querySelector("#modal");
 const modalForm = document.querySelector("#modal-form");
 const modalTitle = document.querySelector("#modal-title");
@@ -40,6 +41,7 @@ const VIEW_META = {
 const state = {
   view: "overview",
   actorId: localStorage.getItem("living-agent.actor-id") || "owner-local",
+  managementToken: sessionStorage.getItem("living-agent.management-token") || "",
   conversationId: localStorage.getItem("living-agent.conversation-id") || "",
   memoryMode: "nodes",
   memories: [],
@@ -58,6 +60,7 @@ const state = {
 };
 
 actorInput.value = state.actorId;
+managementTokenInput.value = state.managementToken;
 
 class ApiError extends Error {
   constructor(message, status, payload) {
@@ -129,6 +132,7 @@ function contentText(content) {
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("X-Actor-ID", state.actorId);
+  if (state.managementToken) headers.set("Authorization", `Bearer ${state.managementToken}`);
   if (options.body !== undefined && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
@@ -869,15 +873,19 @@ function simulatorResult(result) {
 
 async function openIdentityDialog() {
   const data = await askForm({
-    title: "管理身份",
-    body: `<div class="form-row"><label>Owner stable ID</label><input class="field" name="actorId" value="${esc(state.actorId)}" autocomplete="off" required></div>`,
+    title: "管理认证",
+    body: `<div class="form-row"><label>Owner stable ID</label><input class="field" name="actorId" value="${esc(state.actorId)}" autocomplete="off" required></div><div class="form-row"><label>管理 Token</label><input class="field" name="managementToken" type="password" autocomplete="off" placeholder="${state.managementToken ? "已在当前会话设置" : "未设置"}"></div>`,
     submitLabel: "应用",
   });
   if (!data) return;
   state.actorId = String(data.get("actorId")).trim();
+  const suppliedToken = String(data.get("managementToken") || "");
+  if (suppliedToken) state.managementToken = suppliedToken;
   actorInput.value = state.actorId;
+  managementTokenInput.value = state.managementToken;
   localStorage.setItem("living-agent.actor-id", state.actorId);
-  toast("管理身份已更新");
+  sessionStorage.setItem("living-agent.management-token", state.managementToken);
+  toast("管理认证已更新");
   renderCurrentView();
 }
 
@@ -885,10 +893,17 @@ document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.view));
 });
 document.querySelector("#refresh-view").addEventListener("click", renderCurrentView);
+document.querySelector("#open-auth").addEventListener("click", openIdentityDialog);
 document.querySelector("#save-actor").addEventListener("click", () => {
   state.actorId = actorInput.value.trim();
   localStorage.setItem("living-agent.actor-id", state.actorId);
   toast("管理身份已应用");
+  renderCurrentView();
+});
+document.querySelector("#save-token").addEventListener("click", () => {
+  state.managementToken = managementTokenInput.value;
+  sessionStorage.setItem("living-agent.management-token", state.managementToken);
+  toast("管理 Token 已应用");
   renderCurrentView();
 });
 document.querySelector("#mobile-menu").addEventListener("click", () => {

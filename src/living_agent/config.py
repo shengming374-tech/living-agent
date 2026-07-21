@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./living_agent.db"
     owner_id: str = "owner-local"
     admin_ids: list[str] = Field(default_factory=list)
+    management_api_token: SecretStr | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     model_provider: Literal["mock", "openai_compatible"] = "mock"
     model_name: str = "mock-chat-v1"
@@ -60,6 +61,7 @@ class Settings(BaseSettings):
     plugin_root: Path = Path("plugins/examples")
     enabled_plugins: list[str] = Field(default_factory=lambda: ["com.livingagent.calculator"])
     plugin_timeout_seconds: float = Field(default=2.0, gt=0.0, le=30.0)
+    plugin_sandbox_mode: Literal["auto", "required", "disabled"] = "auto"
     persona_root: Path = Path("personas/default")
     prompt_root: Path = Path("prompts")
     root_prompt_second_factor_sha256: str | None = None
@@ -119,6 +121,16 @@ class Settings(BaseSettings):
             raise ValueError("owner_id cannot be empty")
         return normalized
 
+    @field_validator("management_api_token")
+    @classmethod
+    def validate_management_api_token(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        normalized = value.get_secret_value().strip()
+        if len(normalized) < 32:
+            raise ValueError("management_api_token must contain at least 32 characters")
+        return SecretStr(normalized)
+
     @field_validator("model_name", "embedding_model")
     @classmethod
     def validate_model_name(cls, value: str) -> str:
@@ -139,6 +151,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_adapter_credentials(self) -> Self:
+        management_token = self.management_api_token
+        if self.environment == "production" and management_token is None:
+            raise ValueError("management_api_token is required in production")
+        if self.environment == "production" and self.plugin_sandbox_mode == "disabled":
+            raise ValueError("plugin_sandbox_mode cannot be disabled in production")
         if self.social_engage_units_min > self.social_engage_units_max:
             raise ValueError("social_engage_units_min cannot exceed social_engage_units_max")
         if self.social_followup_delay_min_ms > self.social_followup_delay_max_ms:

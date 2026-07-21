@@ -25,15 +25,15 @@ WeChat
 - Direct text messages from the configured `openclaw-weixin` account.
 - Exact channel and optional account allowlists on both sides of the bridge.
 - Stable, platform-namespaced user and conversation identities.
-- In-memory duplicate suppression and message-ID conflict detection.
+- Durable request-fingerprint duplicate suppression and message-ID conflict detection.
 - Durable in-flight reply Sessions and idempotent delivery progress.
 - One-time broker grants for replies to the exact source event.
 - Fail-closed OpenClaw behavior: bridge errors are logged as bounded codes and do
   not fall back to a different OpenClaw personality.
 - A read-only `livingAgentBridge.status` Gateway RPC requiring `operator.read`.
 
-Group chats, attachments, rich replies, proactive sends, and cross-restart inbound
-message deduplication are intentionally not implemented in this slice.
+Group chats, attachments, rich replies, and proactive sends are intentionally not
+implemented in this slice.
 
 ## LivingAgent configuration
 
@@ -167,8 +167,9 @@ model.
 - Only direct text messages are accepted. Group messages fail closed.
 - The first response is one synthetic text payload; attachments and platform
   actions are unavailable.
-- Inbound message-ID idempotency state is in process memory and is lost on
-  LivingAgent restart. Utterance delivery receipt progress is durable.
+- Inbound message-ID fingerprints and terminal replay responses are durable. A
+  retry after an interrupted prior invocation fails closed instead of re-entering
+  Runtime; the sender can use a new platform message ID for an explicit retry.
 - The fallback message ID is a deterministic hash because the current
   `before_dispatch` contract does not expose a native message ID.
 - OpenClaw plugin activation and channel health can be checked automatically, but

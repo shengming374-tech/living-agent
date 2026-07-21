@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.requests import Request
+from fastapi.responses import JSONResponse, Response
 
 from living_agent.api.audit import router as audit_router
 from living_agent.api.capabilities import router as capabilities_router
@@ -66,6 +68,7 @@ from living_agent.platforms.openclaw.models import (
     OpenClawReplyArguments,
     openclaw_reply_scope_matches,
 )
+from living_agent.platforms.openclaw.storage import OpenClawIngressRepository
 from living_agent.plugins.process import PluginProcess
 from living_agent.plugins.registry import PluginRegistry
 from living_agent.prompts.manager import PromptManager
@@ -92,6 +95,10 @@ from living_agent.storage.events import EventRepository
 from living_agent.storage.migrations import run_migrations
 from living_agent.trust.authority import AuthorityResolver
 from living_agent.trust.boundary import TrustBoundary
+from living_agent.trust.management_auth import (
+    ManagementAuthenticator,
+    is_management_api_path,
+)
 from living_agent.users.repository import UserRepository
 from living_agent.users.service import UserService
 
@@ -250,9 +257,17 @@ def create_app(
             max_context_chars=resolved_settings.model_max_context_chars,
             max_response_bytes=resolved_settings.model_max_response_bytes,
         )
+    plugin_process = PluginProcess(
+        timeout_seconds=resolved_settings.plugin_timeout_seconds,
+        sandbox_mode=(
+            "required"
+            if resolved_settings.environment == "production"
+            else resolved_settings.plugin_sandbox_mode
+        ),
+    )
     calculator_executor = CalculatorTaskExecutor(
         registry=plugin_registry,
-        process=PluginProcess(timeout_seconds=resolved_settings.plugin_timeout_seconds),
+        process=plugin_process,
         broker=broker,
         audit=audit,
         verifier=CalculatorTaskVerifier(),
@@ -277,6 +292,10 @@ def create_app(
         audit=audit,
     )
     trust_boundary = TrustBoundary(authority)
+    management_authenticator = ManagementAuthenticator(
+        environment=resolved_settings.environment,
+        token=resolved_settings.management_api_token,
+    )
     context_compiler = ContextCompiler()
     utterance_coordinator = UtteranceCoordinator(
         audit=audit,
@@ -331,6 +350,7 @@ def create_app(
         runtime=runtime,
         broker=broker,
         audit=audit,
+        ingress=OpenClawIngressRepository(database.sessions),
     )
 
     @asynccontextmanager
@@ -346,7 +366,11 @@ def create_app(
                 action="runtime.started",
                 actor_id="living-agent",
                 outcome="success",
-                details={"environment": resolved_settings.environment},
+                details={
+                    "environment": resolved_settings.environment,
+                    "plugin_sandbox_backend": plugin_process.sandbox_backend,
+                    "plugin_sandbox_enforced": plugin_process.sandbox_enforced,
+                },
             )
             for plugin_id in resolved_settings.enabled_plugins:
                 await plugin_registry.enable(
@@ -365,15 +389,47 @@ def create_app(
                     await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version="0.1.0", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def authenticate_management_request(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if is_management_api_path(request.url.path):
+            reason_code = management_authenticator.rejection_reason(
+                request.headers.get("Authorization")
+            )
+            if reason_code is not None:
+                await audit.append(
+                    action="management.auth",
+                    actor_id=request.headers.get("X-Actor-ID"),
+                    outcome="rejected",
+                    details={
+                        "reason_code": reason_code,
+                        "method": request.method,
+                        "path": request.url.path,
+                    },
+                )
+                status_code = 401 if reason_code.endswith("missing") else 403
+                headers = {"WWW-Authenticate": "Bearer"} if status_code == 401 else None
+                return JSONResponse(
+                    status_code=status_code,
+                    content={"detail": reason_code},
+                    headers=headers,
+                )
+        return await call_next(request)
+
     app.state.settings = resolved_settings
     app.state.database = database
     app.state.authority = authority
+    app.state.management_authenticator = management_authenticator
     app.state.audit = audit
     app.state.runtime = runtime
     app.state.utterance_coordinator = utterance_coordinator
     app.state.llm_provider = resolved_llm_provider
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry
+    app.state.plugin_process = plugin_process
     app.state.memory_service = memory_service
     app.state.embedding_service = embedding_service
     app.state.persona_manager = persona_manager

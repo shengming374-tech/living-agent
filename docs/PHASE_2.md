@@ -20,6 +20,10 @@ Completed on 2026-07-20 in the `feat(plugins): add isolated calculator plugin` c
   Social Cognition rendering of the verified result.
 - Plugin inventory and enable/disable APIs. Arbitrary plugin invocation and agent
   installation are intentionally absent.
+- Post-phase hardening adds OS sandbox execution: macOS `sandbox-exec` denies
+  network, host writes, sensitive host reads, process fork, and arbitrary exec;
+  supported Linux deployments use Bubblewrap. Production requires an available
+  backend and fails closed otherwise.
 
 ## Phase gate
 
@@ -35,8 +39,7 @@ chat execution, owner plugin controls, and tool/plugin/capability audit entries.
 
 ## Residual boundary
 
-Python subprocess isolation is a failure and data-minimization boundary, not a
-complete OS security boundary. Unreviewed Python can still attempt direct file or
-network syscalls outside the broker. Production third-party plugins require a
-container, seccomp/App Sandbox, restricted service account, or VM plus artifact
-signing and resource quotas. The current example is repository-owned and reviewed.
+The OS profile is an additional enforcement boundary, not proof that arbitrary
+native code is safe. Production third-party plugins still need artifact signing,
+dependency review, resource quotas, and preferably a restricted service account,
+container, or VM. The current example is repository-owned and reviewed.

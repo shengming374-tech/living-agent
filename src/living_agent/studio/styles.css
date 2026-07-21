@@ -170,6 +170,10 @@ button:disabled {
   gap: 6px;
 }
 
+.identity-row + label {
+  margin-top: 12px;
+}
+
 .identity-row input {
   min-width: 0;
   height: 32px;

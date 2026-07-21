@@ -18,6 +18,7 @@ from living_agent.memory.models import (
     MemoryUsageORM,
     MemoryVersionORM,
 )
+from living_agent.platforms.openclaw.storage import OpenClawIngressORM
 from living_agent.psyche.models import (
     ActivityRecordORM,
     PsycheStateORM,
@@ -37,6 +38,7 @@ _ = (
     MemoryNodeORM,
     MemoryUsageORM,
     MemoryVersionORM,
+    OpenClawIngressORM,
     PsycheStateORM,
     ThoughtRecordORM,
     TaskReportORM,
