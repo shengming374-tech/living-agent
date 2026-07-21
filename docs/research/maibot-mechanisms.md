@@ -28,7 +28,9 @@ Executive Cognition cannot send text and Social Cognition alone owns expression.
 `src/chat/utils/utils.py` show a useful three-stage boundary: the Replyer reads
 real chat history and produces only colloquial visible content; output rules
 exclude analysis and wrappers; a separate post-processor bounds message length
-and message count. LivingAgent adopts the separation, not the text or algorithm.
+and message count. LivingAgent independently implements the post-processing
+algorithm and typed output boundary. Its social Prompt now directly reuses selected
+natural-language style sentences under the recorded GPL-3.0 provenance.
 Its `TurnDecision` chooses one short unit for `react` and two or three equally
 short semantic units for `engage`; typed `UtteranceSession` data then crosses the
 same-event platform grant.

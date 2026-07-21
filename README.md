@@ -341,7 +341,9 @@ short-term conversational continuity without widening memory scope or authority.
 MaiBot is used only as read-only mechanism research. It is not a dependency and
 does not run with LivingAgent. The exact GPL-3.0 reference revision and inspected
 files are recorded in [`docs/research/provenance.md`](docs/research/provenance.md);
-no code or prompts were borrowed.
+no MaiBot runtime code was borrowed. Selected social Prompt sentences are reused
+under GPL-3.0 with explicit provenance and third-party notices; they do not enter
+the permission kernel or runtime implementation.
 
 ## Implementation status
 

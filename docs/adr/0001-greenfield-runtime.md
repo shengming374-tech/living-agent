@@ -23,6 +23,8 @@ alone renders user-visible language.
 
 ## Consequences
 
-Mechanisms must be re-derived and independently tested. No MaiBot code or prompts
-are copied, avoiding a derivative implementation and historical coupling. Feature
+Mechanisms and runtime code must be re-derived and independently tested. MaiBot
+code is not copied. Selected natural-language social Prompt excerpts may be reused
+only with explicit provenance and license notices; they cannot change authority,
+capability, memory, or execution contracts. Feature
 parity is not a goal; security invariants take precedence over compatibility.

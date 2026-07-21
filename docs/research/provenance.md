@@ -22,7 +22,9 @@
 | `src/chat/replyer/replyer_manager.py` | Per-session reply generator ownership |
 | `src/chat/replyer/maisaka_generator.py` | Dedicated reply-generation layer |
 | `src/chat/replyer/maisaka_generator_base.py` | Reply-only output boundary and real-history filtering |
-| `prompts/zh-CN/maisaka_replyer.prompt` | Colloquial visible-response objective; prompt text was not copied |
+| `prompts/zh-CN/maisaka_replyer.prompt` | Colloquial visible-response objective; selected prompt text is now copied with attribution |
+| `src/config/official_configs.py` | `reply_style`, group-chat, and private-chat prompt string values only; no Python implementation copied |
+| `src/chat/replyer/maisaka_generator_base.py` | Final visible-output instruction string only; no generator code copied |
 | `src/chat/utils/utils.py` | Bounded post-generation message-count concept; algorithm was not copied |
 | `src/maisaka/builtin_tool/reply.py` | Planner-to-expression handoff and segmented send concept |
 | `src/maisaka/memory/mid_term.py` | Compact summaries and recall cues |
@@ -34,11 +36,31 @@
 | `src/plugin_runtime/host/supervisor.py` | Runner lifecycle and terminate/kill escalation |
 | `src/plugin_runtime/runner/runner_main.py` | Separate plugin runner responsibilities |
 
-## Code and prompt borrowing declaration
+## Borrowing declaration
 
-No MaiBot source code, prompt text, schemas, names, or directory layout has been
-copied into LivingAgent. No line-by-line translation was performed. The reports
-record mechanism-level observations only; all implementation is greenfield under
-LivingAgent's own typed contracts and tests. Therefore the current LivingAgent
-source does not incorporate GPL-covered MaiBot code. Any future borrowing must be
-recorded here before inclusion and reviewed for license consequences.
+No MaiBot Python/JavaScript source code, schemas, runtime names, or directory
+layout has been copied into LivingAgent. No code was translated line by line.
+LivingAgent's runtime remains greenfield under its own typed contracts and tests.
+
+The owner explicitly authorized direct Prompt reuse on 2026-07-21. The following
+Chinese natural-language Prompt excerpts are copied into
+`prompts/social/reply.txt`:
+
+- the instruction to read prior chat, understand the current topic, and reply in
+  an everyday colloquial way;
+- the default plain, short, non-ornate reply-style paragraph;
+- the short, single-topic group-chat attention rules and participation-frequency
+  wording;
+- the short private-chat attention rules;
+- the instruction to output only visible speech without wrappers or mentions.
+
+These excerpts came from `prompts/zh-CN/maisaka_replyer.prompt` and Prompt string
+values embedded in `src/config/official_configs.py` and
+`src/chat/replyer/maisaka_generator_base.py` at the pinned revision above. Only
+the natural-language strings were copied; none of the surrounding Python control
+flow was copied.
+
+MaiBot is GPL-3.0. The copied Prompt excerpts remain subject to that license and
+are identified in `THIRD_PARTY_NOTICES.md`; a copy of GPL-3.0 is distributed at
+`LICENSES/MaiBot-GPL-3.0.txt`. This provenance record makes no claim that Prompt
+text is outside copyright merely because it is not executable code.

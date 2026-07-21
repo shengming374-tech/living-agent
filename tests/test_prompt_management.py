@@ -32,6 +32,8 @@ def test_prompt_view_token_estimate_render_and_redaction(client: TestClient) -> 
     )
     assert rendered.status_code == 200
     assert "你就是LivingAgent" in rendered.json()["rendered"]
+    assert "你的风格平淡简短。可以参考贴吧" in rendered.json()["rendered"]
+    assert "只输出发言内容就好" in rendered.json()["rendered"]
     assert rendered.json()["redacted"] is False
 
     wrong_variables = client.post(
