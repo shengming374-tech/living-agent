@@ -13,6 +13,7 @@ from pydantic import SecretStr
 
 from living_agent.audit.service import AuditService
 from living_agent.execution.broker import CapabilityBroker
+from living_agent.interaction.repository import DeliveryDisposition
 from living_agent.models.capabilities import (
     CapabilityGrant,
     CapabilityRequest,
@@ -140,41 +141,62 @@ class OpenClawBridgeAdapter:
     ) -> OpenClawDeliveryResponse:
         async with self._cache_lock:
             issued = self._issued_utterances.get(receipt.utterance_session_id)
-            if issued is None:
+            stored = await self._runtime.utterance_session(receipt.utterance_session_id)
+            if stored is None:
                 await self._reject_delivery(receipt, "utterance_session_not_found")
+
+            if issued is not None:
+                if (
+                    receipt.channel_id != issued.channel_id
+                    or receipt.account_id != issued.account_id
+                    or receipt.conversation_id != issued.conversation_id
+                ):
+                    await self._reject_delivery(receipt, "delivery_scope_mismatch")
+            expected_conversation = (
+                f"openclaw:{receipt.channel_id}:{receipt.account_id}:direct:"
+                f"{receipt.conversation_id}"
+            )
             if (
-                receipt.channel_id != issued.channel_id
-                or receipt.account_id != issued.account_id
-                or receipt.conversation_id != issued.conversation_id
+                stored.platform != "openclaw"
+                or stored.conversation_id != expected_conversation
             ):
                 await self._reject_delivery(receipt, "delivery_scope_mismatch")
-            messages = issued.result.messages
-            if receipt.unit_index >= len(messages):
+            if receipt.unit_index >= len(stored.session.units):
                 await self._reject_delivery(receipt, "delivery_unit_not_issued")
-            if receipt.unit_index in issued.delivered_indices:
+            if receipt.unit_index < stored.session.sent_count:
                 return OpenClawDeliveryResponse(reason_code="delivery_already_recorded")
-            living_conversation_id = issued.result.event.conversation_id
-            session = issued.result.utterance
-            if (
-                living_conversation_id is None
-                or session is None
-                or not await self._runtime.utterance_is_current(
-                    conversation_id=living_conversation_id,
-                    platform="openclaw",
-                    session_id=session.session_id,
-                )
+            if stored.session.state == "cancelled":
+                await self._reject_delivery(receipt, "utterance_interrupted")
+            if not await self._runtime.utterance_is_current(
+                conversation_id=stored.conversation_id,
+                platform="openclaw",
+                session_id=stored.session.session_id,
             ):
                 await self._reject_delivery(receipt, "utterance_interrupted")
-            if receipt.unit_index != session.sent_count:
+            if receipt.unit_index != stored.session.sent_count:
                 await self._reject_delivery(receipt, "delivery_out_of_order")
-            await self._runtime.record_delivery(
-                issued.result,
+            delivery = await self._runtime.record_persisted_utterance_delivery(
+                session_id=receipt.utterance_session_id,
                 unit_index=receipt.unit_index,
                 platform="openclaw",
+                conversation_id=stored.conversation_id,
+                recovered_after_restart=issued is None,
             )
-            issued.delivered_indices.add(receipt.unit_index)
-            self._issued_utterances.move_to_end(receipt.utterance_session_id)
-            return OpenClawDeliveryResponse(reason_code="delivery_recorded")
+            if delivery.disposition is DeliveryDisposition.RECORDED:
+                if issued is not None:
+                    issued.delivered_indices.add(receipt.unit_index)
+                    self._issued_utterances.move_to_end(receipt.utterance_session_id)
+                return OpenClawDeliveryResponse(reason_code="delivery_recorded")
+            if delivery.disposition is DeliveryDisposition.ALREADY_RECORDED:
+                return OpenClawDeliveryResponse(reason_code="delivery_already_recorded")
+            reasons = {
+                DeliveryDisposition.OUT_OF_ORDER: "delivery_out_of_order",
+                DeliveryDisposition.INTERRUPTED: "utterance_interrupted",
+                DeliveryDisposition.UNIT_NOT_ISSUED: "delivery_unit_not_issued",
+                DeliveryDisposition.SCOPE_MISMATCH: "delivery_scope_mismatch",
+                DeliveryDisposition.SESSION_NOT_FOUND: "utterance_session_not_found",
+            }
+            await self._reject_delivery(receipt, reasons[delivery.disposition])
 
     async def _reject_delivery(
         self,

@@ -26,13 +26,14 @@ WeChat
 - Exact channel and optional account allowlists on both sides of the bridge.
 - Stable, platform-namespaced user and conversation identities.
 - In-memory duplicate suppression and message-ID conflict detection.
+- Durable in-flight reply Sessions and idempotent delivery progress.
 - One-time broker grants for replies to the exact source event.
 - Fail-closed OpenClaw behavior: bridge errors are logged as bounded codes and do
   not fall back to a different OpenClaw personality.
 - A read-only `livingAgentBridge.status` Gateway RPC requiring `operator.read`.
 
-Group chats, attachments, rich replies, proactive sends, and cross-restart replay
-deduplication are intentionally not implemented in this slice.
+Group chats, attachments, rich replies, proactive sends, and cross-restart inbound
+message deduplication are intentionally not implemented in this slice.
 
 ## LivingAgent configuration
 
@@ -90,9 +91,12 @@ older model response if that response completes after the newer inbound arrived.
 The plugin posts an authenticated delivery receipt for the adopted primary unit
 and after each follow-up `sendText` succeeds. LivingAgent then records only that
 unit as spoken. A receipt for a Session superseded by a newer inbound message is
-rejected and cannot enter conversation history. Receipt state is
-process-local and bounded; after a
-LivingAgent restart, late receipts for sessions issued before restart are rejected.
+rejected and cannot enter conversation history. LivingAgent persists Session
+units, exact transport scope, generation, and delivered count. After a LivingAgent
+restart it passively restores the still-current Session but never resends old
+content itself. The bridge may continue authenticated receipts in order; repeated
+receipts return `delivery_already_recorded`, skipped indices fail closed, and any
+newer inbound message permanently invalidates the old remainder.
 
 Restart the Gateway after changing plugin configuration:
 
@@ -163,7 +167,8 @@ model.
 - Only direct text messages are accepted. Group messages fail closed.
 - The first response is one synthetic text payload; attachments and platform
   actions are unavailable.
-- Idempotency state is in process memory and is lost on LivingAgent restart.
+- Inbound message-ID idempotency state is in process memory and is lost on
+  LivingAgent restart. Utterance delivery receipt progress is durable.
 - The fallback message ID is a deterministic hash because the current
   `before_dispatch` contract does not expose a native message ID.
 - OpenClaw plugin activation and channel health can be checked automatically, but

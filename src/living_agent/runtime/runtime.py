@@ -14,6 +14,11 @@ from living_agent.evaluation.simulator import BehaviorSimulation, SimulatedTaskS
 from living_agent.execution.repository import TaskNotFoundError, TaskStateError
 from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
 from living_agent.interaction.momentum import ConversationMomentum
+from living_agent.interaction.repository import (
+    DeliveryDisposition,
+    DeliveryResult,
+    StoredUtterance,
+)
 from living_agent.interaction.utterance import UtteranceCoordinator, UtteranceTurn
 from living_agent.memory.service import MemoryService
 from living_agent.models.conversation import ChatResult
@@ -144,6 +149,9 @@ class AgentRuntime:
             platform=platform,
             session_id=session_id,
         )
+
+    async def utterance_session(self, session_id: str) -> StoredUtterance | None:
+        return await self._utterances.stored_session(session_id)
 
     def utterance_delays_ms(self, result: ChatResult) -> list[int]:
         if result.utterance is None:
@@ -419,24 +427,28 @@ class AgentRuntime:
             raise ValueError("delivered replies require a conversation and visible message")
         if unit_index < 0 or unit_index >= len(messages):
             raise ValueError("delivered reply unit index is outside the generated utterance")
-        if result.utterance is not None and unit_index != result.utterance.sent_count:
-            raise ValueError("delivered reply units must be recorded in order")
         session_id = result.utterance.session_id if result.utterance is not None else None
-        delivered = await self._events.add_agent_message(
-            conversation_id=conversation_id,
-            content=messages[unit_index],
-            source_event_id=result.event.event_id,
-            utterance_session_id=session_id,
-            unit_index=unit_index,
-            delivery_platform=platform,
-        )
-        if result.utterance is not None:
-            result.utterance.sent_count = max(result.utterance.sent_count, unit_index + 1)
-            result.utterance.state = (
-                "completed"
-                if result.utterance.sent_count >= len(result.utterance.units)
-                else "sending"
+        if result.utterance is None:
+            delivered = await self._events.add_agent_message(
+                conversation_id=conversation_id,
+                content=messages[unit_index],
+                source_event_id=result.event.event_id,
+                utterance_session_id=None,
+                unit_index=unit_index,
+                delivery_platform=platform,
             )
+        else:
+            assert session_id is not None
+            delivery = await self._utterances.record_delivery(
+                conversation_id=conversation_id,
+                platform=platform,
+                session_id=session_id,
+                unit_index=unit_index,
+            )
+            self._require_recorded_delivery(delivery)
+            if delivery.event is None:
+                raise RuntimeError("persistent utterance delivery did not create an event")
+            delivered = delivery.event
         if unit_index == 0:
             response_id = session_id or result.event.event_id
             for memory_id in result.recalled_memory_ids:
@@ -457,13 +469,67 @@ class AgentRuntime:
                 "platform": platform,
             },
         )
-        if result.utterance is not None:
-            await self._utterances.record_delivery(
-                conversation_id=conversation_id,
-                platform=platform,
-                session=result.utterance,
-            )
         return delivered
+
+    async def record_persisted_utterance_delivery(
+        self,
+        *,
+        session_id: str,
+        platform: str,
+        conversation_id: str,
+        unit_index: int,
+        recovered_after_restart: bool,
+    ) -> DeliveryResult:
+        """Record a transport receipt for a Session recovered after restart."""
+
+        stored = await self._utterances.stored_session(session_id)
+        if stored is None:
+            return DeliveryResult(DeliveryDisposition.SESSION_NOT_FOUND, None)
+        delivery = await self._utterances.record_delivery(
+            conversation_id=conversation_id,
+            platform=platform,
+            session_id=session_id,
+            unit_index=unit_index,
+        )
+        if delivery.disposition is not DeliveryDisposition.RECORDED:
+            return delivery
+        if delivery.event is None or delivery.utterance is None:
+            raise RuntimeError("persistent utterance delivery returned incomplete evidence")
+        if unit_index == 0:
+            for memory_id in stored.recalled_memory_ids:
+                await self._memories.record_usage(
+                    memory_id,
+                    response_id=session_id,
+                    conversation_id=conversation_id,
+                )
+        await self._audit.append(
+            action="response.delivered",
+            actor_id="living-agent",
+            conversation_id=conversation_id,
+            outcome="success",
+            details={
+                "event_id": stored.source_event_id,
+                "utterance_session_id": session_id,
+                "unit_index": unit_index,
+                "platform": platform,
+                "recovered_after_restart": recovered_after_restart,
+            },
+        )
+        return delivery
+
+    @staticmethod
+    def _require_recorded_delivery(delivery: DeliveryResult) -> None:
+        if delivery.disposition is DeliveryDisposition.RECORDED:
+            return
+        reasons = {
+            DeliveryDisposition.ALREADY_RECORDED: "delivered reply was already recorded",
+            DeliveryDisposition.OUT_OF_ORDER: "delivered reply units must be recorded in order",
+            DeliveryDisposition.INTERRUPTED: "utterance session was interrupted",
+            DeliveryDisposition.SCOPE_MISMATCH: "utterance session scope mismatch",
+            DeliveryDisposition.SESSION_NOT_FOUND: "utterance session was not found",
+            DeliveryDisposition.UNIT_NOT_ISSUED: "delivered reply unit was not issued",
+        }
+        raise ValueError(reasons[delivery.disposition])
 
     async def _conversation_events(self, event: TrustedEvent) -> list[TrustedEvent]:
         if event.conversation_id is None:

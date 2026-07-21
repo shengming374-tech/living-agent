@@ -360,7 +360,10 @@ turn without probabilistic silence. A Runtime-owned coordinator makes continuati
 delays configurable, sends the first unit immediately, cancels stale remaining
 units on a newer inbound turn, suppresses older model results that finish late,
 and records the fresh response as a replan rather than resuming old text. Test
-configuration disables real waits without changing production metadata.
+configuration disables real waits without changing production metadata. Session
+scope, units, source event, generation, and delivery progress are persisted.
+Startup restores the newest in-flight Session per platform/conversation without
+automatically resending old text.
 Authenticated social identities are
 automatically registered as non-authoritative profiles. The optional
 NapCat compatibility slice adds a tested OneBot
@@ -372,7 +375,11 @@ second personality frontend.
 Generated speech and delivered speech are tracked separately. Direct Chat API
 responses record each returned unit, NapCat records a unit only after a successful
 OneBot action response, and OpenClaw records every adopted unit through
-authenticated delivery receipts. OpenClaw receipts for superseded Sessions are rejected.
+authenticated delivery receipts. OpenClaw receipts for superseded Sessions are
+rejected.
+An authenticated, exact-scope, in-order receipt can continue a still-current
+Session issued before a LivingAgent restart; duplicate receipts do not duplicate
+conversation history.
 Cancelled or failed units do not enter recent conversation history as things the
 persona said.
 The embedding compatibility slice adds deterministic Mock and strict
@@ -402,9 +409,9 @@ between arbitrary free-form claim text and the referenced record.
 Not yet implemented: automatic memory extraction, embedding/vector retrieval,
 arbitrary natural-language action planning, a broader task-tool catalog,
 arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
-OpenClaw group/media/proactive messaging and persistent bridge idempotency are
-also not implemented. The OpenClaw and NapCat adapters cancel unsent follow-up
-units when a newer inbound message reaches the same conversation.
+OpenClaw group/media/proactive messaging and persistent inbound-message
+idempotency are also not implemented. The OpenClaw and NapCat adapters cancel
+unsent follow-up units when a newer inbound message reaches the same conversation.
 Image understanding, speech recognition, audio/video processing, and attachment
 parsing are explicitly deferred to version `0.2.0`; media placeholders are not
 described as multimodal support.

@@ -17,8 +17,13 @@ Completed on 2026-07-21.
   `utterance.replanned` audit evidence.
 - Delivery-aware persistence: generated text is not conversation history until a
   transport confirms it was sent.
+- Durable Session persistence for units, source event, scope, generation,
+  started/delivered counts, memory-use references, and terminal state.
+- Startup recovery of the newest in-flight Session per platform/conversation
+  scope. Recovery never schedules an automatic resend.
 - Chat API, NapCat, and OpenClaw integration. OpenClaw rejects late receipts for a
-  superseded Session.
+  superseded Session and accepts in-order receipts for a still-current Session
+  issued before a LivingAgent restart.
 
 ## Behavioral boundaries
 
@@ -40,22 +45,25 @@ Completed on 2026-07-21.
   changes timing and cancellation, never authority.
 - Delivery indices must be recorded in order, preventing a later receipt from
   falsely marking skipped units as spoken.
+- Agent-message persistence and Session delivery progress commit in one database
+  transaction. Replayed receipts are idempotent and cannot duplicate history.
 - Audit records planned, interrupted, and replanned Sessions without storing
-  hidden reasoning.
+  hidden reasoning. Startup records `utterance.recovered` with
+  `automatic_resend=false`.
 - Cancelled or failed units do not affect momentum, memory-usage evidence, or
   continuity claims.
 
 ## Verification
 
-- Full Python suite: `180 passed`.
-- Ruff: passed. Strict mypy: passed across 113 source files.
+- Full Python suite: `182 passed`.
+- Ruff: passed. Strict mypy: passed across 115 source files.
 - OpenClaw bridge suite: `13 passed`, including server-provided pacing,
   cancellation, late-response suppression, and delivery receipts.
+- Restart-recovery suite: `2 passed`, covering in-order continuation,
+  idempotency, stale receipt rejection, and generation continuity.
 - Focused Runtime, Chat API, NapCat, OpenClaw, momentum, and utterance tests:
   `57 passed`.
 
 ## Deferred
 
-- Durable in-flight Session recovery across process restart. Current transport
-  Sessions fail closed after restart; delayed OpenClaw receipts are rejected.
 - Multimodal speech/media output, scheduled for version `0.2.0`.

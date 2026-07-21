@@ -36,7 +36,10 @@ triggered by a suspected instruction. The frequency calculation can inspect up t
 128 persisted turns while model context remains limited to the latest eight.
 `UtteranceSession.sent_count` and state advance only when a transport records
 delivery. Recent conversation history is built from those delivered units rather
-than the complete generated plan. A shared coordinator now owns per-platform,
+than the complete generated plan. Session plans, units, generations, source
+events, and progress are durable. Startup restores the newest in-flight Session
+per platform/conversation without automatically resending any old unit. A shared
+coordinator now owns per-platform,
 per-conversation generations: a newer inbound turn cancels the active Session,
 wakes any continuation delay, suppresses late older model output, and links the
 fresh Session through an audited `utterance.replanned` record. It deterministically
@@ -62,7 +65,9 @@ fails closed without delegating personality or permissions to OpenClaw. A new
 inbound message cancels unsent follow-up units in that same conversation and
 suppresses an older model response that finishes late. The server also rejects
 late delivery receipts for an interrupted Session, preventing cancelled text from
-entering conversation history. Direct
+entering conversation history. An authenticated, correctly scoped, in-order
+receipt may finish a still-current Session after a LivingAgent restart; duplicate
+receipts remain idempotent. Direct
 text is implemented; group/media/proactive messaging and persistent replay keys
 remain future work.
 

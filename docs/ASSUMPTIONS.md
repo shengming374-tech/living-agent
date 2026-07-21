@@ -78,6 +78,12 @@
     stay responsive; optional unmentioned group participation requires a configured
     consecutive-user-turn threshold and cooldown, then emits one short reaction.
     Random reply probabilities are not used.
+26. In-flight `UtteranceSession` state is durable, but recovery is passive: startup
+    restores authorization and delivery progress without resending old text.
+    OpenClaw may finish an already-issued Session with authenticated, exact-scope,
+    in-order receipts. NapCat and Chat API Sessions wait for a new inbound turn,
+    which cancels the stale remainder, because those transports have no durable
+    post-restart receipt channel.
 26. User auto-registration accepts only authenticated direct/group events and keys
     profiles by stable platform identity. Display names are mutable metadata and
     never establish owner/admin authority. Registration does not grant memory,

@@ -42,6 +42,7 @@ from living_agent.execution.report_contracts import (
 )
 from living_agent.execution.repository import TaskRepository
 from living_agent.execution.service import TaskService
+from living_agent.interaction.repository import UtteranceRepository
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.interaction.utterance import UtteranceCoordinator
 from living_agent.logging import configure_logging
@@ -279,6 +280,7 @@ def create_app(
     context_compiler = ContextCompiler()
     utterance_coordinator = UtteranceCoordinator(
         audit=audit,
+        repository=UtteranceRepository(database.sessions),
         delays_enabled=not resolved_settings.test_disable_delays,
     )
     runtime = AgentRuntime(
@@ -336,6 +338,7 @@ def create_app(
         del application
         try:
             await asyncio.to_thread(run_migrations, resolved_settings.database_url)
+            await utterance_coordinator.initialize()
             await persona_manager.initialize()
             await prompt_manager.initialize()
             await psyche_service.initialize()

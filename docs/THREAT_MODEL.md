@@ -43,6 +43,7 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Simulator used as an execution bypass | A dry run persists an event, creates a task, or calls a tool | Dedicated read-only path; tests assert no event/task/audit write and no model/plugin/effect call |
 | Capability-console escalation | Studio creates a broad grant for itself | Console exposes inventory and revocation only; grant creation remains host-internal |
 | Stale speech after interruption | Slow model output or delayed follow-up is sent after a newer user turn | Per-conversation generations cancel waits, suppress late plans, and reject superseded delivery receipts |
+| Crash/restart receipt replay | A delayed or forged receipt duplicates speech or crosses into another conversation | Durable Session scope, exact platform/conversation match, monotonic unit index, transactional event/progress commit, and passive recovery with no automatic resend |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
