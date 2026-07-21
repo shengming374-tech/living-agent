@@ -42,6 +42,7 @@ memories, dreams, and plugin free text have no implicit administrative authority
 | Forged Studio identity | A remote client sets the development owner header | All APIs re-check owner authority; production requires an authenticated control plane and trusted identity derivation |
 | Simulator used as an execution bypass | A dry run persists an event, creates a task, or calls a tool | Dedicated read-only path; tests assert no event/task/audit write and no model/plugin/effect call |
 | Capability-console escalation | Studio creates a broad grant for itself | Console exposes inventory and revocation only; grant creation remains host-internal |
+| Stale speech after interruption | Slow model output or delayed follow-up is sent after a newer user turn | Per-conversation generations cancel waits, suppress late plans, and reject superseded delivery receipts |
 
 No component promises perfect injection detection. The security objective is that
 successful model manipulation still cannot grant permission, change policy, read
@@ -87,6 +88,7 @@ before ranking, preventing cross-session leakage.
 | Agent deploys own modification | Proposal actor cannot satisfy owner approval requirement |
 | Secret leaks through errors/logs | Redaction and generic boundary errors; secrets never enter prompt logs |
 | Audit tampering by plugin | No audit capability or database handle enters plugin process |
+| Cancelled speech enters history | A late transport acknowledgement records an old unsent unit | Delivery is ordered; OpenClaw receipts require the currently active Session; only successful sends are persisted |
 
 ## Residual risks
 

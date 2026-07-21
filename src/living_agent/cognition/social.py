@@ -17,8 +17,22 @@ from living_agent.models.events import TrustedEvent
 
 
 class SocialCognition:
-    def __init__(self, turn_gate: TurnGate) -> None:
+    def __init__(
+        self,
+        turn_gate: TurnGate,
+        *,
+        followup_delay_min_ms: int = 300,
+        followup_delay_max_ms: int = 650,
+    ) -> None:
+        if (
+            followup_delay_min_ms < 0
+            or followup_delay_min_ms > followup_delay_max_ms
+            or followup_delay_max_ms > 10000
+        ):
+            raise ValueError("follow-up delay bounds must be ordered and non-negative")
         self._turn_gate = turn_gate
+        self._followup_delay_min_ms = followup_delay_min_ms
+        self._followup_delay_max_ms = followup_delay_max_ms
 
     def decide_turn(
         self,
@@ -39,10 +53,16 @@ class SocialCognition:
             units = units[:1]
         speech_units = [
             SpeechUnit(
-                function="reaction" if index == 0 else "continuation",
+                function=(
+                    "task_result"
+                    if index == 0 and turn.mode == "act"
+                    else "reaction"
+                    if index == 0
+                    else "continuation"
+                ),
                 text=unit,
-                delay_min_ms=0 if index == 0 else 300,
-                delay_max_ms=0 if index == 0 else 650,
+                delay_min_ms=0 if index == 0 else self._followup_delay_min_ms,
+                delay_max_ms=0 if index == 0 else self._followup_delay_max_ms,
                 cancellable=index > 0,
             )
             for index, unit in enumerate(units)

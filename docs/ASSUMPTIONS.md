@@ -15,9 +15,11 @@
    native code; production requires containers, seccomp/App Sandbox, or a VM.
 8. `references/maibot/` is deliberately ignored by the main repository. Research
    provenance pins the inspected upstream revision without vendoring GPL code.
-9. The Phase 5 slice supports one-unit reactions and configurable one-to-three-unit
-   engaged replies. Delivery-aware interruption is implemented in platform
-   adapters; runtime-level regeneration of cancelled units remains future work.
+9. Phase 5 supports one-unit reactions and configurable one-to-three-unit engaged
+   replies. A Runtime-owned coordinator invalidates stale generations across Chat
+   API, NapCat, and OpenClaw. Replanning means producing a fresh response from the
+   newer inbound event and current conversation state; cancelled old units are
+   never mechanically resumed or rewritten in place.
 10. Root prompt mutation is disabled when
     `LIVING_AGENT_ROOT_PROMPT_SECOND_FACTOR_SHA256` is unset. Only the digest is
     configured; the raw second factor is supplied per privileged request.

@@ -313,6 +313,13 @@ def test_new_napcat_message_cancels_unsent_units_from_previous_turn(
             assert interrupted["details"]["sent_count"] == 1
             assert interrupted["details"]["unsent_count"] == 1
             assert interrupted["details"]["reason_code"] == "new_inbound_message"
+            wait_for_audit(
+                client,
+                lambda entry: (
+                    entry["action"] == "response.delivered"
+                    and entry["details"]["event_id"] == interrupted["details"]["event_id"]
+                ),
+            )
             old_deliveries = [
                 entry
                 for entry in audit_entries(client)

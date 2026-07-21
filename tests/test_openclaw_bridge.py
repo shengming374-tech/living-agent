@@ -158,6 +158,9 @@ def test_openclaw_bridge_authorizes_multiple_short_units(settings: Settings) -> 
     configured.openclaw_bridge_enabled = True
     configured.openclaw_bridge_access_token = SecretStr(BRIDGE_TOKEN)
     configured.openclaw_bridge_allowed_account_ids = ["wechat-account"]
+    configured.test_disable_delays = False
+    configured.social_followup_delay_min_ms = 400
+    configured.social_followup_delay_max_ms = 600
     with TestClient(create_app(configured, llm_provider=MultiUnitLLMProvider())) as client:
         response = client.post(
             OPENCLAW_PATH,
@@ -167,6 +170,18 @@ def test_openclaw_bridge_authorizes_multiple_short_units(settings: Settings) -> 
         body = response.json()
         session_id = body["utterance_session_id"]
         before_receipts = audit_entries(client)
+        primary_receipt = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": session_id,
+                "unit_index": 0,
+            },
+        )
         first_receipt = client.post(
             DELIVERY_PATH,
             headers=AUTH_HEADERS,
@@ -212,11 +227,13 @@ def test_openclaw_bridge_authorizes_multiple_short_units(settings: Settings) -> 
         "第二条短回复",
         "第三条短回复",
     ]
+    assert body["unit_delays_ms"] == [0, 500, 500]
     assert isinstance(session_id, str)
     delivered_before_receipts = [
         entry for entry in before_receipts if entry["action"] == "response.delivered"
     ]
-    assert [entry["details"]["unit_index"] for entry in delivered_before_receipts] == [0]
+    assert delivered_before_receipts == []
+    assert primary_receipt.json()["reason_code"] == "delivery_recorded"
     assert first_receipt.json()["reason_code"] == "delivery_recorded"
     assert replay_receipt.json()["reason_code"] == "delivery_already_recorded"
     assert final_receipt.json()["reason_code"] == "delivery_recorded"
@@ -240,6 +257,18 @@ def test_openclaw_delivery_receipt_is_scoped_to_issued_utterance(
             json=bridge_payload(content="这是另一个需要正常参与的较长聊天消息"),
         )
         session_id = response.json()["utterance_session_id"]
+        out_of_order = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": session_id,
+                "unit_index": 1,
+            },
+        )
         wrong_scope = client.post(
             DELIVERY_PATH,
             headers=AUTH_HEADERS,
@@ -265,10 +294,72 @@ def test_openclaw_delivery_receipt_is_scoped_to_issued_utterance(
             },
         )
 
+    assert out_of_order.status_code == 403
+    assert out_of_order.json()["detail"] == "delivery_out_of_order"
     assert wrong_scope.status_code == 403
     assert wrong_scope.json()["detail"] == "delivery_scope_mismatch"
     assert unknown_session.status_code == 403
     assert unknown_session.json()["detail"] == "utterance_session_not_found"
+
+
+def test_new_openclaw_message_invalidates_old_undelivered_units(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.openclaw_bridge_enabled = True
+    configured.openclaw_bridge_access_token = SecretStr(BRIDGE_TOKEN)
+    configured.openclaw_bridge_allowed_account_ids = ["wechat-account"]
+    configured.test_disable_delays = False
+    configured.social_followup_delay_min_ms = 400
+    configured.social_followup_delay_max_ms = 600
+    with TestClient(create_app(configured, llm_provider=MultiUnitLLMProvider())) as client:
+        old = client.post(
+            OPENCLAW_PATH,
+            headers=AUTH_HEADERS,
+            json=bridge_payload(
+                content="这是第一条需要多段回复的很长聊天消息呀",
+                message_id="old-message",
+            ),
+        )
+        new = client.post(
+            OPENCLAW_PATH,
+            headers=AUTH_HEADERS,
+            json=bridge_payload(content="等等", message_id="new-message"),
+        )
+        stale_receipt = client.post(
+            DELIVERY_PATH,
+            headers=AUTH_HEADERS,
+            json={
+                "protocol_version": 1,
+                "channel_id": "openclaw-weixin",
+                "account_id": "wechat-account",
+                "conversation_id": "wechat-conversation",
+                "utterance_session_id": old.json()["utterance_session_id"],
+                "unit_index": 1,
+            },
+        )
+        audit = audit_entries(client)
+
+    assert old.status_code == new.status_code == 200
+    assert len(old.json()["messages"]) == 3
+    assert len(new.json()["messages"]) == 3
+    assert new.json()["utterance_session_id"] != old.json()["utterance_session_id"]
+    assert stale_receipt.status_code == 403
+    assert stale_receipt.json()["detail"] == "utterance_interrupted"
+    old_event_id = old.json()["event_id"]
+    old_deliveries = [
+        entry
+        for entry in audit
+        if entry["action"] == "response.delivered"
+        and entry["details"]["event_id"] == old_event_id
+    ]
+    assert old_deliveries == []
+    assert any(
+        entry["action"] == "utterance.replanned"
+        and entry["details"]["replaced_session_id"]
+        == old.json()["utterance_session_id"]
+        for entry in audit
+    )
 
 
 def test_message_replay_is_suppressed_without_second_runtime_turn(

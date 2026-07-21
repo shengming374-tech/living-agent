@@ -80,12 +80,18 @@ configuration tooling with these values:
 }
 ```
 
+`followupDelayMs` is a compatibility fallback. Current LivingAgent responses carry
+validated per-unit delay metadata derived from the Runtime speech configuration;
+the bridge schedules cumulative follow-ups from that metadata.
+
 When a newer inbound message reaches the same conversation, the bridge cancels
 any still-pending follow-up units from the older response. It also suppresses an
 older model response if that response completes after the newer inbound arrived.
-After each follow-up `sendText` succeeds, the plugin posts an authenticated
-delivery receipt to `/v1/adapters/openclaw/deliveries`. LivingAgent then records
-only that unit as spoken. Receipt state is process-local and bounded; after a
+The plugin posts an authenticated delivery receipt for the adopted primary unit
+and after each follow-up `sendText` succeeds. LivingAgent then records only that
+unit as spoken. A receipt for a Session superseded by a newer inbound message is
+rejected and cannot enter conversation history. Receipt state is
+process-local and bounded; after a
 LivingAgent restart, late receipts for sessions issued before restart are rejected.
 
 Restart the Gateway after changing plugin configuration:

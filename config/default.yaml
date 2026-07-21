@@ -37,6 +37,8 @@ root_prompt_second_factor_sha256: null
 psyche_decay_half_life_hours: 12.0
 social_engage_units_min: 2
 social_engage_units_max: 3
+social_followup_delay_min_ms: 300
+social_followup_delay_max_ms: 650
 social_group_auto_participation: false
 social_group_min_user_turns: 5
 social_group_cooldown_seconds: 60.0

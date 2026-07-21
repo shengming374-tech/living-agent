@@ -64,7 +64,6 @@ class NapCatAdapter:
         self._max_message_chars = max_message_chars
         self._max_frame_bytes = max_frame_bytes
         self._max_in_flight_events = max_in_flight_events
-        self._active_utterances: dict[str, object] = {}
 
     async def serve(self, websocket: WebSocket) -> None:
         self_id = websocket.headers.get("x-self-id")
@@ -227,46 +226,50 @@ class NapCatAdapter:
         conversation_id = normalized.envelope.conversation_id
         if conversation_id is None:
             raise ValueError("NapCat messages require a conversation")
-        utterance_token = object()
-        self._active_utterances[conversation_id] = utterance_token
-        try:
-            result = await self._runtime.handle_chat(normalized.envelope)
-            if result.message is None:
+        utterance_turn = await self._runtime.begin_utterance_turn(
+            conversation_id,
+            platform="napcat",
+        )
+        assert utterance_turn is not None
+        result = await self._runtime.handle_chat(normalized.envelope)
+        if not await self._runtime.activate_utterance(utterance_turn, result):
+            return
+        if result.message is None:
+            return
+        messages = result.messages or [result.message]
+        for index, message in enumerate(messages):
+            if not await self._runtime.wait_for_utterance_unit(
+                utterance_turn,
+                result,
+                unit_index=index,
+            ):
                 return
-            messages = result.messages or [result.message]
-            for index, message in enumerate(messages):
-                if self._active_utterances.get(conversation_id) is not utterance_token:
-                    await self._audit.append(
-                        action="utterance.interrupted",
-                        actor_id="living-agent",
-                        conversation_id=conversation_id,
-                        outcome="cancelled",
-                        details={
-                            "event_id": result.event.event_id,
-                            "platform": "napcat",
-                            "sent_count": index,
-                            "unsent_count": len(messages) - index,
-                            "reason_code": "new_inbound_message",
-                        },
-                    )
-                    return
-                reply = normalized.reply.model_copy(update={"message": message})
-                delivered = await self._send_reply(
-                    reply,
-                    connection,
-                    event_id=result.event.event_id,
-                    conversation_id=conversation_id,
-                    taint_labels=result.event.taint_labels,
+            if not await self._runtime.mark_utterance_unit_started(
+                utterance_turn,
+                result,
+                unit_index=index,
+            ):
+                return
+            reply = normalized.reply.model_copy(update={"message": message})
+            delivered = await self._send_reply(
+                reply,
+                connection,
+                event_id=result.event.event_id,
+                conversation_id=conversation_id,
+                taint_labels=result.event.taint_labels,
+            )
+            if not delivered:
+                await self._runtime.cancel_utterance(
+                    utterance_turn,
+                    result,
+                    reason_code="delivery_failed",
                 )
-                if delivered:
-                    await self._runtime.record_delivery(
-                        result,
-                        unit_index=index,
-                        platform="napcat",
-                    )
-        finally:
-            if self._active_utterances.get(conversation_id) is utterance_token:
-                self._active_utterances.pop(conversation_id, None)
+                return
+            await self._runtime.record_delivery(
+                result,
+                unit_index=index,
+                platform="napcat",
+            )
 
     async def _send_reply(
         self,

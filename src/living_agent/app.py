@@ -43,6 +43,7 @@ from living_agent.execution.report_contracts import (
 from living_agent.execution.repository import TaskRepository
 from living_agent.execution.service import TaskService
 from living_agent.interaction.turn_gate import TurnGate
+from living_agent.interaction.utterance import UtteranceCoordinator
 from living_agent.logging import configure_logging
 from living_agent.management.artifacts import ArtifactRepository
 from living_agent.memory.firewall import MemoryFirewall
@@ -276,6 +277,10 @@ def create_app(
     )
     trust_boundary = TrustBoundary(authority)
     context_compiler = ContextCompiler()
+    utterance_coordinator = UtteranceCoordinator(
+        audit=audit,
+        delays_enabled=not resolved_settings.test_disable_delays,
+    )
     runtime = AgentRuntime(
         boundary=trust_boundary,
         events=EventRepository(database.sessions),
@@ -288,7 +293,9 @@ def create_app(
                 group_auto_participation=resolved_settings.social_group_auto_participation,
                 group_min_user_turns=resolved_settings.social_group_min_user_turns,
                 group_cooldown_seconds=resolved_settings.social_group_cooldown_seconds,
-            )
+            ),
+            followup_delay_min_ms=resolved_settings.social_followup_delay_min_ms,
+            followup_delay_max_ms=resolved_settings.social_followup_delay_max_ms,
         ),
         executive=ExecutiveCognition(),
         tasks=task_service,
@@ -299,6 +306,7 @@ def create_app(
         continuity_critic=continuity_critic,
         memories=memory_service,
         users=user_service,
+        utterances=utterance_coordinator,
     )
     napcat_adapter = NapCatAdapter(
         enabled=resolved_settings.napcat_enabled,
@@ -359,6 +367,7 @@ def create_app(
     app.state.authority = authority
     app.state.audit = audit
     app.state.runtime = runtime
+    app.state.utterance_coordinator = utterance_coordinator
     app.state.llm_provider = resolved_llm_provider
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry

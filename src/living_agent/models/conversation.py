@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from living_agent.models.events import TrustedEvent
 
@@ -30,6 +30,12 @@ class SpeechUnit(BaseModel):
     delay_min_ms: int = Field(ge=0, le=10000)
     delay_max_ms: int = Field(ge=0, le=10000)
     cancellable: bool
+
+    @model_validator(mode="after")
+    def validate_delay_range(self) -> SpeechUnit:
+        if self.delay_min_ms > self.delay_max_ms:
+            raise ValueError("speech unit delay_min_ms cannot exceed delay_max_ms")
+        return self
 
 
 class UtteranceSession(BaseModel):

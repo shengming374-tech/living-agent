@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     psyche_decay_half_life_hours: float = Field(default=12.0, gt=0.0, le=720.0)
     social_engage_units_min: int = Field(default=2, ge=1, le=3)
     social_engage_units_max: int = Field(default=3, ge=1, le=3)
+    social_followup_delay_min_ms: int = Field(default=300, ge=0, le=10000)
+    social_followup_delay_max_ms: int = Field(default=650, ge=0, le=10000)
     social_group_auto_participation: bool = False
     social_group_min_user_turns: int = Field(default=5, ge=1, le=100)
     social_group_cooldown_seconds: float = Field(default=60.0, ge=0.0, le=86400.0)
@@ -139,6 +141,10 @@ class Settings(BaseSettings):
     def validate_adapter_credentials(self) -> Self:
         if self.social_engage_units_min > self.social_engage_units_max:
             raise ValueError("social_engage_units_min cannot exceed social_engage_units_max")
+        if self.social_followup_delay_min_ms > self.social_followup_delay_max_ms:
+            raise ValueError(
+                "social_followup_delay_min_ms cannot exceed social_followup_delay_max_ms"
+            )
         if self.model_provider == "openai_compatible":
             if self.model_api_base_url is None:
                 raise ValueError("model_api_base_url is required for openai_compatible provider")

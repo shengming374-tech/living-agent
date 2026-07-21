@@ -180,6 +180,13 @@ function validResponse(value) {
     (typeof value.utterance_session_id === "string" &&
       value.utterance_session_id.length > 0 &&
       value.utterance_session_id.length <= 255);
+  const unitDelaysValid =
+    value?.unit_delays_ms === undefined ||
+    (Array.isArray(value.unit_delays_ms) &&
+      value.unit_delays_ms.length === messages.length &&
+      value.unit_delays_ms.every(
+        (item) => Number.isInteger(item) && item >= 0 && item <= 10000,
+      ));
   return (
     value &&
     typeof value === "object" &&
@@ -190,9 +197,20 @@ function validResponse(value) {
     primaryMatches &&
     messages.length <= 3 &&
     utteranceSessionValid &&
+    unitDelaysValid &&
     (messages.length <= 1 || typeof value.utterance_session_id === "string") &&
     typeof value.reason_code === "string"
   );
+}
+
+function responseUnitDelays(value, messages, fallbackDelayMs) {
+  if (
+    Array.isArray(value?.unit_delays_ms) &&
+    value.unit_delays_ms.length === messages.length
+  ) {
+    return value.unit_delays_ms;
+  }
+  return messages.map((_message, index) => (index === 0 ? 0 : fallbackDelayMs));
 }
 
 function responseMessages(value) {
@@ -311,6 +329,33 @@ export function createBeforeDispatchHandler(options = {}) {
     pendingByConversation.delete(key);
   }
 
+  async function reportUnitDelivery(response, built, unitIndex, config) {
+    if (typeof response.utterance_session_id !== "string") return true;
+    try {
+      await reportDelivery(
+        {
+          protocol_version: 1,
+          channel_id: built.payload.channel_id,
+          account_id: built.payload.account_id,
+          conversation_id: built.payload.conversation_id,
+          utterance_session_id: response.utterance_session_id,
+          unit_index: unitIndex,
+        },
+        config,
+      );
+      stats.deliveryReceipts = (stats.deliveryReceipts || 0) + 1;
+      stats.lastReceiptErrorCode = null;
+      return true;
+    } catch (receiptError) {
+      stats.deliveryReceiptFailures = (stats.deliveryReceiptFailures || 0) + 1;
+      stats.lastReceiptErrorCode = safeErrorCode(receiptError);
+      logger?.error?.(
+        `[${PLUGIN_ID}] delivery receipt failed: ${stats.lastReceiptErrorCode}`,
+      );
+      return false;
+    }
+  }
+
   return async (event, context) => {
     const config = configProvider();
     if (!config) {
@@ -346,10 +391,19 @@ export function createBeforeDispatchHandler(options = {}) {
       const messages = responseMessages(response);
       if (messages.length > 0) {
         stats.replied += 1;
+        await reportUnitDelivery(response, built, 0, config);
+        if (activeRequests.get(key) !== requestToken) {
+          stats.staleResponses = (stats.staleResponses || 0) + 1;
+          return { handled: true };
+        }
         if (messages.length > 1 && built.deliveryTarget && typeof sendFollowup === "function") {
           const pending = { cancelled: false, timers: new Set() };
           pendingByConversation.set(key, pending);
+          const delays = responseUnitDelays(response, messages, config.followupDelayMs);
+          let cumulativeDelayMs = 0;
           messages.slice(1).forEach((message, index) => {
+            cumulativeDelayMs += delays[index + 1];
+            const scheduledDelayMs = cumulativeDelayMs;
             let timer;
             timer = scheduleImpl(async () => {
               if (pending.cancelled || pendingByConversation.get(key) !== pending) return;
@@ -363,33 +417,13 @@ export function createBeforeDispatchHandler(options = {}) {
                   text: message,
                 });
                 stats.followupsSent = (stats.followupsSent || 0) + 1;
-                try {
-                  await reportDelivery(
-                    {
-                      protocol_version: 1,
-                      channel_id: built.payload.channel_id,
-                      account_id: built.payload.account_id,
-                      conversation_id: built.payload.conversation_id,
-                      utterance_session_id: response.utterance_session_id,
-                      unit_index: index + 1,
-                    },
-                    config,
-                  );
-                  stats.deliveryReceipts = (stats.deliveryReceipts || 0) + 1;
-                  stats.lastReceiptErrorCode = null;
-                } catch (receiptError) {
-                  stats.deliveryReceiptFailures = (stats.deliveryReceiptFailures || 0) + 1;
-                  stats.lastReceiptErrorCode = safeErrorCode(receiptError);
-                  logger?.error?.(
-                    `[${PLUGIN_ID}] delivery receipt failed: ${stats.lastReceiptErrorCode}`,
-                  );
-                }
+                await reportUnitDelivery(response, built, index + 1, config);
               } catch (error) {
                 stats.followupFailures = (stats.followupFailures || 0) + 1;
                 stats.lastErrorCode = safeErrorCode(error);
                 logger?.error?.(`[${PLUGIN_ID}] follow-up send failed: ${stats.lastErrorCode}`);
               }
-            }, config.followupDelayMs * (index + 1));
+            }, scheduledDelayMs);
             pending.timers.add(timer);
             timer?.unref?.();
           });

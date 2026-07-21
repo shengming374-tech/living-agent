@@ -14,6 +14,7 @@ from living_agent.evaluation.simulator import BehaviorSimulation, SimulatedTaskS
 from living_agent.execution.repository import TaskNotFoundError, TaskStateError
 from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
 from living_agent.interaction.momentum import ConversationMomentum
+from living_agent.interaction.utterance import UtteranceCoordinator, UtteranceTurn
 from living_agent.memory.service import MemoryService
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope, SourceType, TrustedEvent
@@ -44,6 +45,7 @@ class AgentRuntime:
         continuity_critic: ContinuityCritic,
         memories: MemoryService,
         users: UserService,
+        utterances: UtteranceCoordinator,
     ) -> None:
         self._boundary = boundary
         self._events = events
@@ -59,6 +61,7 @@ class AgentRuntime:
         self._continuity_critic = continuity_critic
         self._memories = memories
         self._users = users
+        self._utterances = utterances
 
     @property
     def root_policy_checksum(self) -> str:
@@ -78,6 +81,74 @@ class AgentRuntime:
             current_task=current_task,
             available_capabilities=available_capabilities,
         )
+
+    async def begin_utterance_turn(
+        self,
+        conversation_id: str | None,
+        *,
+        platform: str,
+    ) -> UtteranceTurn | None:
+        if conversation_id is None:
+            return None
+        return await self._utterances.begin_turn(conversation_id, platform=platform)
+
+    async def activate_utterance(
+        self,
+        turn: UtteranceTurn | None,
+        result: ChatResult,
+    ) -> bool:
+        if turn is None:
+            return True
+        return await self._utterances.activate(turn, result)
+
+    async def wait_for_utterance_unit(
+        self,
+        turn: UtteranceTurn,
+        result: ChatResult,
+        *,
+        unit_index: int,
+    ) -> bool:
+        return await self._utterances.wait_until_ready(
+            turn,
+            result,
+            unit_index=unit_index,
+        )
+
+    async def mark_utterance_unit_started(
+        self,
+        turn: UtteranceTurn,
+        result: ChatResult,
+        *,
+        unit_index: int,
+    ) -> bool:
+        return await self._utterances.mark_started(turn, result, unit_index=unit_index)
+
+    async def cancel_utterance(
+        self,
+        turn: UtteranceTurn,
+        result: ChatResult,
+        *,
+        reason_code: str,
+    ) -> None:
+        await self._utterances.cancel(turn, result, reason_code=reason_code)
+
+    async def utterance_is_current(
+        self,
+        *,
+        conversation_id: str,
+        platform: str,
+        session_id: str,
+    ) -> bool:
+        return await self._utterances.is_current(
+            conversation_id=conversation_id,
+            platform=platform,
+            session_id=session_id,
+        )
+
+    def utterance_delays_ms(self, result: ChatResult) -> list[int]:
+        if result.utterance is None:
+            return []
+        return [self._utterances.delay_ms(unit) for unit in result.utterance.units]
 
     async def simulate_chat(self, envelope: IngressEnvelope) -> BehaviorSimulation:
         event = self._boundary.normalize(envelope)
@@ -254,11 +325,15 @@ class AgentRuntime:
                     "error_code": exc.code,
                 },
             )
+            failure_message = self._social.render_model_failure()
+            failure_utterance = self._social.plan_utterance(failure_message, turn)
+            failure_messages = [unit.text for unit in failure_utterance.units]
             return ChatResult(
                 event=event,
                 turn=turn,
-                message=self._social.render_model_failure(),
-                messages=[self._social.render_model_failure()],
+                message=failure_messages[0],
+                messages=failure_messages,
+                utterance=failure_utterance,
             )
         await self._audit.append(
             action="model.called",
@@ -344,6 +419,8 @@ class AgentRuntime:
             raise ValueError("delivered replies require a conversation and visible message")
         if unit_index < 0 or unit_index >= len(messages):
             raise ValueError("delivered reply unit index is outside the generated utterance")
+        if result.utterance is not None and unit_index != result.utterance.sent_count:
+            raise ValueError("delivered reply units must be recorded in order")
         session_id = result.utterance.session_id if result.utterance is not None else None
         delivered = await self._events.add_agent_message(
             conversation_id=conversation_id,
@@ -380,6 +457,12 @@ class AgentRuntime:
                 "platform": platform,
             },
         )
+        if result.utterance is not None:
+            await self._utterances.record_delivery(
+                conversation_id=conversation_id,
+                platform=platform,
+                session=result.utterance,
+            )
         return delivered
 
     async def _conversation_events(self, event: TrustedEvent) -> list[TrustedEvent]:

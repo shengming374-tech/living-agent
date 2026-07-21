@@ -6,8 +6,8 @@ claim of consciousness and does not fabricate a biological body or life history.
 
 The implemented foundation includes trusted ingress, brokered execution,
 source-aware long-term memory, managed Persona/Prompt versions, persistent
-psyche evidence, and a multi-step executive task kernel. Runtime-level speech
-replanning, a broader tool catalog, and multimodal input remain staged features
+psyche evidence, and a multi-step executive task kernel. A broader tool catalog
+and multimodal input remain staged features
 and are listed explicitly below. A bundled Control Studio now exposes the
 implemented management workflows through the same FastAPI service.
 
@@ -90,6 +90,8 @@ controlled by consecutive user turns and a cooldown rather than random silence:
 ```bash
 LIVING_AGENT_SOCIAL_ENGAGE_UNITS_MIN=2
 LIVING_AGENT_SOCIAL_ENGAGE_UNITS_MAX=3
+LIVING_AGENT_SOCIAL_FOLLOWUP_DELAY_MIN_MS=300
+LIVING_AGENT_SOCIAL_FOLLOWUP_DELAY_MAX_MS=650
 LIVING_AGENT_SOCIAL_GROUP_AUTO_PARTICIPATION=true
 LIVING_AGENT_SOCIAL_GROUP_MIN_USER_TURNS=5
 LIVING_AGENT_SOCIAL_GROUP_COOLDOWN_SECONDS=60
@@ -347,14 +349,19 @@ Phase 4 adds persistent PsycheState, safe ThoughtRecords, unresolved topics,
 calculator activity evidence, restart recovery, state decay, and evidence-gated
 continuity claims. The runtime also supplies the six-layer persona, deployed
 social Prompt, and current PsycheState to chat generation without elevating user
-text into system instructions. A partial Phase 5 slice adds typed
+text into system instructions. Phase 5 adds typed
 `UtteranceSession`/`SpeechUnit` output: `react` keeps one short unit while
 `engage` may deliver two or three equally short semantic units through the exact
 same-event platform grant. Recent trusted turns also produce a bounded
 `ConversationMomentum`, so acknowledgements, short questions, and consecutive
 user messages do not all receive the same length-based decision. Configurable
 group-turn and cooldown thresholds permit one short, unmentioned participation
-turn without probabilistic silence. Authenticated social identities are
+turn without probabilistic silence. A Runtime-owned coordinator makes continuation
+delays configurable, sends the first unit immediately, cancels stale remaining
+units on a newer inbound turn, suppresses older model results that finish late,
+and records the fresh response as a replan rather than resuming old text. Test
+configuration disables real waits without changing production metadata.
+Authenticated social identities are
 automatically registered as non-authoritative profiles. The optional
 NapCat compatibility slice adds a tested OneBot
 11 reverse-WebSocket Platform Adapter without making NapCat a runtime dependency.
@@ -364,9 +371,10 @@ second personality frontend.
 
 Generated speech and delivered speech are tracked separately. Direct Chat API
 responses record each returned unit, NapCat records a unit only after a successful
-OneBot action response, and OpenClaw records follow-up units through authenticated
-delivery receipts. Cancelled or failed units do not enter recent conversation
-history as things the persona said.
+OneBot action response, and OpenClaw records every adopted unit through
+authenticated delivery receipts. OpenClaw receipts for superseded Sessions are rejected.
+Cancelled or failed units do not enter recent conversation history as things the
+persona said.
 The embedding compatibility slice adds deterministic Mock and strict
 OpenAI-compatible providers plus an owner-only, brokered generation API. It does
 not yet add vector persistence or embedding-based memory ranking; current recall
@@ -392,9 +400,8 @@ and conversation scope; it does not yet independently prove semantic entailment
 between arbitrary free-form claim text and the referenced record.
 
 Not yet implemented: automatic memory extraction, embedding/vector retrieval,
-runtime-level replanning of interrupted speech, arbitrary natural-language action
-planning, a broader task-tool catalog, arbitrary third-party plugin installation,
-journaling, sleep, and dream isolation.
+arbitrary natural-language action planning, a broader task-tool catalog,
+arbitrary third-party plugin installation, journaling, sleep, and dream isolation.
 OpenClaw group/media/proactive messaging and persistent bridge idempotency are
 also not implemented. The OpenClaw and NapCat adapters cancel unsent follow-up
 units when a newer inbound message reaches the same conversation.

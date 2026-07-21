@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from living_agent.models.conversation import TurnDecision
 from living_agent.models.events import IngressEnvelope, SourceType
@@ -75,8 +75,18 @@ class OpenClawBridgeResponse(BaseModel):
     turn: TurnDecision | None
     message: str | None
     messages: list[ShortReply] = Field(default_factory=list, max_length=3)
+    unit_delays_ms: list[Annotated[int, Field(ge=0, le=10000)]] = Field(
+        default_factory=list,
+        max_length=3,
+    )
     utterance_session_id: str | None = None
     reason_code: str
+
+    @model_validator(mode="after")
+    def validate_unit_delays(self) -> OpenClawBridgeResponse:
+        if self.unit_delays_ms and len(self.unit_delays_ms) != len(self.messages):
+            raise ValueError("unit_delays_ms must match the issued message count")
+        return self
 
 
 class OpenClawDeliveryReceipt(BaseModel):
@@ -87,7 +97,7 @@ class OpenClawDeliveryReceipt(BaseModel):
     account_id: str
     conversation_id: str
     utterance_session_id: str
-    unit_index: int = Field(ge=1, le=2)
+    unit_index: int = Field(ge=0, le=2)
 
     @field_validator(
         "channel_id",

@@ -137,6 +137,7 @@ test("returns the first unit and schedules later units to the same conversation"
           turn: null,
           message: "First",
           messages: ["First", "Second", "Third"],
+          unit_delays_ms: [0, 175, 425],
           utterance_session_id: "utterance-1",
           reason_code: "reply_authorized",
         }),
@@ -149,7 +150,7 @@ test("returns the first unit and schedules later units to the same conversation"
   assert.deepEqual(result, { handled: true, text: "First" });
   assert.deepEqual(
     scheduled.map((item) => item.delayMs),
-    [250, 500],
+    [175, 600],
   );
   for (const item of scheduled) await item.callback();
   assert.deepEqual(
@@ -160,10 +161,10 @@ test("returns the first unit and schedules later units to the same conversation"
   assert.equal(counters.followupsSent, 2);
   assert.deepEqual(
     receipts.map((item) => item.unit_index),
-    [1, 2],
+    [0, 1, 2],
   );
   assert.ok(receipts.every((item) => item.utterance_session_id === "utterance-1"));
-  assert.equal(counters.deliveryReceipts, 2);
+  assert.equal(counters.deliveryReceipts, 3);
 });
 
 test("new inbound message cancels unsent follow-ups in the same conversation", async () => {

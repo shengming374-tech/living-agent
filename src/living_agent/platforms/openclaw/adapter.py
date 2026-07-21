@@ -58,7 +58,7 @@ class _IssuedUtterance:
     channel_id: str
     account_id: str
     conversation_id: str
-    delivered_indices: set[int] = field(default_factory=lambda: {0})
+    delivered_indices: set[int] = field(default_factory=set)
 
 
 class OpenClawBridgeAdapter:
@@ -153,6 +153,20 @@ class OpenClawBridgeAdapter:
                 await self._reject_delivery(receipt, "delivery_unit_not_issued")
             if receipt.unit_index in issued.delivered_indices:
                 return OpenClawDeliveryResponse(reason_code="delivery_already_recorded")
+            living_conversation_id = issued.result.event.conversation_id
+            session = issued.result.utterance
+            if (
+                living_conversation_id is None
+                or session is None
+                or not await self._runtime.utterance_is_current(
+                    conversation_id=living_conversation_id,
+                    platform="openclaw",
+                    session_id=session.session_id,
+                )
+            ):
+                await self._reject_delivery(receipt, "utterance_interrupted")
+            if receipt.unit_index != session.sent_count:
+                await self._reject_delivery(receipt, "delivery_out_of_order")
             await self._runtime.record_delivery(
                 issued.result,
                 unit_index=receipt.unit_index,
@@ -207,13 +221,20 @@ class OpenClawBridgeAdapter:
 
     async def _handle_once(self, request: OpenClawBridgeRequest) -> OpenClawBridgeResponse:
         normalized = normalize_openclaw_message(request)
+        utterance_turn = await self._runtime.begin_utterance_turn(
+            normalized.envelope.conversation_id,
+            platform="openclaw",
+        )
+        assert utterance_turn is not None
         result = await self._runtime.handle_chat(normalized.envelope)
         if result.message is None:
+            await self._runtime.activate_utterance(utterance_turn, result)
             return OpenClawBridgeResponse(
                 event_id=result.event.event_id,
                 turn=result.turn,
                 message=None,
                 messages=[],
+                unit_delays_ms=[],
                 reason_code="runtime_observed",
             )
 
@@ -264,9 +285,19 @@ class OpenClawBridgeAdapter:
                 turn=result.turn,
                 message=None,
                 messages=[],
+                unit_delays_ms=[],
                 reason_code=decision.reason_code,
             )
 
+        if not await self._runtime.activate_utterance(utterance_turn, result):
+            return OpenClawBridgeResponse(
+                event_id=result.event.event_id,
+                turn=result.turn,
+                message=None,
+                messages=[],
+                unit_delays_ms=[],
+                reason_code="superseded_by_new_inbound",
+            )
         await self._audit.append(
             action="openclaw.reply_delegated",
             actor_id="living-agent",
@@ -280,9 +311,8 @@ class OpenClawBridgeAdapter:
                 "unit_count": len(reply_messages),
             },
         )
-        await self._runtime.record_delivery(result, unit_index=0, platform="openclaw")
         utterance_session_id = result.utterance.session_id if result.utterance is not None else None
-        if utterance_session_id is not None and len(reply_messages) > 1:
+        if utterance_session_id is not None:
             async with self._cache_lock:
                 self._issued_utterances[utterance_session_id] = _IssuedUtterance(
                     result=result,
@@ -298,6 +328,7 @@ class OpenClawBridgeAdapter:
             turn=result.turn,
             message=reply_messages[0],
             messages=reply_messages,
+            unit_delays_ms=self._runtime.utterance_delays_ms(result),
             utterance_session_id=utterance_session_id,
             reason_code="reply_authorized",
         )
@@ -338,7 +369,13 @@ class OpenClawBridgeAdapter:
                 )
             self._completed.move_to_end(key)
             return response.model_copy(
-                update={"message": None, "messages": [], "reason_code": "idempotent_replay"}
+                update={
+                    "message": None,
+                    "messages": [],
+                    "unit_delays_ms": [],
+                    "utterance_session_id": None,
+                    "reason_code": "idempotent_replay",
+                }
             )
 
     async def _remember(

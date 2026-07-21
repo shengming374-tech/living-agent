@@ -105,6 +105,12 @@ input cannot authorize the write. Outbound model text is encoded as a OneBot
 other rich operation. NapCat response wording is treated as untrusted transport
 data and is neither prompted nor logged; audit retains only bounded status fields.
 
+The first speech unit is sent without a pacing delay. Continuation units use the
+deterministic midpoint of `LIVING_AGENT_SOCIAL_FOLLOWUP_DELAY_MIN_MS` and
+`LIVING_AGENT_SOCIAL_FOLLOWUP_DELAY_MAX_MS`. A new inbound message cancels that
+wait immediately and causes the new Runtime turn to replace, not resume, the old
+plan. `LIVING_AGENT_TEST_DISABLE_DELAYS=true` removes waits in tests.
+
 ## Current limitations
 
 - Reverse WebSocket only; forward WebSocket, HTTP API, and HTTP webhook modes are

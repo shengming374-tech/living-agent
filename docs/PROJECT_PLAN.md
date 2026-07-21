@@ -16,7 +16,7 @@ Every external effect crosses a code-enforced capability broker.
 | 2 | Brokered calculator plugin in an isolated process | Complete |
 | 3 | Managed memory, persona, and prompt APIs | Complete |
 | 4 | Persistent psyche and safe thought records | Complete |
-| 5 | Momentum, utterance sessions, interruption | Partial |
+| 5 | Momentum, utterance sessions, interruption | Complete |
 | 6 | Multi-step executive kernel and verification | Complete |
 | 7 | Control Studio | Complete |
 | 8 | Activities, journaling, dream isolation, proposals | Planned |
@@ -36,7 +36,11 @@ triggered by a suspected instruction. The frequency calculation can inspect up t
 128 persisted turns while model context remains limited to the latest eight.
 `UtteranceSession.sent_count` and state advance only when a transport records
 delivery. Recent conversation history is built from those delivered units rather
-than the complete generated plan.
+than the complete generated plan. A shared coordinator now owns per-platform,
+per-conversation generations: a newer inbound turn cancels the active Session,
+wakes any continuation delay, suppresses late older model output, and links the
+fresh Session through an audited `utterance.replanned` record. It deterministically
+uses the configured delay midpoint; tests disable waits through Settings.
 
 Authenticated social events now auto-register a stable platform identity with
 display name, first/last seen timestamps, message count, and last conversation.
@@ -48,14 +52,17 @@ Platform compatibility slice: NapCat OneBot 11 reverse WebSocket is implemented
 as a host-owned adapter with authenticated ingress and brokered same-event
 replies. It can deliver the short units in a brokered `UtteranceSession`
 sequentially. A newer inbound message in the same conversation cancels any units
-that have not begun sending and records the interruption in the audit log.
+that have not begun sending and records started, delivered, and unsent counts in
+the audit log.
 
 OpenClaw WeChat compatibility is implemented as a transport bridge using the
 typed `before_dispatch` synthetic-reply contract. It authenticates and namespaces
 ingress, applies channel/account allowlists, brokers exact same-event replies, and
 fails closed without delegating personality or permissions to OpenClaw. A new
 inbound message cancels unsent follow-up units in that same conversation and
-suppresses an older model response that finishes late. Direct
+suppresses an older model response that finishes late. The server also rejects
+late delivery receipts for an interrupted Session, preventing cancelled text from
+entering conversation history. Direct
 text is implemented; group/media/proactive messaging and persistent replay keys
 remain future work.
 
@@ -135,7 +142,8 @@ or external effects. The Studio cannot mint capability grants.
 Phase 3 added a source-aware memory firewall and management/version APIs before
 long-term recall claims were enabled. Phase 4 added persistent safe thought
 summaries, psyche state decay, unresolved topics, task activities, and continuity
-evidence constraints. Phase 5 adds interruptible speech. Phase 6 adds persistent
+evidence constraints. Phase 5 added interruptible, paced, replanned speech.
+Phase 6 adds persistent
 typed task planning, execution recovery, and evidence verification. Phase 7 added
 the owner control surface after those persistence and security contracts matured.
 Phase 8 remains last because journaling, dream, and daily-activity features need
