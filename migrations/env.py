@@ -11,6 +11,15 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from living_agent.audit.models import AuditRecordORM
 from living_agent.execution.models import TaskReportORM, TaskRunORM
 from living_agent.interaction.models import UtteranceSessionORM
+from living_agent.life.models import (
+    DailyPlanORM,
+    DiaryEntryORM,
+    DreamRecordORM,
+    LifeActivityLogORM,
+    PrivateProjectORM,
+    SelfChangeProposalORM,
+    SleepCycleORM,
+)
 from living_agent.management.models import ArtifactStageORM, ArtifactVersionORM
 from living_agent.memory.models import (
     MemoryCandidateORM,
@@ -34,13 +43,20 @@ _ = (
     ArtifactStageORM,
     ArtifactVersionORM,
     ActivityRecordORM,
+    DailyPlanORM,
+    DiaryEntryORM,
+    DreamRecordORM,
+    LifeActivityLogORM,
     MemoryCandidateORM,
     MemoryNodeORM,
     MemoryUsageORM,
     MemoryVersionORM,
     OpenClawIngressORM,
+    PrivateProjectORM,
     PsycheStateORM,
     ThoughtRecordORM,
+    SelfChangeProposalORM,
+    SleepCycleORM,
     TaskReportORM,
     TaskRunORM,
     TrustedEventORM,

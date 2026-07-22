@@ -22,6 +22,8 @@ def test_control_studio_assets_are_bundled_with_browser_security_headers(
     assert index.status_code == script.status_code == styles.status_code == 200
     assert "LivingAgent 控制台" in index.text
     assert "行为模拟器" in script.text
+    assert "生活管理" in script.text
+    assert 'data-view="life"' in index.text
     assert ".studio-shell" in styles.text
     assert "default-src 'self'" in index.headers["content-security-policy"]
     assert index.headers["x-content-type-options"] == "nosniff"

@@ -36,4 +36,11 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         "task_reports",
         "utterance_sessions",
         "openclaw_ingress_keys",
+        "private_projects",
+        "daily_plans",
+        "life_activity_logs",
+        "diary_entries",
+        "sleep_cycles",
+        "dream_records",
+        "self_change_proposals",
     } <= set(table_names)

@@ -36,6 +36,7 @@ const VIEW_META = {
   audit: ["审计日志", "权限、工具与配置变更"],
   versions: ["版本历史", "人格与提示词历史"],
   simulator: ["行为模拟器", "无副作用的参与决策预演"],
+  life: ["生活管理", "项目、日记、睡眠与自我修改提案"],
 };
 
 const DISPLAY_LABELS = {
@@ -53,6 +54,9 @@ const DISPLAY_LABELS = {
   observe: "观察", react: "短回应", engage: "主动参与", act: "执行", anonymous: "匿名", none: "无",
   brokered: "经权限代理", owner: "所有者", member: "成员", trusted: "可信", untrusted: "不可信",
   bootstrap: "初始版本", deploy: "部署", rollback: "回滚", tool: "工具",
+  paused: "已暂停", archived: "已归档", in_progress: "进行中", skipped: "已跳过",
+  draft: "草稿", published: "已发布", ready: "待审批", test_failed: "测试失败",
+  superseded: "已失效", routine: "日常", project: "项目", social: "社交", creative: "创作", rest: "休息",
 };
 
 const ARTIFACT_LABELS = {
@@ -85,6 +89,7 @@ const state = {
   selectedTask: null,
   audit: [],
   simulatorResult: null,
+  lifeMode: "projects",
 };
 
 actorInput.value = state.actorId;
@@ -306,6 +311,7 @@ async function renderCurrentView() {
       audit: renderAudit,
       versions: renderVersions,
       simulator: renderSimulator,
+      life: renderLife,
     }[state.view];
     await renderer();
   } catch (error) {
@@ -812,6 +818,265 @@ async function renderUsers() {
     <div class="table-wrap"><table><thead><tr><th>展示名</th><th>稳定标识符</th><th>来源</th><th>消息数</th><th>首次出现</th><th>最近出现</th><th>最近会话</th></tr></thead><tbody>${users.map((user) => `<tr><td><strong>${esc(user.display_name || "-")}</strong></td><td class="mono">${esc(user.user_id)}</td><td>${esc(displayLabel(user.source_type))}</td><td>${user.message_count}</td><td>${esc(formatDate(user.first_seen_at))}</td><td>${esc(formatDate(user.last_seen_at))}</td><td><span class="truncate mono">${esc(user.last_conversation_id || "-")}</span></td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有用户记录</div></td></tr>'}</tbody></table></div>`;
   document.querySelector("#search-users").onclick = renderUsers;
   document.querySelector("#user-search").onkeydown = (event) => { if (event.key === "Enter") renderUsers(); };
+}
+
+const LIFE_MODES = [
+  ["projects", "私人项目"],
+  ["plans", "每日计划"],
+  ["activities", "活动记录"],
+  ["diary", "日记"],
+  ["sleep", "睡眠与梦境"],
+  ["changes", "修改提案"],
+];
+
+function todayValue() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function lifeToolbar() {
+  return `<div class="toolbar"><div class="segmented life-segments">${LIFE_MODES.map(([mode, label]) => `
+    <button data-life-mode="${mode}" class="${state.lifeMode === mode ? "is-active" : ""}">${label}</button>`).join("")}
+  </div></div>`;
+}
+
+async function renderLife() {
+  const renderer = {
+    projects: renderLifeProjects,
+    plans: renderLifePlans,
+    activities: renderLifeActivities,
+    diary: renderLifeDiary,
+    sleep: renderLifeSleep,
+    changes: renderLifeChanges,
+  }[state.lifeMode];
+  viewRoot.innerHTML = `${lifeToolbar()}<div id="life-content"><div class="loading-state"><span></span>正在读取生活记录</div></div>`;
+  viewRoot.querySelectorAll("[data-life-mode]").forEach((button) => {
+    button.onclick = () => {
+      state.lifeMode = button.dataset.lifeMode;
+      renderLife();
+    };
+  });
+  await renderer();
+}
+
+async function renderLifeProjects() {
+  const projects = await api("/v1/life/projects?include_archived=true&limit=300");
+  document.querySelector("#life-content").innerHTML = `
+    <div class="toolbar"><button class="button is-primary" id="create-life-project">新建项目</button><div class="toolbar-spacer"></div><span class="badge">${projects.length}</span></div>
+    <div class="table-wrap"><table><thead><tr><th>项目</th><th>目标</th><th>状态</th><th>版本</th><th>更新时间</th><th></th></tr></thead><tbody>${projects.map((project) => `
+      <tr><td><strong>${esc(project.title)}</strong><span class="truncate metric-note">${esc(project.summary)}</span></td><td>${project.goals.map((goal) => `<span class="badge">${esc(goal)}</span>`).join(" ") || "-"}</td><td>${badge(project.status)}</td><td>v${project.version}</td><td>${esc(formatDate(project.updated_at))}</td><td><button class="button is-small" data-edit-life-project="${esc(project.project_id)}">编辑</button></td></tr>`).join("") || '<tr><td colspan="6"><div class="empty-state">没有私人项目</div></td></tr>'}</tbody></table></div>`;
+  document.querySelector("#create-life-project").onclick = () => editLifeProject(null);
+  document.querySelectorAll("[data-edit-life-project]").forEach((button) => {
+    button.onclick = () => editLifeProject(projects.find((item) => item.project_id === button.dataset.editLifeProject));
+  });
+}
+
+async function editLifeProject(project) {
+  const data = await askForm({
+    title: project ? "编辑私人项目" : "新建私人项目",
+    body: `<div class="inline-form">
+      <div class="form-row is-full"><label>标题</label><input class="field" name="title" value="${esc(project?.title || "")}" required></div>
+      <div class="form-row is-full"><label>摘要</label><textarea class="textarea is-compact" name="summary" required>${esc(project?.summary || "")}</textarea></div>
+      <div class="form-row is-full"><label>目标（每行一项）</label><textarea class="textarea is-compact" name="goals">${esc((project?.goals || []).join("\n"))}</textarea></div>
+      ${project ? `<div class="form-row"><label>状态</label><select class="select" name="status">${["active", "paused", "completed", "archived"].map((value) => `<option value="${value}" ${project.status === value ? "selected" : ""}>${displayLabel(value)}</option>`).join("")}</select></div>` : ""}
+    </div>`,
+    submitLabel: "保存",
+  });
+  if (!data) return;
+  const body = {
+    title: String(data.get("title")).trim(),
+    summary: String(data.get("summary")).trim(),
+    goals: String(data.get("goals") || "").split("\n").map((value) => value.trim()).filter(Boolean),
+  };
+  if (project) {
+    body.expected_version = project.version;
+    body.status = String(data.get("status"));
+  }
+  try {
+    await api(project ? `/v1/life/projects/${encodeURIComponent(project.project_id)}` : "/v1/life/projects", {
+      method: project ? "PATCH" : "POST",
+      body,
+    });
+    toast("项目已保存");
+    renderLife();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderLifePlans() {
+  const plans = await api("/v1/life/daily-plans?limit=180");
+  const rows = plans.flatMap((plan) => plan.items.map((item) => ({ plan, item })));
+  document.querySelector("#life-content").innerHTML = `
+    <div class="toolbar"><button class="button is-primary" id="create-life-plan">新建计划</button><div class="toolbar-spacer"></div><span class="badge">${plans.length} 天</span></div>
+    <div class="table-wrap"><table><thead><tr><th>日期</th><th>安排</th><th>类型</th><th>预计</th><th>状态</th><th></th></tr></thead><tbody>${rows.map(({ plan, item }) => `
+      <tr><td><strong>${esc(plan.plan_date)}</strong><span class="metric-note">v${plan.version} · ${esc(plan.intention)}</span></td><td>${esc(item.title)}</td><td>${badge(item.kind)}</td><td>${item.expected_minutes} 分钟</td><td>${badge(item.status)}</td><td><button class="button is-small" data-transition-plan="${esc(plan.plan_id)}" data-plan-item="${esc(item.item_id)}">更新状态</button> <button class="button is-small" data-edit-life-plan="${esc(plan.plan_id)}">编辑计划</button></td></tr>`).join("") || '<tr><td colspan="6"><div class="empty-state">没有每日计划</div></td></tr>'}</tbody></table></div>`;
+  document.querySelector("#create-life-plan").onclick = () => editLifePlan(null);
+  document.querySelectorAll("[data-edit-life-plan]").forEach((button) => {
+    button.onclick = () => editLifePlan(plans.find((item) => item.plan_id === button.dataset.editLifePlan));
+  });
+  document.querySelectorAll("[data-transition-plan]").forEach((button) => {
+    const plan = plans.find((item) => item.plan_id === button.dataset.transitionPlan);
+    const item = plan?.items.find((entry) => entry.item_id === button.dataset.planItem);
+    button.onclick = () => transitionLifePlanItem(plan, item);
+  });
+}
+
+async function editLifePlan(plan) {
+  const defaultItems = plan?.items || [{ title: "", kind: "routine", expected_minutes: 30 }];
+  const data = await askForm({
+    title: plan ? "编辑每日计划" : "新建每日计划",
+    body: `<div class="inline-form">
+      <div class="form-row"><label>日期</label><input class="field" name="planDate" type="date" value="${esc(plan?.plan_date || todayValue())}" ${plan ? "disabled" : ""} required></div>
+      <div class="form-row is-full"><label>当天意图</label><input class="field" name="intention" value="${esc(plan?.intention || "")}" required></div>
+      <div class="form-row is-full"><label>计划项目（JSON）</label><textarea class="textarea" name="items" required>${esc(pretty(defaultItems))}</textarea></div>
+    </div>`,
+    submitLabel: "保存",
+  });
+  if (!data) return;
+  let items;
+  try { items = JSON.parse(String(data.get("items"))); } catch { toast("计划项目不是有效 JSON", "error"); return; }
+  const planDate = plan?.plan_date || String(data.get("planDate"));
+  const body = { intention: String(data.get("intention")).trim(), items };
+  if (plan) body.expected_version = plan.version;
+  try {
+    await api(`/v1/life/daily-plans/${encodeURIComponent(planDate)}`, { method: "PUT", body });
+    toast("每日计划已保存");
+    renderLife();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function transitionLifePlanItem(plan, item) {
+  if (!plan || !item) return;
+  const data = await askForm({
+    title: item.title,
+    body: `<div class="form-row"><label>状态</label><select class="select" name="status">${["planned", "in_progress", "completed", "skipped"].map((value) => `<option value="${value}" ${item.status === value ? "selected" : ""}>${displayLabel(value)}</option>`).join("")}</select></div>`,
+    submitLabel: "更新",
+  });
+  if (!data) return;
+  try {
+    await api(`/v1/life/daily-plans/${encodeURIComponent(plan.plan_date)}/items/${encodeURIComponent(item.item_id)}/status`, {
+      method: "POST",
+      body: { expected_version: plan.version, status: String(data.get("status")) },
+    });
+    toast("安排状态已更新");
+    renderLife();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderLifeActivities() {
+  const activities = await api("/v1/life/activities?limit=300");
+  document.querySelector("#life-content").innerHTML = `
+    <div class="toolbar"><button class="button is-primary" id="start-life-activity">开始活动</button><div class="toolbar-spacer"></div><span class="badge">${activities.length}</span></div>
+    <div class="table-wrap"><table><thead><tr><th>活动</th><th>类型</th><th>状态</th><th>开始</th><th>结束</th><th>证据</th><th></th></tr></thead><tbody>${activities.map((activity) => `
+      <tr><td><strong>${esc(activity.title)}</strong><span class="truncate metric-note">${esc(activity.summary || "-")}</span></td><td class="mono">${esc(activity.kind)}</td><td>${badge(activity.status)}</td><td>${esc(formatDate(activity.started_at))}</td><td>${esc(formatDate(activity.finished_at))}</td><td>${activity.evidence_ids.map((value) => `<span class="badge">${esc(shortId(value))}</span>`).join(" ") || "-"}</td><td>${activity.status === "running" ? `<button class="button is-small" data-finish-activity="${esc(activity.activity_id)}">结束</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有活动记录</div></td></tr>'}</tbody></table></div>`;
+  document.querySelector("#start-life-activity").onclick = startLifeActivity;
+  document.querySelectorAll("[data-finish-activity]").forEach((button) => {
+    button.onclick = () => finishLifeActivity(activities.find((item) => item.activity_id === button.dataset.finishActivity));
+  });
+}
+
+async function startLifeActivity() {
+  const data = await askForm({
+    title: "开始活动",
+    body: `<div class="inline-form"><div class="form-row"><label>类型</label><input class="field" name="kind" value="routine" required></div><div class="form-row"><label>标题</label><input class="field" name="title" required></div><div class="form-row is-full"><label>摘要</label><textarea class="textarea is-compact" name="summary"></textarea></div></div>`,
+    submitLabel: "开始",
+  });
+  if (!data) return;
+  try {
+    await api("/v1/life/activities", { method: "POST", body: { kind: String(data.get("kind")), title: String(data.get("title")), summary: String(data.get("summary") || "") } });
+    toast("活动已开始");
+    renderLife();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function finishLifeActivity(activity) {
+  if (!activity) return;
+  const data = await askForm({
+    title: `结束活动 · ${activity.title}`,
+    body: `<div class="inline-form"><div class="form-row"><label>结果</label><select class="select" name="status"><option value="completed">已完成</option><option value="failed">失败</option><option value="cancelled">已取消</option></select></div><div class="form-row is-full"><label>摘要</label><textarea class="textarea is-compact" name="summary">${esc(activity.summary)}</textarea></div><div class="form-row is-full"><label>证据 ID（每行一项）</label><textarea class="textarea is-compact" name="evidence"></textarea></div></div>`,
+    submitLabel: "结束",
+  });
+  if (!data) return;
+  try {
+    await api(`/v1/life/activities/${encodeURIComponent(activity.activity_id)}/finish`, { method: "POST", body: { status: String(data.get("status")), summary: String(data.get("summary")), evidence_ids: String(data.get("evidence") || "").split("\n").map((value) => value.trim()).filter(Boolean) } });
+    toast("活动已结束");
+    renderLife();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderLifeDiary() {
+  const diaries = await api("/v1/life/diary?limit=180");
+  document.querySelector("#life-content").innerHTML = `
+    <div class="toolbar"><button class="button is-primary" id="create-diary">新建日记</button><div class="toolbar-spacer"></div><span class="badge">${diaries.length}</span></div>
+    <div class="table-wrap"><table><thead><tr><th>日期</th><th>内容</th><th>心情</th><th>状态</th><th>来源</th><th>版本</th><th></th></tr></thead><tbody>${diaries.map((diary) => `
+      <tr><td><strong>${esc(diary.entry_date)}</strong><span class="metric-note">${esc(diary.generated_by)}</span></td><td><span class="truncate">${esc(diary.content)}</span></td><td>${esc(diary.mood_summary || "-")}</td><td>${badge(diary.status)}</td><td>${diary.source_activity_ids.length} 活动 · ${diary.source_memory_ids.length} 记忆 · ${diary.dream_record_ids.length} 梦境</td><td>v${diary.version}</td><td><button class="button is-small" data-edit-diary="${esc(diary.diary_id)}">编辑</button></td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有日记</div></td></tr>'}</tbody></table></div>`;
+  document.querySelector("#create-diary").onclick = () => editLifeDiary(null);
+  document.querySelectorAll("[data-edit-diary]").forEach((button) => {
+    button.onclick = () => editLifeDiary(diaries.find((item) => item.diary_id === button.dataset.editDiary));
+  });
+}
+
+async function editLifeDiary(diary) {
+  const data = await askForm({
+    title: diary ? "编辑日记" : "新建日记",
+    body: `<div class="inline-form"><div class="form-row"><label>日期</label><input class="field" name="entryDate" type="date" value="${esc(diary?.entry_date || todayValue())}" ${diary ? "disabled" : ""} required></div><div class="form-row"><label>状态</label><select class="select" name="status"><option value="draft" ${diary?.status !== "published" ? "selected" : ""}>草稿</option><option value="published" ${diary?.status === "published" ? "selected" : ""}>已发布</option></select></div><div class="form-row is-full"><label>内容</label><textarea class="textarea" name="content" required>${esc(diary?.content || "")}</textarea></div><div class="form-row is-full"><label>心情摘要</label><input class="field" name="mood" value="${esc(diary?.mood_summary || "")}"></div></div>`,
+    submitLabel: "保存",
+  });
+  if (!data) return;
+  const body = {
+    content: String(data.get("content")), mood_summary: String(data.get("mood") || ""), status: String(data.get("status")),
+    source_activity_ids: diary?.source_activity_ids || [], source_memory_ids: diary?.source_memory_ids || [], dream_record_ids: diary?.dream_record_ids || [],
+  };
+  if (diary) body.expected_version = diary.version;
+  try {
+    await api(`/v1/life/diary/${encodeURIComponent(diary?.entry_date || String(data.get("entryDate")))}`, { method: "PUT", body });
+    toast("日记已保存");
+    renderLife();
+  } catch (error) { toast(error.message, "error"); }
+}
+
+async function renderLifeSleep() {
+  const [cycles, dreams] = await Promise.all([api("/v1/life/sleep-cycles?limit=180"), api("/v1/life/dreams?limit=180")]);
+  document.querySelector("#life-content").innerHTML = `
+    <div class="toolbar"><input class="field" id="sleep-cycle-date" type="date" value="${todayValue()}"><button class="button is-primary" id="run-sleep-cycle">运行睡眠周期</button><div class="toolbar-spacer"></div><span class="badge is-ok">现实记忆自动写入 0</span></div>
+    <section><div class="section-heading"><h2>睡眠周期</h2><span class="badge">${cycles.length}</span></div><div class="table-wrap"><table><thead><tr><th>日期</th><th>状态</th><th>触发</th><th>现实记忆</th><th>候选审查</th><th>重复簇</th><th>自动写入</th><th>结束</th></tr></thead><tbody>${cycles.map((cycle) => `<tr><td>${esc(cycle.cycle_date)}</td><td>${badge(cycle.status)}</td><td>${esc(cycle.trigger)}</td><td>${cycle.reality_memory_ids.length}</td><td>${cycle.candidate_review_ids.length}</td><td>${cycle.duplicate_memory_clusters.length}</td><td>${cycle.automatic_memory_writes}</td><td>${esc(formatDate(cycle.finished_at))}</td></tr>`).join("") || '<tr><td colspan="8"><div class="empty-state">没有睡眠周期</div></td></tr>'}</tbody></table></div></section>
+    <section class="band"><div class="section-heading"><h2>梦境</h2><span class="badge">${dreams.length}</span></div><div class="table-wrap"><table><thead><tr><th>日期</th><th>内容</th><th>事实性</th><th>现实可用</th><th>种子</th><th></th></tr></thead><tbody>${dreams.map((dream) => `<tr><td>${esc(dream.dream_date)}</td><td><span class="truncate">${esc(dream.content)}</span></td><td>${badge(dream.factuality)}</td><td>${dream.reality_eligible ? badge("allow") : badge("deny")}</td><td>${dream.seed_activity_ids.length} 活动 · ${dream.seed_memory_ids.length} 记忆</td><td><button class="button is-small" data-view-dream="${esc(dream.dream_id)}">查看</button></td></tr>`).join("") || '<tr><td colspan="6"><div class="empty-state">没有梦境</div></td></tr>'}</tbody></table></div></section>`;
+  document.querySelector("#run-sleep-cycle").onclick = async () => {
+    const cycleDate = document.querySelector("#sleep-cycle-date").value;
+    if (!await confirmAction("运行睡眠周期", cycleDate, "运行")) return;
+    try { await api("/v1/life/sleep-cycles/run", { method: "POST", body: { cycle_date: cycleDate } }); toast("睡眠周期已完成"); renderLife(); } catch (error) { toast(error.message, "error"); }
+  };
+  document.querySelectorAll("[data-view-dream]").forEach((button) => {
+    button.onclick = async () => {
+      const dream = dreams.find((item) => item.dream_id === button.dataset.viewDream);
+      await askForm({ title: `梦境 · ${dream.dream_date}`, body: `<div class="status-strip">${badge(dream.factuality)}<span class="badge is-error">不可写入现实记忆</span></div><pre class="content-block">${esc(dream.content)}</pre><pre class="json-block">${esc(pretty({ seed_activity_ids: dream.seed_activity_ids, seed_memory_ids: dream.seed_memory_ids }))}</pre>`, submitLabel: "关闭" });
+    };
+  });
+}
+
+async function renderLifeChanges() {
+  const proposals = await api("/v1/life/self-change-proposals?limit=300");
+  document.querySelector("#life-content").innerHTML = `
+    <div class="table-wrap"><table><thead><tr><th>目标</th><th>理由</th><th>基础版本</th><th>测试</th><th>状态</th><th>创建时间</th><th></th></tr></thead><tbody>${proposals.map((proposal) => `
+      <tr><td>${badge(proposal.target_kind)} <span class="mono">${esc(proposal.target_path)}</span></td><td><span class="truncate">${esc(proposal.rationale)}</span></td><td>v${proposal.base_version}</td><td>${proposal.test_results.passed ? badge("success") : badge("failed")}</td><td>${badge(proposal.status)}</td><td>${esc(formatDate(proposal.created_at))}</td><td><button class="button is-small" data-view-proposal="${esc(proposal.proposal_id)}">详情</button> ${["ready", "test_failed"].includes(proposal.status) ? `<button class="button is-small is-danger" data-reject-proposal="${esc(proposal.proposal_id)}">拒绝</button>` : ""} ${proposal.status === "ready" ? `<button class="button is-small is-primary" data-approve-proposal="${esc(proposal.proposal_id)}">批准部署</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有自我修改提案</div></td></tr>'}</tbody></table></div>`;
+  document.querySelectorAll("[data-view-proposal]").forEach((button) => {
+    button.onclick = async () => {
+      const proposal = proposals.find((item) => item.proposal_id === button.dataset.viewProposal);
+      await askForm({ title: `${proposal.target_path} · ${displayLabel(proposal.status)}`, body: `<dl class="detail-grid"><dt>提案者</dt><dd>${esc(proposal.proposer_id)}</dd><dt>理由</dt><dd>${esc(proposal.rationale)}</dd><dt>来源日记</dt><dd>${proposal.source_diary_ids.map((value) => esc(shortId(value))).join(", ") || "-"}</dd><dt>来源梦境</dt><dd>${proposal.source_dream_ids.map((value) => esc(shortId(value))).join(", ") || "-"}</dd></dl><pre class="diff-block">${esc(proposal.diff)}</pre><pre class="json-block">${esc(pretty(proposal.test_results))}</pre>`, submitLabel: "关闭" });
+    };
+  });
+  document.querySelectorAll("[data-approve-proposal]").forEach((button) => {
+    button.onclick = async () => {
+      if (!await confirmAction("批准并部署", button.dataset.approveProposal, "部署")) return;
+      try { await api(`/v1/life/self-change-proposals/${encodeURIComponent(button.dataset.approveProposal)}/approve`, { method: "POST" }); toast("提案已部署"); renderLife(); } catch (error) { toast(error.message, "error"); }
+    };
+  });
+  document.querySelectorAll("[data-reject-proposal]").forEach((button) => {
+    button.onclick = async () => {
+      if (!await confirmAction("拒绝提案", button.dataset.rejectProposal, "拒绝", true)) return;
+      try { await api(`/v1/life/self-change-proposals/${encodeURIComponent(button.dataset.rejectProposal)}/reject`, { method: "POST" }); toast("提案已拒绝"); renderLife(); } catch (error) { toast(error.message, "error"); }
+    };
+  });
 }
 
 async function renderAudit() {

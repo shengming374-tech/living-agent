@@ -8,6 +8,7 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import (
@@ -85,6 +86,10 @@ class Settings(BaseSettings):
     openclaw_bridge_allowed_account_ids: list[str] = Field(default_factory=list)
     openclaw_bridge_max_message_chars: int = Field(default=12000, ge=1, le=100000)
     openclaw_bridge_idempotency_entries: int = Field(default=2048, ge=1, le=100000)
+    life_timezone: str = "Asia/Shanghai"
+    life_nightly_enabled: bool = False
+    life_nightly_hour: int = Field(default=3, ge=0, le=23)
+    life_scheduler_poll_seconds: float = Field(default=60.0, ge=1.0, le=3600.0)
 
     @classmethod
     def settings_customise_sources(
@@ -147,6 +152,16 @@ class Settings(BaseSettings):
         normalized = value.strip().lower()
         if re.fullmatch(r"[0-9a-f]{64}", normalized) is None:
             raise ValueError("root_prompt_second_factor_sha256 must be a SHA-256 hex digest")
+        return normalized
+
+    @field_validator("life_timezone")
+    @classmethod
+    def validate_life_timezone(cls, value: str) -> str:
+        normalized = value.strip()
+        try:
+            ZoneInfo(normalized)
+        except (ValueError, ZoneInfoNotFoundError) as exc:
+            raise ValueError("life_timezone must be a valid IANA timezone") from exc
         return normalized
 
     @model_validator(mode="after")

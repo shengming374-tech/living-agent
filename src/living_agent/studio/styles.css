@@ -404,6 +404,10 @@ h3 {
   color: var(--ink);
 }
 
+.textarea.is-compact {
+  min-height: 96px;
+}
+
 .field,
 .select {
   height: 34px;
@@ -510,6 +514,16 @@ h3 {
   background: var(--green-soft);
   color: var(--green);
   font-weight: 700;
+}
+
+.life-segments {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.life-segments button {
+  min-width: 92px;
+  white-space: nowrap;
 }
 
 .table-wrap {

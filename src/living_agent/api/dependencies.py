@@ -6,6 +6,8 @@ from living_agent.audit.service import AuditService
 from living_agent.config import Settings
 from living_agent.execution.broker import CapabilityBroker
 from living_agent.execution.service import TaskService
+from living_agent.life.self_change import SelfChangeService
+from living_agent.life.service import LifeService
 from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
 from living_agent.plugins.registry import PluginRegistry
@@ -67,3 +69,11 @@ def get_task_service(request: Request) -> TaskService:
 
 def get_broker(request: Request) -> CapabilityBroker:
     return request.app.state.broker  # type: ignore[no-any-return]
+
+
+def get_life_service(request: Request) -> LifeService:
+    return request.app.state.life_service  # type: ignore[no-any-return]
+
+
+def get_self_change_service(request: Request) -> SelfChangeService:
+    return request.app.state.self_change_service  # type: ignore[no-any-return]

@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI
 from fastapi.requests import Request
@@ -16,6 +17,7 @@ from living_agent.api.capabilities import router as capabilities_router
 from living_agent.api.chat import router as chat_router
 from living_agent.api.embeddings import router as embeddings_router
 from living_agent.api.health import router as health_router
+from living_agent.api.life import router as life_router
 from living_agent.api.memories import router as memories_router
 from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
@@ -47,6 +49,10 @@ from living_agent.execution.service import TaskService
 from living_agent.interaction.repository import UtteranceRepository
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.interaction.utterance import UtteranceCoordinator
+from living_agent.life.repository import LifeRepository
+from living_agent.life.scheduler import LifeScheduler
+from living_agent.life.self_change import SelfChangeService
+from living_agent.life.service import LifeService
 from living_agent.logging import configure_logging
 from living_agent.management.artifacts import ArtifactRepository
 from living_agent.memory.firewall import MemoryFirewall
@@ -221,6 +227,27 @@ def create_app(
         audit=audit,
         bootstrap_actor=resolved_settings.owner_id,
     )
+    life_repository = LifeRepository(database.sessions)
+    life_service = LifeService(
+        repository=life_repository,
+        memories=memory_service,
+        psyche=psyche_service,
+        audit=audit,
+        timezone=ZoneInfo(resolved_settings.life_timezone),
+    )
+    self_change_service = SelfChangeService(
+        repository=life_repository,
+        persona=persona_manager,
+        prompts=prompt_manager,
+        audit=audit,
+    )
+    life_scheduler = LifeScheduler(
+        service=life_service,
+        audit=audit,
+        enabled=resolved_settings.life_nightly_enabled,
+        nightly_hour=resolved_settings.life_nightly_hour,
+        poll_seconds=resolved_settings.life_scheduler_poll_seconds,
+    )
     persona_profile = persona_manager.public_profile()
     persona_context = json.dumps(
         persona_profile.model_dump(mode="json"),
@@ -362,6 +389,7 @@ def create_app(
             await persona_manager.initialize()
             await prompt_manager.initialize()
             await psyche_service.initialize()
+            await life_service.initialize()
             await audit.append(
                 action="runtime.started",
                 actor_id="living-agent",
@@ -377,16 +405,20 @@ def create_app(
                     plugin_id, actor_id=resolved_settings.owner_id, audit=audit
                 )
             await task_service.initialize()
+            await life_scheduler.start()
             yield
         finally:
             try:
-                if isinstance(resolved_llm_provider, ClosableLLMProvider):
-                    await resolved_llm_provider.close()
+                await life_scheduler.stop()
             finally:
                 try:
-                    await embedding_service.close()
+                    if isinstance(resolved_llm_provider, ClosableLLMProvider):
+                        await resolved_llm_provider.close()
                 finally:
-                    await database.dispose()
+                    try:
+                        await embedding_service.close()
+                    finally:
+                        await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version="0.1.0", lifespan=lifespan)
 
@@ -439,9 +471,14 @@ def create_app(
     app.state.task_repository = task_repository
     app.state.task_kernel = task_kernel
     app.state.task_service = task_service
+    app.state.life_repository = life_repository
+    app.state.life_service = life_service
+    app.state.self_change_service = self_change_service
+    app.state.life_scheduler = life_scheduler
     app.state.napcat_adapter = napcat_adapter
     app.state.openclaw_bridge_adapter = openclaw_bridge_adapter
     app.include_router(health_router)
+    app.include_router(life_router)
     app.include_router(chat_router)
     app.include_router(embeddings_router)
     app.include_router(audit_router)

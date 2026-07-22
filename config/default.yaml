@@ -57,3 +57,7 @@ openclaw_bridge_allowed_channels:
 openclaw_bridge_allowed_account_ids: []
 openclaw_bridge_max_message_chars: 12000
 openclaw_bridge_idempotency_entries: 2048
+life_timezone: Asia/Shanghai
+life_nightly_enabled: false
+life_nightly_hour: 3
+life_scheduler_poll_seconds: 60.0
