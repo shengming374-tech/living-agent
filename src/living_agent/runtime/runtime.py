@@ -223,6 +223,7 @@ class AgentRuntime:
                 "taint_labels": event.taint_labels,
             },
         )
+        await self._memories.observe(event)
         if TaintLabel.SUSPECTED_INSTRUCTION.value in event.taint_labels:
             await self._audit.append(
                 action="injection.detected",
@@ -296,6 +297,8 @@ class AgentRuntime:
                 conversation_id=event.conversation_id,
                 query=self._event_text(event),
                 limit=4,
+                source_event_ids=[event.event_id],
+                taint_labels=event.taint_labels,
             )
         context = self._context_compiler.compile(
             event,

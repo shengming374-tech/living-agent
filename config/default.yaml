@@ -26,6 +26,12 @@ embedding_max_input_chars: 12000
 embedding_max_total_chars: 48000
 embedding_max_response_bytes: 4194304
 embedding_allow_insecure_http: false
+memory_auto_candidates_enabled: false
+memory_embeddings_enabled: false
+memory_embeddings_allow_remote: false
+memory_embedding_backfill_limit: 2000
+memory_embedding_min_similarity: 0.25
+memory_recall_candidate_limit: 300
 audit_page_size: 100
 test_disable_delays: false
 plugin_root: plugins/examples

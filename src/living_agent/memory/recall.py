@@ -42,6 +42,7 @@ class MemoryRecallService:
         memories: list[MemoryNode],
         *,
         limit: int,
+        semantic_scores: dict[str, float] | None = None,
     ) -> list[MemoryNode]:
         query_features = self._features(query)
         if not query_features:
@@ -54,12 +55,25 @@ class MemoryRecallService:
             searchable = f"{memory.subject} {self._content_text(memory)}"
             memory_features = self._features(searchable)
             overlap = query_features.intersection(memory_features)
-            if not overlap:
+            semantic = (semantic_scores or {}).get(memory.id)
+            if not overlap and semantic is None:
                 continue
-            lexical = len(overlap) / math.sqrt(len(query_features) * len(memory_features))
+            lexical = (
+                len(overlap) / math.sqrt(len(query_features) * len(memory_features))
+                if overlap and memory_features
+                else 0.0
+            )
             normalized_memory = self._normalize(searchable)
             exact_bonus = 0.15 if normalized_query in normalized_memory else 0.0
-            score = lexical * 0.7 + memory.importance * 0.2 + memory.confidence * 0.1
+            if semantic is None:
+                score = lexical * 0.7 + memory.importance * 0.2 + memory.confidence * 0.1
+            else:
+                score = (
+                    semantic * 0.65
+                    + lexical * 0.2
+                    + memory.importance * 0.1
+                    + memory.confidence * 0.05
+                )
             ranked.append((score + exact_bonus, memory))
         ranked.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
         return [memory for _score, memory in ranked[:limit]]

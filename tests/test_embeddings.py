@@ -46,6 +46,10 @@ def test_embedding_configuration_validates_remote_transport() -> None:
     )
     assert local.embedding_api_base_url == "http://127.0.0.1:11434/v1"
 
+    assert not OpenAICompatibleEmbeddingProvider._is_remote(
+        local.embedding_api_base_url
+    )
+
 
 def test_mock_embedding_api_is_owner_only_deterministic_and_audited(
     client: TestClient,

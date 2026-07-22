@@ -57,6 +57,7 @@ const DISPLAY_LABELS = {
   paused: "已暂停", archived: "已归档", in_progress: "进行中", skipped: "已跳过",
   draft: "草稿", published: "已发布", ready: "待审批", test_failed: "测试失败",
   superseded: "已失效", routine: "日常", project: "项目", social: "社交", creative: "创作", rest: "休息",
+  remote_provider_not_allowed: "远端未授权", memory_index: "记忆索引", memory_query: "记忆查询",
 };
 
 const ARTIFACT_LABELS = {
@@ -78,6 +79,7 @@ const state = {
   memoryMode: "nodes",
   memories: [],
   memoryCandidates: [],
+  memoryEmbeddingStatus: null,
   selectedMemoryIds: new Set(),
   selectedMemory: null,
   personaLayer: "identity",
@@ -368,6 +370,7 @@ function auditTable(entries) {
 }
 
 async function renderMemories() {
+  state.memoryEmbeddingStatus = await api("/v1/memories/embedding-status");
   if (state.memoryMode === "candidates") {
     state.memoryCandidates = await api("/v1/memories/candidates?limit=200");
   } else {
@@ -389,6 +392,9 @@ async function renderMemories() {
         <button class="button" id="search-memories">搜索</button>
         <div class="toolbar-spacer"></div>
         <button class="button" id="merge-memories" ${state.selectedMemoryIds.size < 2 ? "disabled" : ""}>合并 ${state.selectedMemoryIds.size || ""}</button>` : '<div class="toolbar-spacer"></div>'}
+      ${badge(state.memoryEmbeddingStatus.active ? "active" : state.memoryEmbeddingStatus.reason_code)}
+      <span class="badge">向量 ${state.memoryEmbeddingStatus.indexed_count}/${state.memoryEmbeddingStatus.eligible_count}</span>
+      <button class="button is-small" id="reindex-memories" ${state.memoryEmbeddingStatus.active ? "" : "disabled"}>重建向量</button>
     </div>
     ${list}`;
   viewRoot.querySelectorAll("[data-memory-mode]").forEach((button) => {
@@ -403,6 +409,14 @@ async function renderMemories() {
     if (event.key === "Enter") renderMemories();
   });
   document.querySelector("#merge-memories")?.addEventListener("click", mergeSelectedMemories);
+  document.querySelector("#reindex-memories")?.addEventListener("click", async () => {
+    if (!await confirmAction("重建记忆向量", `${state.memoryEmbeddingStatus.model} · ${state.memoryEmbeddingStatus.dimensions || "自动"} 维`, "重建")) return;
+    try {
+      const result = await api("/v1/memories/reindex", { method: "POST" });
+      toast(`已索引 ${result.indexed_count} 条，跳过 ${result.skipped_count} 条`);
+      renderMemories();
+    } catch (error) { toast(error.message, "error"); }
+  });
   bindMemoryRows();
 }
 

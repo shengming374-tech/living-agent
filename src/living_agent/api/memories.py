@@ -15,8 +15,10 @@ from living_agent.models.memory import (
     MemoryCandidate,
     MemoryCandidateCreate,
     MemoryCommitResult,
+    MemoryEmbeddingStatus,
     MemoryMergeRequest,
     MemoryNode,
+    MemoryReindexResult,
     MemorySplitRequest,
     MemoryStatus,
     MemoryUpdate,
@@ -143,6 +145,26 @@ async def merge_memories(
         return await memories.merge(request, actor_id=actor_id)
     except (MemoryNotFoundError, MemoryVersionConflictError) as exc:
         raise _translate_error(exc) from exc
+
+
+@router.get("/embedding-status", response_model=MemoryEmbeddingStatus)
+async def memory_embedding_status(
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+) -> MemoryEmbeddingStatus:
+    _require_owner(actor_id, authority)
+    return await memories.embedding_status()
+
+
+@router.post("/reindex", response_model=MemoryReindexResult)
+async def reindex_memories(
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+) -> MemoryReindexResult:
+    _require_owner(actor_id, authority)
+    return await memories.reindex_embeddings(actor_id=actor_id)
 
 
 @router.get("/{memory_id}", response_model=MemoryNode)

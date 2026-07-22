@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     embedding_max_total_chars: int = Field(default=48000, ge=1, le=1000000)
     embedding_max_response_bytes: int = Field(default=4194304, ge=1024, le=67108864)
     embedding_allow_insecure_http: bool = False
+    memory_auto_candidates_enabled: bool = False
+    memory_embeddings_enabled: bool = False
+    memory_embeddings_allow_remote: bool = False
+    memory_embedding_backfill_limit: int = Field(default=2000, ge=1, le=100000)
+    memory_embedding_min_similarity: float = Field(default=0.25, ge=-1.0, le=1.0)
+    memory_recall_candidate_limit: int = Field(default=300, ge=1, le=5000)
     audit_page_size: int = Field(default=100, ge=1, le=1000)
     test_disable_delays: bool = False
     plugin_root: Path = Path("plugins/examples")

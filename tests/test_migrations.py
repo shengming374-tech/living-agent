@@ -25,6 +25,7 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         "memory_nodes",
         "memory_versions",
         "memory_usages",
+        "memory_embeddings",
         "artifact_versions",
         "artifact_stages",
         "psyche_states",

@@ -55,6 +55,9 @@ from living_agent.life.self_change import SelfChangeService
 from living_agent.life.service import LifeService
 from living_agent.logging import configure_logging
 from living_agent.management.artifacts import ArtifactRepository
+from living_agent.memory.embedding_repository import MemoryEmbeddingRepository
+from living_agent.memory.embeddings import MemoryEmbeddingIndex
+from living_agent.memory.extractor import MemoryCandidateExtractor
 from living_agent.memory.firewall import MemoryFirewall
 from living_agent.memory.recall import MemoryRecallService
 from living_agent.memory.repository import MemoryRepository
@@ -148,7 +151,7 @@ def create_app(
     broker.register_capability(
         CapabilityDefinition(
             name=EMBEDDING_CAPABILITY,
-            operations=frozenset({"send"}),
+            operations=frozenset({"send", "embed"}),
             argument_model=EmbeddingCapabilityArguments,
         )
     )
@@ -197,11 +200,28 @@ def create_app(
         max_input_chars=resolved_settings.embedding_max_input_chars,
         max_total_chars=resolved_settings.embedding_max_total_chars,
     )
+    memory_repository = MemoryRepository(database.sessions)
+    memory_embedding_index = MemoryEmbeddingIndex(
+        repository=MemoryEmbeddingRepository(database.sessions),
+        memories=memory_repository,
+        embeddings=embedding_service,
+        events=EventRepository(database.sessions),
+        audit=audit,
+        enabled=resolved_settings.memory_embeddings_enabled,
+        allow_remote=resolved_settings.memory_embeddings_allow_remote,
+        backfill_limit=resolved_settings.memory_embedding_backfill_limit,
+        min_similarity=resolved_settings.memory_embedding_min_similarity,
+    )
     memory_service = MemoryService(
-        repository=MemoryRepository(database.sessions),
+        repository=memory_repository,
         events=EventRepository(database.sessions),
         firewall=MemoryFirewall(),
         recall=MemoryRecallService(),
+        embedding_index=memory_embedding_index,
+        extractor=MemoryCandidateExtractor(
+            enabled=resolved_settings.memory_auto_candidates_enabled
+        ),
+        recall_candidate_limit=resolved_settings.memory_recall_candidate_limit,
         audit=audit,
     )
     psyche_service = PsycheService(
@@ -388,6 +408,7 @@ def create_app(
             await utterance_coordinator.initialize()
             await persona_manager.initialize()
             await prompt_manager.initialize()
+            await memory_service.initialize()
             await psyche_service.initialize()
             await life_service.initialize()
             await audit.append(
@@ -463,6 +484,7 @@ def create_app(
     app.state.plugin_registry = plugin_registry
     app.state.plugin_process = plugin_process
     app.state.memory_service = memory_service
+    app.state.memory_embedding_index = memory_embedding_index
     app.state.embedding_service = embedding_service
     app.state.persona_manager = persona_manager
     app.state.prompt_manager = prompt_manager

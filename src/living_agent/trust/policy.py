@@ -21,9 +21,10 @@ class PolicyRuleSet:
             "disable",
             "send",
             "reply",
+            "embed",
         }
     )
-    system_reply_operations: frozenset[str] = frozenset({"reply"})
+    configured_system_operations: frozenset[str] = frozenset({"reply", "embed"})
     self_modification_capabilities: frozenset[str] = frozenset(
         {"config.modify", "persona.modify", "prompt.modify", "plugin.install"}
     )
@@ -42,7 +43,7 @@ class PolicyRuleSet:
         if self.operation_class(operation) != "write":
             return None
         if (
-            operation.lower() in self.system_reply_operations
+            operation.lower() in self.configured_system_operations
             and authority is AuthorityLevel.SYSTEM
         ):
             return None

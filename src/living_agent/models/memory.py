@@ -155,6 +155,30 @@ class MemoryUsage(BaseModel):
     created_at: datetime
 
 
+class MemoryEmbeddingStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    active: bool
+    reason_code: str
+    provider: str
+    model: str
+    remote: bool
+    dimensions: int | None
+    indexed_count: int = Field(ge=0)
+    eligible_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+
+
+class MemoryReindexResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    indexed_count: int = Field(ge=0)
+    skipped_count: int = Field(ge=0)
+    removed_count: int = Field(ge=0)
+    failed_count: int = Field(ge=0)
+
+
 class MemoryFirewallDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

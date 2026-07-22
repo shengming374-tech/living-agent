@@ -80,3 +80,20 @@ class MemoryUsageORM(Base):
     response_id: Mapped[str] = mapped_column(String(255), nullable=False)
     conversation_id: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemoryEmbeddingORM(Base):
+    __tablename__ = "memory_embeddings"
+    __table_args__ = (
+        Index("ix_memory_embeddings_provider_model", "provider", "model"),
+    )
+
+    memory_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    memory_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    provider: Mapped[str] = mapped_column(String(255), nullable=False)
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+    vector: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    content_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

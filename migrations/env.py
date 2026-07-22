@@ -23,6 +23,7 @@ from living_agent.life.models import (
 from living_agent.management.models import ArtifactStageORM, ArtifactVersionORM
 from living_agent.memory.models import (
     MemoryCandidateORM,
+    MemoryEmbeddingORM,
     MemoryNodeORM,
     MemoryUsageORM,
     MemoryVersionORM,
@@ -48,6 +49,7 @@ _ = (
     DreamRecordORM,
     LifeActivityLogORM,
     MemoryCandidateORM,
+    MemoryEmbeddingORM,
     MemoryNodeORM,
     MemoryUsageORM,
     MemoryVersionORM,

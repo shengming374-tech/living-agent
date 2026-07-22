@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from living_agent.audit.service import AuditService
+from living_agent.memory.embeddings import MemoryEmbeddingIndex
+from living_agent.memory.extractor import MemoryCandidateExtractor
 from living_agent.memory.firewall import MemoryFirewall
 from living_agent.memory.recall import MemoryRecallService
 from living_agent.memory.repository import MemoryRepository
@@ -12,9 +14,11 @@ from living_agent.models.memory import (
     MemoryCandidate,
     MemoryCandidateCreate,
     MemoryCommitResult,
+    MemoryEmbeddingStatus,
     MemoryFirewallDecision,
     MemoryMergeRequest,
     MemoryNode,
+    MemoryReindexResult,
     MemorySplitRequest,
     MemoryStatus,
     MemoryUpdate,
@@ -36,13 +40,45 @@ class MemoryService:
         events: EventRepository,
         firewall: MemoryFirewall,
         recall: MemoryRecallService,
+        embedding_index: MemoryEmbeddingIndex,
+        extractor: MemoryCandidateExtractor,
+        recall_candidate_limit: int,
         audit: AuditService,
     ) -> None:
         self._repository = repository
         self._events = events
         self._firewall = firewall
         self._recall = recall
+        self._embedding_index = embedding_index
+        self._extractor = extractor
+        self._recall_candidate_limit = recall_candidate_limit
         self._audit = audit
+
+    async def initialize(self) -> MemoryReindexResult:
+        return await self._embedding_index.initialize()
+
+    async def observe(self, event: TrustedEvent) -> MemoryCandidate | None:
+        candidate = self._extractor.extract(event)
+        if candidate is None:
+            return None
+        if await self._repository.candidate_exists(candidate.candidate_id):
+            return await self._repository.get_candidate(candidate.candidate_id)
+        created = await self.create_candidate(
+            candidate,
+            proposer_id=event.source_identity or "anonymous",
+        )
+        await self._audit.append(
+            action="memory.candidate_extracted",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome="pending",
+            details={
+                "candidate_id": created.candidate_id,
+                "source_event_ids": created.source_event_ids,
+                "scope": created.scope,
+            },
+        )
+        return created
 
     async def create_candidate(
         self,
@@ -120,6 +156,7 @@ class MemoryService:
                 "source_event_ids": memory.source_event_ids,
             },
         )
+        await self._synchronize_embedding(memory)
         return MemoryCommitResult(
             candidate=committed_candidate,
             decision=decision,
@@ -160,6 +197,8 @@ class MemoryService:
         conversation_id: str | None,
         query: str,
         limit: int = 4,
+        source_event_ids: list[str] | None = None,
+        taint_labels: set[str] | None = None,
     ) -> list[MemoryNode]:
         accessible = await self._repository.search(
             actor_id=actor_id,
@@ -167,9 +206,20 @@ class MemoryService:
             owner=False,
             query="",
             include_deleted=False,
-            limit=100,
+            limit=self._recall_candidate_limit,
         )
-        recalled = self._recall.rank(query, accessible, limit=limit)
+        semantic_scores = await self._embedding_index.semantic_scores(
+            query,
+            accessible,
+            source_event_ids=source_event_ids or [],
+            taint_labels=taint_labels or set(),
+        )
+        recalled = self._recall.rank(
+            query,
+            accessible,
+            limit=limit,
+            semantic_scores=semantic_scores,
+        )
         await self._audit.append(
             action="memory.recalled",
             actor_id="living-agent",
@@ -179,6 +229,7 @@ class MemoryService:
                 "requester_id": actor_id,
                 "query_chars": len(query),
                 "candidate_count": len(accessible),
+                "semantic_candidate_count": len(semantic_scores),
                 "recalled_memory_ids": [memory.id for memory in recalled],
             },
         )
@@ -211,6 +262,7 @@ class MemoryService:
     ) -> MemoryNode:
         memory = await self._repository.update(memory_id, update, actor_id=actor_id)
         await self._audit_change("memory.updated", memory, actor_id=actor_id)
+        await self._synchronize_embedding(memory)
         return memory
 
     async def change_status(
@@ -229,6 +281,10 @@ class MemoryService:
         )
         action = "memory.deleted" if status is MemoryStatus.DELETED else "memory.restored"
         await self._audit_change(action, memory, actor_id=actor_id)
+        if status is MemoryStatus.DELETED:
+            await self._remove_embedding(memory.id)
+        else:
+            await self._synchronize_embedding(memory)
         return memory
 
     async def versions(self, memory_id: str) -> list[MemoryVersion]:
@@ -258,6 +314,9 @@ class MemoryService:
                 "version": memory.version,
             },
         )
+        for source_id in request.memory_ids:
+            await self._remove_embedding(source_id)
+        await self._synchronize_embedding(memory)
         return memory
 
     async def split(
@@ -277,7 +336,16 @@ class MemoryService:
                 "created_memory_ids": [memory.id for memory in memories],
             },
         )
+        await self._remove_embedding(memory_id)
+        for memory in memories:
+            await self._synchronize_embedding(memory)
         return memories
+
+    async def embedding_status(self) -> MemoryEmbeddingStatus:
+        return await self._embedding_index.status()
+
+    async def reindex_embeddings(self, *, actor_id: str) -> MemoryReindexResult:
+        return await self._embedding_index.reindex(actor_id=actor_id)
 
     async def record_usage(
         self,
@@ -306,6 +374,44 @@ class MemoryService:
             actor_id=actor_id,
             outcome="success",
             details={"memory_id": memory.id, "version": memory.version},
+        )
+
+    async def _synchronize_embedding(self, memory: MemoryNode) -> None:
+        try:
+            await self._embedding_index.synchronize(memory)
+        except Exception as exc:
+            await self._audit_embedding_storage_failure(
+                memory_id=memory.id,
+                operation="synchronize",
+                exc=exc,
+            )
+
+    async def _remove_embedding(self, memory_id: str) -> None:
+        try:
+            await self._embedding_index.remove(memory_id)
+        except Exception as exc:
+            await self._audit_embedding_storage_failure(
+                memory_id=memory_id,
+                operation="remove",
+                exc=exc,
+            )
+
+    async def _audit_embedding_storage_failure(
+        self,
+        *,
+        memory_id: str,
+        operation: str,
+        exc: Exception,
+    ) -> None:
+        await self._audit.append(
+            action="memory.embedding_storage_failed",
+            actor_id="living-agent",
+            outcome="failure",
+            details={
+                "memory_id": memory_id,
+                "operation": operation,
+                "error_code": type(exc).__name__,
+            },
         )
 
     @staticmethod

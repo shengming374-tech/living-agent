@@ -7,7 +7,9 @@ import json
 import math
 import re
 from collections.abc import Sequence
+from ipaddress import ip_address
 from typing import Annotated, Any, Literal, Protocol
+from urllib.parse import urlsplit
 
 import httpx2
 from pydantic import (
@@ -205,7 +207,6 @@ class _UpstreamResponse(BaseModel):
 
 class OpenAICompatibleEmbeddingProvider:
     name = "openai_compatible"
-    remote = True
 
     def __init__(
         self,
@@ -220,6 +221,7 @@ class OpenAICompatibleEmbeddingProvider:
     ) -> None:
         self.model = model
         self.dimensions = dimensions
+        self.remote = self._is_remote(base_url)
         self._endpoint = f"{base_url.rstrip('/')}/embeddings"
         self._api_key = api_key.get_secret_value() if api_key is not None else None
         self._max_response_bytes = max_response_bytes
@@ -229,6 +231,16 @@ class OpenAICompatibleEmbeddingProvider:
             trust_env=False,
         )
         self._owns_client = client is None
+
+    @staticmethod
+    def _is_remote(base_url: str) -> bool:
+        hostname = urlsplit(base_url).hostname or ""
+        if hostname.casefold() == "localhost":
+            return False
+        try:
+            return not ip_address(hostname).is_loopback
+        except ValueError:
+            return True
 
     async def embed(self, texts: Sequence[str]) -> EmbeddingResult:
         payload: dict[str, Any] = {"model": self.model, "input": list(texts)}
@@ -339,13 +351,55 @@ class EmbeddingService:
         )
 
     async def generate(self, texts: Sequence[str], *, actor_id: str) -> EmbeddingResult:
+        return await self._generate(
+            texts,
+            actor_id=actor_id,
+            operation="send",
+            confirmed_by=actor_id,
+            reason="Owner requested embeddings for an explicit text batch.",
+            purpose=None,
+            source_event_ids=[],
+            taint_labels=set(),
+        )
+
+    async def generate_automatic(
+        self,
+        texts: Sequence[str],
+        *,
+        purpose: Literal["memory_index", "memory_query"],
+        source_event_ids: list[str],
+        taint_labels: set[str] | None = None,
+    ) -> EmbeddingResult:
+        return await self._generate(
+            texts,
+            actor_id="living-agent",
+            operation="embed",
+            confirmed_by=None,
+            reason="Host configuration enabled bounded memory embedding.",
+            purpose=purpose,
+            source_event_ids=source_event_ids,
+            taint_labels=taint_labels or set(),
+        )
+
+    async def _generate(
+        self,
+        texts: Sequence[str],
+        *,
+        actor_id: str,
+        operation: Literal["send", "embed"],
+        confirmed_by: str | None,
+        reason: str,
+        purpose: Literal["memory_index", "memory_query"] | None,
+        source_event_ids: list[str],
+        taint_labels: set[str],
+    ) -> EmbeddingResult:
         normalized = list(texts)
         total_chars = self._validate_limits(normalized)
         scope = f"embedding:{self._provider.name}:{self._provider.model}"
         grant = CapabilityGrant(
             actor_id=actor_id,
             capability=EMBEDDING_CAPABILITY,
-            operations={"send"},
+            operations={operation},
             resource_scopes={scope},
             one_time=True,
         )
@@ -354,7 +408,7 @@ class EmbeddingService:
             CapabilityRequest(
                 actor_id=actor_id,
                 capability=EMBEDDING_CAPABILITY,
-                operation="send",
+                operation=operation,
                 resource_scope=scope,
                 arguments={
                     "provider": self._provider.name,
@@ -362,10 +416,11 @@ class EmbeddingService:
                     "input_count": len(normalized),
                     "total_chars": total_chars,
                 },
-                source_event_ids=[],
-                reason="Owner requested embeddings for an explicit text batch.",
+                source_event_ids=source_event_ids,
+                taint_labels=taint_labels,
+                reason=reason,
             ),
-            confirmed_by=actor_id,
+            confirmed_by=confirmed_by,
         )
         if decision.outcome not in _ALLOW_OUTCOMES:
             self._broker.revoke_grant(grant)
@@ -378,6 +433,7 @@ class EmbeddingService:
                 input_count=len(normalized),
                 total_chars=total_chars,
                 error_code=exc.code,
+                purpose=purpose,
             )
             raise
         try:
@@ -389,6 +445,7 @@ class EmbeddingService:
                 input_count=len(normalized),
                 total_chars=total_chars,
                 error_code=error.code,
+                purpose=purpose,
             )
             raise error from exc
         await self._audit.append(
@@ -399,6 +456,7 @@ class EmbeddingService:
                 input_count=len(normalized),
                 total_chars=total_chars,
                 dimensions=result.dimensions,
+                **({"purpose": purpose} if purpose is not None else {}),
             ),
         )
         return result
@@ -432,6 +490,7 @@ class EmbeddingService:
         input_count: int,
         total_chars: int,
         error_code: str,
+        purpose: Literal["memory_index", "memory_query"] | None,
     ) -> None:
         await self._audit.append(
             action="embedding.generated",
@@ -441,6 +500,7 @@ class EmbeddingService:
                 input_count=input_count,
                 total_chars=total_chars,
                 error_code=error_code,
+                **({"purpose": purpose} if purpose is not None else {}),
             ),
         )
 
