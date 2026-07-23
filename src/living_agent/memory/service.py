@@ -7,7 +7,8 @@ from living_agent.memory.embeddings import MemoryEmbeddingIndex
 from living_agent.memory.extractor import MemoryCandidateExtractor
 from living_agent.memory.firewall import MemoryFirewall
 from living_agent.memory.recall import MemoryRecallService
-from living_agent.memory.repository import MemoryRepository
+from living_agent.memory.repository import MemoryRepository, MemoryVersionConflictError
+from living_agent.memory.self_candidates import SelfMemoryCandidateGenerator
 from living_agent.models.events import AuthorityLevel, TrustedEvent
 from living_agent.models.memory import (
     CandidateStatus,
@@ -42,6 +43,8 @@ class MemoryService:
         recall: MemoryRecallService,
         embedding_index: MemoryEmbeddingIndex,
         extractor: MemoryCandidateExtractor,
+        self_candidate_generator: SelfMemoryCandidateGenerator,
+        auto_approval_enabled: bool,
         recall_candidate_limit: int,
         audit: AuditService,
     ) -> None:
@@ -51,6 +54,8 @@ class MemoryService:
         self._recall = recall
         self._embedding_index = embedding_index
         self._extractor = extractor
+        self._self_candidate_generator = self_candidate_generator
+        self._auto_approval_enabled = auto_approval_enabled
         self._recall_candidate_limit = recall_candidate_limit
         self._audit = audit
 
@@ -78,7 +83,50 @@ class MemoryService:
                 "scope": created.scope,
             },
         )
+        if self._auto_approval_enabled:
+            return await self._auto_approve(created)
         return created
+
+    async def consider_self_candidate(self, event: TrustedEvent) -> MemoryCandidate | None:
+        """Create a self-originated candidate without entering automatic approval."""
+
+        candidate = self._self_candidate_generator.generate(event)
+        if candidate is None:
+            return None
+        if await self._repository.candidate_exists(candidate.candidate_id):
+            return await self._repository.get_candidate(candidate.candidate_id)
+        created = await self.create_candidate(candidate, proposer_id="living-agent")
+        await self._audit.append(
+            action="memory.self_candidate_created",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome="pending",
+            details={
+                "candidate_id": created.candidate_id,
+                "source_event_ids": created.source_event_ids,
+                "scope": created.scope,
+            },
+        )
+        return created
+
+    async def _auto_approve(self, candidate: MemoryCandidate) -> MemoryCandidate:
+        result = await self.commit_candidate(
+            candidate.candidate_id,
+            actor_id="living-agent",
+        )
+        await self._audit.append(
+            action="memory.auto_approval",
+            actor_id="living-agent",
+            outcome="committed" if result.memory is not None else "rejected",
+            details={
+                "candidate_id": candidate.candidate_id,
+                "memory_id": result.memory.id if result.memory is not None else None,
+                "reason_code": result.decision.reason_code,
+                "source_event_ids": candidate.source_event_ids,
+                "scope": candidate.scope,
+            },
+        )
+        return result.candidate
 
     async def create_candidate(
         self,
@@ -162,6 +210,36 @@ class MemoryService:
             decision=decision,
             memory=memory,
         )
+
+    async def reject_candidate(
+        self,
+        candidate_id: str,
+        *,
+        actor_id: str,
+    ) -> MemoryCandidate:
+        candidate = await self._repository.get_candidate(candidate_id)
+        if candidate.status is not CandidateStatus.PENDING:
+            raise MemoryVersionConflictError("memory candidate is no longer pending")
+        rejected = await self._repository.reject_candidate(
+            candidate_id,
+            reason="owner_rejected",
+        )
+        await self._audit.append(
+            action="memory.rejected",
+            actor_id=actor_id,
+            conversation_id=(
+                candidate.scope.removeprefix("conversation:")
+                if candidate.scope.startswith("conversation:")
+                else None
+            ),
+            outcome="rejected",
+            details={
+                "candidate_id": candidate_id,
+                "reason_code": "owner_rejected",
+                "source_event_ids": candidate.source_event_ids,
+            },
+        )
+        return rejected
 
     async def candidates(
         self,

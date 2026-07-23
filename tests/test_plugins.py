@@ -16,6 +16,7 @@ from living_agent.plugins.permissions import PluginPermissionError, require_decl
 from living_agent.plugins.process import (
     PluginCrashedError,
     PluginInvocationError,
+    PluginOutputLimitError,
     PluginProcess,
     PluginTimeoutError,
 )
@@ -133,6 +134,17 @@ async def test_plugin_timeout_is_terminated() -> None:
         await PluginProcess(timeout_seconds=0.05).invoke(
             record,
             operation="sleep",
+            arguments={},
+        )
+
+
+async def test_plugin_output_limit_is_enforced_while_streaming() -> None:
+    record = failure_fixture_registry().get("test.plugin.output-spammer")
+
+    with pytest.raises(PluginOutputLimitError):
+        await PluginProcess(timeout_seconds=1.0, max_output_bytes=4096).invoke(
+            record,
+            operation="spam",
             arguments={},
         )
 

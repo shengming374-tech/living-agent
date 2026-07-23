@@ -18,6 +18,8 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
+from living_agent.plugins.sandbox import PluginSandbox, PluginSandboxUnavailableError
+
 
 class Settings(BaseSettings):
     """Runtime settings. Environment variables override YAML values."""
@@ -36,8 +38,28 @@ class Settings(BaseSettings):
     admin_ids: list[str] = Field(default_factory=list)
     management_api_token: SecretStr | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    ingress_max_request_bytes: int = Field(
+        default=32 * 1024 * 1024,
+        ge=1024,
+        le=128 * 1024 * 1024,
+    )
+    event_conversation_storage_limit_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1024,
+        le=4 * 1024 * 1024 * 1024,
+    )
+    event_total_storage_limit_bytes: int = Field(
+        default=1024 * 1024 * 1024,
+        ge=1024,
+        le=16 * 1024 * 1024 * 1024,
+    )
     model_provider: Literal["mock", "openai_compatible"] = "mock"
     model_name: str = "mock-chat-v1"
+    model_vision_name: str = "gpt-5.5"
+    model_image_mode: Literal["auto", "caption", "direct"] = "auto"
+    model_image_description_cache_entries: int = Field(default=256, ge=0, le=10000)
+    model_image_description_max_chars: int = Field(default=1200, ge=100, le=4000)
+    model_image_allowed_hosts: list[str] = Field(default_factory=list, max_length=100)
     model_api_base_url: str | None = None
     model_api_key: SecretStr | None = None
     model_timeout_seconds: float = Field(default=60.0, gt=0.0, le=300.0)
@@ -46,6 +68,7 @@ class Settings(BaseSettings):
     model_max_context_chars: int = Field(default=100000, ge=1000, le=1000000)
     model_max_response_bytes: int = Field(default=1048576, ge=1024, le=16777216)
     model_allow_insecure_http: bool = False
+    model_allow_insecure_image_urls: bool = False
     embedding_provider: Literal["mock", "openai_compatible"] = "mock"
     embedding_model: str = "mock-hash-v1"
     embedding_api_base_url: str | None = None
@@ -58,6 +81,9 @@ class Settings(BaseSettings):
     embedding_max_response_bytes: int = Field(default=4194304, ge=1024, le=67108864)
     embedding_allow_insecure_http: bool = False
     memory_auto_candidates_enabled: bool = False
+    memory_auto_approval_enabled: bool = False
+    memory_self_candidates_enabled: bool = False
+    memory_self_candidate_rate: float = Field(default=0.05, ge=0.0, le=1.0)
     memory_embeddings_enabled: bool = False
     memory_embeddings_allow_remote: bool = False
     memory_embedding_backfill_limit: int = Field(default=2000, ge=1, le=100000)
@@ -78,8 +104,15 @@ class Settings(BaseSettings):
     social_followup_delay_min_ms: int = Field(default=300, ge=0, le=10000)
     social_followup_delay_max_ms: int = Field(default=650, ge=0, le=10000)
     social_group_auto_participation: bool = False
+    social_group_participation_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     social_group_min_user_turns: int = Field(default=5, ge=1, le=100)
     social_group_cooldown_seconds: float = Field(default=60.0, ge=0.0, le=86400.0)
+    social_avoid_full_stops: bool = False
+    social_scheduler_enabled: bool = True
+    social_focus_idle_exit_cycles: int = Field(default=3, ge=1, le=100)
+    social_mid_term_min_events: int = Field(default=6, ge=3, le=64)
+    social_mid_term_ttl_hours: float = Field(default=72.0, gt=0.0, le=2160.0)
+    social_attention_cue_ttl_minutes: float = Field(default=30.0, gt=0.0, le=10080.0)
     napcat_enabled: bool = False
     napcat_access_token: SecretStr | None = None
     napcat_action_timeout_seconds: float = Field(default=5.0, gt=0.0, le=30.0)
@@ -142,12 +175,30 @@ class Settings(BaseSettings):
             raise ValueError("management_api_token must contain at least 32 characters")
         return SecretStr(normalized)
 
-    @field_validator("model_name", "embedding_model")
+    @field_validator("model_name", "model_vision_name", "embedding_model")
     @classmethod
     def validate_model_name(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized or len(normalized) > 255:
             raise ValueError("model names must contain 1 to 255 characters")
+        return normalized
+
+    @field_validator("model_image_allowed_hosts")
+    @classmethod
+    def validate_image_allowed_hosts(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for host in value:
+            candidate = host.strip().rstrip(".").casefold()
+            if (
+                not candidate
+                or len(candidate) > 253
+                or "://" in candidate
+                or "/" in candidate
+                or candidate == "*"
+            ):
+                raise ValueError("model_image_allowed_hosts must contain exact hostnames")
+            if candidate not in normalized:
+                normalized.append(candidate)
         return normalized
 
     @field_validator("root_prompt_second_factor_sha256")
@@ -177,12 +228,22 @@ class Settings(BaseSettings):
             raise ValueError("management_api_token is required in production")
         if self.environment == "production" and self.plugin_sandbox_mode == "disabled":
             raise ValueError("plugin_sandbox_mode cannot be disabled in production")
+        try:
+            sandbox_enforced = PluginSandbox(mode=self.plugin_sandbox_mode).status.enforced
+        except PluginSandboxUnavailableError as exc:
+            raise ValueError(
+                "a supported plugin sandbox backend is required in production"
+            ) from exc
+        if self.environment == "production" and not sandbox_enforced:
+            raise ValueError("a supported plugin sandbox backend is required in production")
         if self.social_engage_units_min > self.social_engage_units_max:
             raise ValueError("social_engage_units_min cannot exceed social_engage_units_max")
         if self.social_followup_delay_min_ms > self.social_followup_delay_max_ms:
             raise ValueError(
                 "social_followup_delay_min_ms cannot exceed social_followup_delay_max_ms"
             )
+        if self.memory_auto_approval_enabled and not self.memory_auto_candidates_enabled:
+            raise ValueError("memory_auto_approval_enabled requires memory_auto_candidates_enabled")
         if self.model_provider == "openai_compatible":
             if self.model_api_base_url is None:
                 raise ValueError("model_api_base_url is required for openai_compatible provider")

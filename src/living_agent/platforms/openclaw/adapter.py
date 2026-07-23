@@ -274,12 +274,19 @@ class OpenClawBridgeAdapter:
 
     async def _handle_once(self, request: OpenClawBridgeRequest) -> OpenClawBridgeResponse:
         normalized = normalize_openclaw_message(request)
-        utterance_turn = await self._runtime.begin_utterance_turn(
-            normalized.envelope.conversation_id,
+        result, utterance_turn = await self._runtime.handle_platform_chat(
+            normalized.envelope,
             platform="openclaw",
         )
-        assert utterance_turn is not None
-        result = await self._runtime.handle_chat(normalized.envelope)
+        if utterance_turn is None:
+            return OpenClawBridgeResponse(
+                event_id=result.event.event_id,
+                turn=result.turn,
+                message=None,
+                messages=[],
+                unit_delays_ms=[],
+                reason_code="runtime_observed",
+            )
         if result.message is None:
             await self._runtime.activate_utterance(utterance_turn, result)
             return OpenClawBridgeResponse(

@@ -113,6 +113,20 @@ async def commit_candidate(
         raise _translate_error(exc) from exc
 
 
+@router.post("/candidates/{candidate_id}/reject", response_model=MemoryCandidate)
+async def reject_candidate(
+    candidate_id: str,
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+) -> MemoryCandidate:
+    _require_owner(actor_id, authority)
+    try:
+        return await memories.reject_candidate(candidate_id, actor_id=actor_id)
+    except (MemoryNotFoundError, MemoryVersionConflictError) as exc:
+        raise _translate_error(exc) from exc
+
+
 @router.get("", response_model=list[MemoryNode])
 async def search_memories(
     actor_id: ActorHeader,

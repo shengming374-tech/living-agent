@@ -11,7 +11,7 @@ from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from living_agent.app import create_app
-from living_agent.cognition.context_compiler import CompiledContext
+from living_agent.cognition.context_compiler import CompiledContext, ContextKind
 from living_agent.config import Settings
 from living_agent.execution.broker import CapabilityBroker
 from living_agent.models.capabilities import CapabilityGrant, CapabilityRequest, DecisionOutcome
@@ -36,9 +36,10 @@ WS_HEADERS = {
 class FixedLLMProvider:
     def __init__(self, text: str) -> None:
         self._text = text
+        self.contexts: list[CompiledContext] = []
 
     async def generate(self, context: CompiledContext) -> ModelResponse:
-        del context
+        self.contexts.append(context)
         return ModelResponse(text=self._text, provider="test")
 
 
@@ -190,7 +191,7 @@ def test_napcat_requires_token_and_stable_self_id(napcat_client: TestClient) -> 
 
 def test_napcat_enabled_configuration_requires_nonempty_token() -> None:
     with pytest.raises(ValidationError, match="napcat_access_token is required"):
-        Settings(napcat_enabled=True)
+        Settings(napcat_enabled=True, napcat_access_token=None)
 
 
 def test_napcat_accepts_access_token_query_parameter(napcat_client: TestClient) -> None:
@@ -256,6 +257,36 @@ def test_private_message_round_trip_uses_broker_and_plain_text_segment(
     assert any(
         entry["action"] == "napcat.outbound" and entry["outcome"] == "success" for entry in audit
     )
+
+
+def test_private_image_message_reaches_multimodal_context(settings: Settings) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.napcat_enabled = True
+    configured.napcat_access_token = SecretStr(NAPCAT_TOKEN)
+    provider = FixedLLMProvider("图中有一块白板。")
+    image_url = "https://images.example/whiteboard.png"
+
+    with TestClient(create_app(configured, llm_provider=provider)) as client:
+        with client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(private_event([{"type": "image", "data": {"url": image_url}}]))
+            action = websocket.receive_json()
+            assert action["params"]["message"][0]["data"]["text"] == "图中有一块白板。"
+            websocket.send_json(action_success(action))
+            wait_for_audit(
+                client,
+                lambda entry: (
+                    entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
+                ),
+            )
+            close_websocket(websocket, client)
+
+    assert provider.contexts
+    social = next(
+        section
+        for section in provider.contexts[-1].sections
+        if section.kind is ContextKind.SOCIAL_CHAT
+    )
+    assert [image.url for image in social.images] == [image_url]
 
 
 def test_engage_reply_sends_multiple_short_napcat_messages(settings: Settings) -> None:
@@ -625,9 +656,42 @@ def test_array_message_normalization_ignores_sender_role_for_identity() -> None:
     assert normalized.envelope.source_identity == "napcat:10001:qq:20002"
     assert normalized.envelope.conversation_id == "napcat:10001:group:40004"
     assert normalized.envelope.content == {
-        "text": "hello [image]",
+        "text": "hello",
         "mentions_agent": True,
+        "mentions_other": False,
         "platform": "napcat.onebot11",
         "platform_message_id": "302",
         "segment_types": ["at", "text", "image"],
+        "images": [
+            {
+                "url": "https://example.invalid/image",
+                "detail": "auto",
+            }
+        ],
     }
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        [{"type": "at", "data": {"qq": "20003"}}, {"type": "text", "data": {"text": "你好"}}],
+        [{"type": "at", "data": {"qq": 20003}}, {"type": "text", "data": {"text": "你好"}}],
+        "[CQ:at,qq=20003]你好",
+    ],
+)
+def test_group_mentioning_another_user_does_not_mark_agent(
+    message: str | list[dict[str, object]],
+) -> None:
+    normalized = normalize_message(OneBotMessageEvent.model_validate(group_event(message)))
+
+    assert normalized.envelope.content["mentions_agent"] is False
+    assert normalized.envelope.content["mentions_other"] is True
+
+
+def test_group_at_all_does_not_mark_agent_or_another_user() -> None:
+    normalized = normalize_message(
+        OneBotMessageEvent.model_validate(group_event([{"type": "at", "data": {"qq": "all"}}]))
+    )
+
+    assert normalized.envelope.content["mentions_agent"] is False
+    assert normalized.envelope.content["mentions_other"] is False

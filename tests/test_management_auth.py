@@ -6,6 +6,7 @@ from pydantic import SecretStr, ValidationError
 
 from living_agent.app import create_app
 from living_agent.config import Settings
+from living_agent.plugins.sandbox import PluginSandbox
 
 MANAGEMENT_TOKEN = "management-test-token-with-32-characters"
 
@@ -28,6 +29,17 @@ def test_production_requires_management_token() -> None:
 
     with pytest.raises(ValidationError, match="at least 32 characters"):
         Settings(management_api_token=SecretStr("too-short"))
+
+
+def test_production_rejects_missing_plugin_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(PluginSandbox, "_detect_backend", staticmethod(lambda: None))
+    with pytest.raises(ValidationError, match="sandbox backend is required"):
+        Settings(
+            environment="production",
+            management_api_token=SecretStr(MANAGEMENT_TOKEN),
+        )
 
 
 def test_management_api_requires_valid_bearer_token(settings: Settings) -> None:

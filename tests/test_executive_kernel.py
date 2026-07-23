@@ -113,7 +113,7 @@ def test_multi_step_chat_executes_and_verifies_every_calculation(client: TestCli
 
     assert response["turn"]["mode"] == "act"
     assert response["turn"]["reason_code"] == "calculator_task"
-    assert response["message"] == "I checked them: 2 + 2 = 4; 3 * 4 = 12."
+    assert response["message"] == "我核对过了\uff1a2 + 2 = 4; 3 * 4 = 12"
     task = latest_task(client)
     assert task["status"] == "completed"
     assert [result["status"] for result in task["step_results"]] == [
@@ -166,7 +166,7 @@ def test_owner_can_confirm_latest_task_from_same_chat(client: TestClient) -> Non
 
     assert task_id in waiting["message"]
     assert confirmed["turn"]["reason_code"] == "task_confirmation"
-    assert confirmed["message"] == "I checked the task and saved its confirmed report."
+    assert confirmed["message"] == "任务已经核对完成\uff0c确认后的报告也保存好了"
     assert latest_task(client)["status"] == "completed"
     report = client.get(f"/v1/tasks/{task_id}/report", headers=OWNER_HEADERS).json()
     assert report["content"] == "今天完成了 Phase 6 测试"
@@ -185,8 +185,8 @@ def test_member_cannot_request_write_and_tainted_write_is_denied(client: TestCli
         conversation_id="tainted-task",
     )
 
-    assert "stopped" in member["message"]
-    assert "not safe" in tainted["message"]
+    assert "停掉" in member["message"]
+    assert "没有保存" in tainted["message"]
     failed = client.get("/v1/tasks?status=failed", headers=OWNER_HEADERS).json()
     assert len(failed) == 2
     reason_codes = {
@@ -208,9 +208,9 @@ def test_chat_confirmation_requires_owner_and_same_conversation(client: TestClie
     )
     other_conversation = send_task(client, "确认任务", conversation_id="private-b")
 
-    assert member["message"] == "That write still needs confirmation from the owner."
+    assert member["message"] == "这次写入仍然需要所有者确认"
     assert other_conversation["message"] == (
-        "I don't have a matching task waiting for confirmation here."
+        "这里没有正在等待确认的对应任务"
     )
     assert latest_task(client)["status"] == "waiting_confirmation"
     assert client.get(f"/v1/tasks/{task_id}/report", headers=OWNER_HEADERS).status_code == 404

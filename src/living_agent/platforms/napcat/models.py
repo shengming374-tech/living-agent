@@ -8,7 +8,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from living_agent.models.events import IngressEnvelope, SourceType
+from living_agent.models.events import (
+    MAX_IMAGES_PER_EVENT,
+    ImageInput,
+    IngressEnvelope,
+    SourceType,
+)
 
 NAPCAT_REPLY_CAPABILITY = "platform.napcat.message"
 _CQ_PATTERN = re.compile(r"\[CQ:([a-zA-Z0-9_]+)(?:,([^\]]*))?\]")
@@ -132,11 +137,20 @@ class NormalizedNapCatMessage(BaseModel):
 
 
 def normalize_message(event: OneBotMessageEvent) -> NormalizedNapCatMessage:
-    text, mentions_agent, segment_types = _message_text(event.message, event.self_id)
+    text, mentions_agent, mentions_other, segment_types, images = _message_text(
+        event.message,
+        event.self_id,
+    )
     if not text and event.raw_message:
-        text, raw_mentions, raw_types = _string_message(event.raw_message, event.self_id)
+        text, raw_mentions, raw_mentions_other, raw_types, raw_images = _string_message(
+            event.raw_message,
+            event.self_id,
+        )
         mentions_agent = mentions_agent or raw_mentions
+        mentions_other = mentions_other or raw_mentions_other
         segment_types = raw_types
+        if not images:
+            images = raw_images
     target_id = event.user_id if event.message_type == "private" else event.group_id
     if target_id is None:
         raise ValueError("message target is missing")
@@ -148,10 +162,13 @@ def normalize_message(event: OneBotMessageEvent) -> NormalizedNapCatMessage:
     content = {
         "text": text,
         "mentions_agent": mentions_agent,
+        "mentions_other": mentions_other,
         "platform": "napcat.onebot11",
         "platform_message_id": event.message_id,
         "segment_types": segment_types,
     }
+    if images:
+        content["images"] = images
     return NormalizedNapCatMessage(
         envelope=IngressEnvelope(
             event_type="napcat.onebot11.message",
@@ -199,12 +216,14 @@ def napcat_reply_scope_matches(arguments: BaseModel, resource_scope: str) -> boo
 def _message_text(
     message: str | list[OneBotMessageSegment],
     self_id: str,
-) -> tuple[str, bool, list[str]]:
+) -> tuple[str, bool, bool, list[str], list[dict[str, str]]]:
     if isinstance(message, str):
         return _string_message(message, self_id)
     parts: list[str] = []
     mentions_agent = False
+    mentions_other = False
     segment_types: list[str] = []
+    images: list[dict[str, str]] = []
     for segment in message:
         segment_types.append(segment.type)
         if segment.type == "text":
@@ -212,33 +231,88 @@ def _message_text(
             if isinstance(value, str):
                 parts.append(value)
         elif segment.type == "at":
-            qq = segment.data.get("qq")
-            mentions_agent = mentions_agent or str(qq) == self_id
-            if str(qq) != self_id:
+            target = _mention_target(segment.data.get("qq"))
+            mentions_agent = mentions_agent or target == self_id
+            mentions_other = mentions_other or (target is not None and target != self_id)
+            if target != self_id:
                 parts.append("[@user]")
+        elif segment.type == "image":
+            image = _image_reference(segment.data)
+            if image is not None:
+                _append_image(images, image)
+            else:
+                parts.append("[image]")
         elif segment.type != "reply":
             parts.append(f"[{segment.type}]")
-    return " ".join("".join(parts).split()), mentions_agent, segment_types
+    return (
+        " ".join("".join(parts).split()),
+        mentions_agent,
+        mentions_other,
+        segment_types,
+        images,
+    )
 
 
-def _string_message(message: str, self_id: str) -> tuple[str, bool, list[str]]:
+def _string_message(
+    message: str,
+    self_id: str,
+) -> tuple[str, bool, bool, list[str], list[dict[str, str]]]:
     mentions_agent = False
+    mentions_other = False
     segment_types: list[str] = []
+    images: list[dict[str, str]] = []
 
     def replace(match: re.Match[str]) -> str:
-        nonlocal mentions_agent
+        nonlocal mentions_agent, mentions_other
         kind = match.group(1)
         parameters = match.group(2) or ""
         segment_types.append(kind)
         if kind == "at":
-            values = dict(
-                item.split("=", 1) for item in parameters.split(",") if "=" in item
-            )
-            mentions_agent = mentions_agent or values.get("qq") == self_id
-            return "" if values.get("qq") == self_id else "[@user]"
+            values = dict(item.split("=", 1) for item in parameters.split(",") if "=" in item)
+            target = _mention_target(values.get("qq"))
+            mentions_agent = mentions_agent or target == self_id
+            mentions_other = mentions_other or (target is not None and target != self_id)
+            return "" if target == self_id else "[@user]"
         if kind == "reply":
             return ""
+        if kind == "image":
+            values = dict(item.split("=", 1) for item in parameters.split(",") if "=" in item)
+            image = _image_reference(values)
+            if image is not None:
+                _append_image(images, image)
+                return ""
         return f"[{kind}]"
 
     text = html.unescape(_CQ_PATTERN.sub(replace, message))
-    return " ".join(text.split()), mentions_agent, segment_types
+    return " ".join(text.split()), mentions_agent, mentions_other, segment_types, images
+
+
+def _mention_target(value: object) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    normalized = str(value)
+    return normalized if _IDENTIFIER_PATTERN.fullmatch(normalized) is not None else None
+
+
+def _image_reference(data: dict[str, Any]) -> dict[str, str] | None:
+    candidates = [data.get("url"), data.get("file")]
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        normalized = html.unescape(candidate)
+        if normalized.startswith("base64://"):
+            normalized = f"data:image/jpeg;base64,{normalized.removeprefix('base64://')}"
+        try:
+            image = ImageInput(url=normalized)
+        except ValueError:
+            continue
+        return image.model_dump()
+    return None
+
+
+def _append_image(images: list[dict[str, str]], image: dict[str, str]) -> None:
+    if len(images) >= MAX_IMAGES_PER_EVENT:
+        return
+    if any(existing["url"] == image["url"] for existing in images):
+        return
+    images.append(image)

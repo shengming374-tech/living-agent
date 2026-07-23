@@ -4,22 +4,28 @@ build-backend = "hatchling.build"
 
 [project]
 name = "living-agent"
-version = "0.1.0"
+version = "0.2.1"
 description = "从零构建、由代码强制信任边界的持续人格 Agent 运行时。"
 readme = "README.md"
+license = "GPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
   "aiosqlite>=0.21,<1",
   "alembic>=1.16,<2",
+  "asyncpg>=0.30,<1",
   "fastapi>=0.116,<1",
   "httpx2>=2.7,<3",
   "pydantic>=2.11,<3",
   "pydantic-settings>=2.10,<3",
   "pyyaml>=6.0,<7",
+  "rich>=14.1,<15",
   "sqlalchemy[asyncio]>=2.0.41,<3",
   "structlog>=25.4,<26",
   "uvicorn[standard]>=0.35,<1",
 ]
+
+[project.scripts]
+living-agent-psyche = "living_agent.cli.psyche:main"
 
 [dependency-groups]
 dev = [

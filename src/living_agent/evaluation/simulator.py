@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from living_agent.interaction.momentum import ConversationMomentum
-from living_agent.models.conversation import TurnDecision
+from living_agent.models.conversation import TurnDecision, TurnScheduleDecision
 from living_agent.models.events import TrustedEvent
 
 
@@ -24,6 +24,7 @@ class BehaviorSimulation(BaseModel):
 
     event: TrustedEvent
     turn: TurnDecision
+    schedule: TurnScheduleDecision | None = None
     momentum: ConversationMomentum
     context_sections: list[str]
     task_goal: str | None = None

@@ -160,6 +160,44 @@ def test_candidate_queue_is_owner_only_and_filterable(client: TestClient) -> Non
     ]
 
 
+def test_owner_can_manually_reject_pending_candidate(client: TestClient) -> None:
+    event_id = ingest_event(client, content="A candidate the owner does not want.")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="A candidate the owner does not want.",
+        subject="manual rejection",
+    )
+
+    denied = client.post(
+        f"/v1/memories/candidates/{candidate['candidate_id']}/reject",
+        headers={"X-Actor-ID": "member-1"},
+    )
+    rejected = client.post(
+        f"/v1/memories/candidates/{candidate['candidate_id']}/reject",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+    repeated = client.post(
+        f"/v1/memories/candidates/{candidate['candidate_id']}/reject",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+    audit = client.get("/v1/audit?limit=100", headers={"X-Actor-ID": "owner-1"}).json()
+
+    assert denied.status_code == 403
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    assert rejected.json()["decision_reason"] == "owner_rejected"
+    assert repeated.status_code == 409
+    entry = next(
+        item
+        for item in audit
+        if item["action"] == "memory.rejected"
+        and item["details"]["candidate_id"] == candidate["candidate_id"]
+    )
+    assert entry["actor_id"] == "owner-1"
+    assert entry["details"]["reason_code"] == "owner_rejected"
+
+
 @pytest.mark.parametrize(
     ("memory_type", "content", "reason"),
     [

@@ -94,10 +94,14 @@ class PsycheService:
 
     async def appraise(self, event: TrustedEvent, turn: TurnDecision) -> ThoughtRecord:
         now = datetime.now(UTC)
+        focus = self._focus_summary(event)
         if turn.mode == "observe":
             create = ThoughtRecordCreate(
                 kind="suppressed_reply",
-                summary=f"Observed event without joining; gate reason was {turn.reason_code}.",
+                summary=(
+                    f"注意到当前话题“{focus}”\uff0c但这轮保持安静"
+                    f"\uff0c原因是 {turn.reason_code}"
+                ),
                 source_event_ids=[event.event_id],
                 intensity=turn.urgency,
                 speakability=0.0,
@@ -106,7 +110,10 @@ class PsycheService:
         else:
             create = ThoughtRecordCreate(
                 kind="reaction",
-                summary=f"The event warranted {turn.mode} participation ({turn.reason_code}).",
+                summary=(
+                    f"注意力落在“{focus}”上\uff0c准备以 {turn.mode} 方式参与"
+                    f"\uff0c原因是 {turn.reason_code}"
+                ),
                 source_event_ids=[event.event_id],
                 intensity=turn.urgency,
                 speakability=min(1.0, 0.4 + turn.urgency / 2),
@@ -114,7 +121,6 @@ class PsycheService:
             )
         thought = await self.create_thought(create, actor_id="living-agent")
         if turn.mode != "observe":
-            focus = self._focus_summary(event)
             await self.update_state(
                 PsycheStateUpdate(
                     current_focus=focus,
@@ -276,4 +282,4 @@ class PsycheService:
         else:
             text = str(event.content.get("text", event.event_type))
         normalized = " ".join(redact_text(text).split())[:180]
-        return f"Event {event.event_id}: {normalized}"
+        return normalized or event.event_type

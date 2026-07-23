@@ -169,6 +169,158 @@ def test_group_self_claim_candidate_keeps_conversation_scope(settings: Settings)
     assert pending[0]["scope"] == "conversation:group-memory"
 
 
+def test_auto_approval_commits_new_extracted_candidate(settings: Settings) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        _chat(client, "我喜欢茉莉花茶。")
+        pending = client.get(
+            "/v1/memories/candidates?status=pending",
+            headers=OWNER_HEADERS,
+        ).json()
+        committed = client.get(
+            "/v1/memories/candidates?status=committed",
+            headers=OWNER_HEADERS,
+        ).json()
+        memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
+        audit = client.get("/v1/audit?limit=100", headers=OWNER_HEADERS).json()
+
+    assert pending == []
+    assert len(committed) == 1
+    assert committed[0]["content"] == "我喜欢茉莉花茶"
+    assert len(memories) == 1
+    assert memories[0]["content"] == "我喜欢茉莉花茶"
+    approval = next(entry for entry in audit if entry["action"] == "memory.auto_approval")
+    assert approval["outcome"] == "committed"
+    assert approval["actor_id"] == "living-agent"
+    assert approval["details"]["memory_id"] == memories[0]["id"]
+
+
+def test_auto_approval_rejects_conflicting_extracted_candidate(settings: Settings) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        _chat(client, "我是小明。")
+        _chat(client, "我是小红。")
+        candidates = client.get("/v1/memories/candidates", headers=OWNER_HEADERS).json()
+        memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
+        audit = client.get("/v1/audit?limit=100", headers=OWNER_HEADERS).json()
+
+    by_content = {candidate["content"]: candidate for candidate in candidates}
+    assert by_content["我是小明"]["status"] == "committed"
+    assert by_content["我是小红"]["status"] == "rejected"
+    assert by_content["我是小红"]["decision_reason"] == "conflicting_memory_requires_review"
+    assert [memory["content"] for memory in memories] == ["我是小明"]
+    rejected = next(
+        entry
+        for entry in audit
+        if entry["action"] == "memory.auto_approval" and entry["outcome"] == "rejected"
+    )
+    assert rejected["details"]["reason_code"] == "conflicting_memory_requires_review"
+
+
+def test_auto_approval_does_not_commit_manually_created_candidate(settings: Settings) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        source = _chat(client, "这是一条普通来源证据")
+        response = client.post(
+            "/v1/memories/candidates",
+            headers={"X-Actor-ID": "member-1"},
+            json={
+                "type": "semantic",
+                "content": "手工候选仍需审批",
+                "subject": "manual candidate",
+                "source_event_ids": [source["event"]["event_id"]],
+                "factuality": "reported",
+                "confidence": 0.8,
+                "importance": 0.6,
+                "scope": "private:member-1",
+            },
+        )
+        pending = client.get(
+            "/v1/memories/candidates?status=pending",
+            headers=OWNER_HEADERS,
+        ).json()
+        memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
+
+    assert response.status_code == 201
+    assert [candidate["candidate_id"] for candidate in pending] == [response.json()["candidate_id"]]
+    assert memories == []
+
+
+def test_self_candidate_always_waits_for_owner_review(settings: Settings) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+            "memory_self_candidates_enabled": True,
+            "memory_self_candidate_rate": 1.0,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        response = _chat(client, "Hello", conversation_id="self-memory-chat")
+        pending = client.get(
+            "/v1/memories/candidates?status=pending",
+            headers=OWNER_HEADERS,
+        ).json()
+        memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
+        audit = client.get("/v1/audit?limit=100", headers=OWNER_HEADERS).json()
+
+    assert len(pending) == 1
+    candidate = pending[0]
+    assert candidate["type"] == "self"
+    assert candidate["content"] == response["message"]
+    assert candidate["proposer_id"] == "living-agent"
+    assert candidate["factuality"] == "inferred"
+    assert candidate["scope"] == "conversation:self-memory-chat"
+    assert candidate["source_event_ids"] != [response["event"]["event_id"]]
+    assert memories == []
+    assert any(
+        entry["action"] == "memory.self_candidate_created"
+        and entry["details"]["candidate_id"] == candidate["candidate_id"]
+        for entry in audit
+    )
+
+
+def test_task_delivery_never_creates_self_candidate(settings: Settings) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_self_candidates_enabled": True,
+            "memory_self_candidate_rate": 1.0,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        response = _chat(client, "Calculate 2 + 2", conversation_id="self-memory-task")
+        candidates = client.get(
+            "/v1/memories/candidates",
+            headers=OWNER_HEADERS,
+        ).json()
+
+    assert response["turn"]["mode"] == "act"
+    assert candidates == []
+
+
+def test_auto_approval_requires_auto_candidate_extraction() -> None:
+    with pytest.raises(ValueError, match="requires memory_auto_candidates_enabled"):
+        Settings(
+            memory_auto_candidates_enabled=False,
+            memory_auto_approval_enabled=True,
+        )
+
+
 def test_committed_memory_is_indexed_and_recalled_semantically(
     settings: Settings,
 ) -> None:
@@ -190,8 +342,8 @@ def test_committed_memory_is_indexed_and_recalled_semantically(
             "/v1/memories/embedding-status",
             headers=OWNER_HEADERS,
         )
-        recalled = _chat(client, "家里的小动物叫什么\uFF1F")
-        other_actor = _chat(client, "家里的小动物叫什么\uFF1F", actor_id="member-2")
+        recalled = _chat(client, "家里的小动物叫什么\uff1f")
+        other_actor = _chat(client, "家里的小动物叫什么\uff1f", actor_id="member-2")
         audit = client.get("/v1/audit?limit=300", headers=OWNER_HEADERS).json()
 
     assert status_response.status_code == 200
@@ -270,16 +422,12 @@ def test_memory_vector_lifecycle_tracks_content_and_status(settings: Settings) -
             f"/v1/memories/{memory['id']}?expected_version={content['version']}",
             headers=OWNER_HEADERS,
         ).json()
-        deleted_status = client.get(
-            "/v1/memories/embedding-status", headers=OWNER_HEADERS
-        ).json()
+        deleted_status = client.get("/v1/memories/embedding-status", headers=OWNER_HEADERS).json()
         client.post(
             f"/v1/memories/{memory['id']}/restore?expected_version={deleted['version']}",
             headers=OWNER_HEADERS,
         )
-        restored_status = client.get(
-            "/v1/memories/embedding-status", headers=OWNER_HEADERS
-        ).json()
+        restored_status = client.get("/v1/memories/embedding-status", headers=OWNER_HEADERS).json()
 
     assert calls_after_confidence == calls_after_create
     assert calls_after_content == calls_after_create + 1
@@ -372,7 +520,7 @@ def test_embedding_failure_keeps_lexical_recall_available(settings: Settings) ->
         create_app(_embedding_settings(settings), embedding_provider=embeddings)
     ) as client:
         memory = _commit_memory(client, content="我喜欢绿色。", subject="喜欢的颜色")
-        recalled = _chat(client, "你记得我喜欢什么颜色吗\uFF1F")
+        recalled = _chat(client, "你记得我喜欢什么颜色吗\uff1f")
         status_response = client.get(
             "/v1/memories/embedding-status",
             headers=OWNER_HEADERS,
@@ -407,9 +555,7 @@ async def test_bounded_backfill_never_deletes_eligible_vectors_outside_window(
         _commit_memory(client, content="豆包是一只猫。", subject="家里的猫")
         _commit_memory(client, content="我喜欢绿色。", subject="喜欢的颜色")
         result = client.post("/v1/memories/reindex", headers=OWNER_HEADERS).json()
-        stored = await MemoryEmbeddingRepository(
-            client.app.state.database.sessions
-        ).all()
+        stored = await MemoryEmbeddingRepository(client.app.state.database.sessions).all()
 
     assert result["removed_count"] == 0
     assert len(stored) == 2
@@ -420,6 +566,7 @@ def test_embedding_storage_failure_does_not_report_memory_commit_as_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with TestClient(create_app(settings)) as client:
+
         async def fail_storage(_memory: object) -> bool:
             raise RuntimeError("private storage detail")
 
@@ -432,8 +579,6 @@ def test_embedding_storage_failure_does_not_report_memory_commit_as_failed(
         audit = client.get("/v1/audit?limit=200", headers=OWNER_HEADERS).json()
 
     assert memory["status"] == "active"
-    failure = next(
-        entry for entry in audit if entry["action"] == "memory.embedding_storage_failed"
-    )
+    failure = next(entry for entry in audit if entry["action"] == "memory.embedding_storage_failed")
     assert failure["details"]["error_code"] == "RuntimeError"
     assert "private storage detail" not in repr(failure)

@@ -22,6 +22,11 @@ class BehaviorSample(BaseModel):
     required_fact_tokens: list[str] = Field(default_factory=list)
     interrupted_after_unit: int | None = Field(default=None, ge=0)
     stale_units_sent_after_interruption: int = Field(default=0, ge=0)
+    schedule_action: str | None = None
+    attention_cue_used: bool = False
+    attention_source_event_ids: list[str] = Field(default_factory=list)
+    serious_context: bool = False
+    planning_superseded: bool = False
 
 
 class EvaluationFinding(BaseModel):
@@ -102,6 +107,26 @@ class BiomimeticEvaluator:
                 "task_report_contains_required_facts",
                 all(token in joined for token in sample.required_fact_tokens),
                 "A natural task report must retain all required factual tokens.",
+            ),
+            self._finding(
+                "attention_drift_has_sources",
+                not sample.attention_cue_used or bool(sample.attention_source_event_ids),
+                "An attention drift must be grounded in one or more source events.",
+            ),
+            self._finding(
+                "serious_context_suppresses_drift",
+                not sample.serious_context or not sample.attention_cue_used,
+                "Serious emotional context must not be displaced by attention drift.",
+            ),
+            self._finding(
+                "suppressed_schedule_has_no_output",
+                sample.schedule_action not in {"wait", "delay", "suppress"} or not joined,
+                "A non-triggering schedule decision must not emit visible speech.",
+            ),
+            self._finding(
+                "superseded_planning_has_no_output",
+                not sample.planning_superseded or not joined,
+                "A superseded model plan must be discarded before visible speech.",
             ),
         ]
         return BehaviorReport(

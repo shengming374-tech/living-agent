@@ -38,7 +38,11 @@ def classify_taint(source_type: SourceType, content: str | dict[str, Any]) -> se
     elif source_type is SourceType.PLUGIN_RESULT:
         labels.add(TaintLabel.UNTRUSTED_PLUGIN_RESULT.value)
 
-    text = content if isinstance(content, str) else repr(content)
+    text = (
+        content
+        if isinstance(content, str)
+        else repr({key: value for key, value in content.items() if key != "images"})
+    )
     if any(pattern.search(text) for pattern in _INSTRUCTION_PATTERNS):
         labels.add(TaintLabel.SUSPECTED_INSTRUCTION.value)
     return labels

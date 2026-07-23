@@ -431,8 +431,8 @@ function renderMemoryNodes() {
 }
 
 function renderMemoryCandidates() {
-  return `<div class="table-wrap"><table><thead><tr><th>主题</th><th>类型</th><th>来源信任</th><th>事实性</th><th>范围</th><th>状态</th><th></th></tr></thead><tbody>${state.memoryCandidates.map((item) => `
-    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span></td><td>${esc(displayLabel(item.type))}</td><td>${esc(displayLabel(item.source_trust))}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${item.status === "pending" ? `<button class="button is-small is-primary" data-commit-candidate="${esc(item.candidate_id)}">提交</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
+  return `<div class="table-wrap"><table><thead><tr><th>主题</th><th>类型</th><th>提议者</th><th>来源信任</th><th>事实性</th><th>范围</th><th>状态</th><th></th></tr></thead><tbody>${state.memoryCandidates.map((item) => `
+    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span></td><td>${esc(displayLabel(item.type))}</td><td class="mono">${esc(item.proposer_id)}</td><td>${esc(displayLabel(item.source_trust))}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${item.status === "pending" ? `<button class="button is-small is-primary" data-commit-candidate="${esc(item.candidate_id)}">批准</button> <button class="button is-small is-danger" data-reject-candidate="${esc(item.candidate_id)}">拒绝</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="8"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
 }
 
 function bindMemoryRows() {
@@ -458,7 +458,17 @@ function bindMemoryRows() {
     button.onclick = async () => {
       try {
         const result = await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.commitCandidate)}/commit`, { method: "POST" });
-        toast(result.decision.allowed ? "候选记忆已提交" : `候选被拒绝：${result.decision.reason_code}`);
+        toast(result.decision.allowed ? "候选记忆已批准" : `候选被拒绝：${result.decision.reason_code}`);
+        renderMemories();
+      } catch (error) { toast(error.message, "error"); }
+    };
+  });
+  viewRoot.querySelectorAll("[data-reject-candidate]").forEach((button) => {
+    button.onclick = async () => {
+      if (!await confirmAction("拒绝候选记忆", button.dataset.rejectCandidate, "拒绝", true)) return;
+      try {
+        await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.rejectCandidate)}/reject`, { method: "POST" });
+        toast("候选记忆已拒绝");
         renderMemories();
       } catch (error) { toast(error.message, "error"); }
     };

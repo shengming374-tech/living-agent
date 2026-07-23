@@ -120,15 +120,16 @@ class MemoryRepository:
         return [self._candidate_schema(record) for record in records]
 
     async def reject_candidate(self, candidate_id: str, *, reason: str) -> MemoryCandidate:
-        async with self._sessions() as session:
+        async with self._sessions() as session, session.begin():
             record = await session.get(MemoryCandidateORM, candidate_id)
             if record is None:
                 raise MemoryNotFoundError("memory candidate not found")
+            if record.status != CandidateStatus.PENDING.value:
+                raise MemoryVersionConflictError("memory candidate is no longer pending")
             record.status = CandidateStatus.REJECTED.value
             record.decision_reason = reason
             record.updated_at = _now()
-            await session.commit()
-            return self._candidate_schema(record)
+        return self._candidate_schema(record)
 
     async def has_conflict(self, candidate: MemoryCandidate) -> bool:
         statement = select(MemoryNodeORM.id).where(

@@ -28,6 +28,7 @@ class _ActiveUtterance:
     session: UtteranceSession
     source_event_id: str
     recalled_memory_ids: tuple[str, ...]
+    attention_cue_id: str | None
     cancelled: asyncio.Event
     started_count: int = 0
 
@@ -47,6 +48,7 @@ class UtteranceCoordinator:
         self._repository = repository
         self._lock = asyncio.Lock()
         self._generations: dict[tuple[str, str], int] = {}
+        self._planning: dict[tuple[str, str], int] = {}
         self._active: dict[tuple[str, str], _ActiveUtterance] = {}
 
     async def initialize(self) -> None:
@@ -81,6 +83,7 @@ class UtteranceCoordinator:
                     session=stored.session,
                     source_event_id=stored.source_event_id,
                     recalled_memory_ids=stored.recalled_memory_ids,
+                    attention_cue_id=stored.attention_cue_id,
                     cancelled=asyncio.Event(),
                     started_count=stored.started_count,
                 )
@@ -96,6 +99,7 @@ class UtteranceCoordinator:
                     session=stored.session,
                     source_event_id=stored.source_event_id,
                     recalled_memory_ids=stored.recalled_memory_ids,
+                    attention_cue_id=stored.attention_cue_id,
                     cancelled=asyncio.Event(),
                     started_count=stored.started_count,
                 ),
@@ -120,12 +124,21 @@ class UtteranceCoordinator:
                 },
             )
 
-    async def begin_turn(self, conversation_id: str, *, platform: str) -> UtteranceTurn:
+    async def begin_turn(
+        self,
+        conversation_id: str,
+        *,
+        platform: str,
+        replace_active: bool = True,
+    ) -> UtteranceTurn | None:
         key = (platform, conversation_id)
         interrupted: _ActiveUtterance | None = None
         async with self._lock:
+            if not replace_active and (key in self._planning or key in self._active):
+                return None
             generation = self._generations.get(key, 0) + 1
             self._generations[key] = generation
+            self._planning[key] = generation
             interrupted = self._active.get(key)
             if interrupted is not None:
                 if self._repository is not None:
@@ -155,6 +168,9 @@ class UtteranceCoordinator:
     async def activate(self, turn: UtteranceTurn, result: ChatResult) -> bool:
         session = result.utterance
         if session is None or not result.messages:
+            async with self._lock:
+                if self._planning.get((turn.platform, turn.conversation_id)) == turn.generation:
+                    self._planning.pop((turn.platform, turn.conversation_id), None)
             return True
         key = (turn.platform, turn.conversation_id)
         stale = False
@@ -163,6 +179,7 @@ class UtteranceCoordinator:
                 session.state = "cancelled"
                 stale = True
             else:
+                self._planning.pop(key, None)
                 session.state = "planned"
                 if self._repository is not None:
                     await self._repository.create(
@@ -171,6 +188,7 @@ class UtteranceCoordinator:
                         conversation_id=turn.conversation_id,
                         source_event_id=result.event.event_id,
                         recalled_memory_ids=result.recalled_memory_ids,
+                        attention_cue_id=result.attention_cue_id,
                         generation=turn.generation,
                         replaced_session_id=turn.replaced_session_id,
                     )
@@ -178,6 +196,7 @@ class UtteranceCoordinator:
                     session=session,
                     source_event_id=result.event.event_id,
                     recalled_memory_ids=tuple(result.recalled_memory_ids),
+                    attention_cue_id=result.attention_cue_id,
                     cancelled=asyncio.Event(),
                 )
         if stale:
@@ -288,6 +307,12 @@ class UtteranceCoordinator:
             active = self._active.get((platform, conversation_id))
             return active is not None and active.session.session_id == session_id
 
+    async def turn_is_current(self, turn: UtteranceTurn) -> bool:
+        """Check planning generation before a late model result changes visible state."""
+
+        async with self._lock:
+            return self._generations.get((turn.platform, turn.conversation_id)) == turn.generation
+
     async def stored_session(self, session_id: str) -> StoredUtterance | None:
         if self._repository is None:
             return None
@@ -328,9 +353,8 @@ class UtteranceCoordinator:
                 stored.session.state == "cancelled" and unit_index < stored.started_count
             )
             if (
-                (active is None or active.session.session_id != session_id)
-                and not started_before_cancellation
-            ):
+                active is None or active.session.session_id != session_id
+            ) and not started_before_cancellation:
                 return DeliveryResult(DeliveryDisposition.INTERRUPTED, stored)
             delivery = await self._repository.record_delivery(
                 session_id,
@@ -361,6 +385,8 @@ class UtteranceCoordinator:
         key = (turn.platform, turn.conversation_id)
         interrupted: _ActiveUtterance | None = None
         async with self._lock:
+            if self._planning.get(key) == turn.generation:
+                self._planning.pop(key, None)
             active = self._active.get(key)
             if (
                 active is not None

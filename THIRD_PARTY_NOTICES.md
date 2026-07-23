@@ -15,5 +15,5 @@
 - `src/chat/replyer/maisaka_generator_base.py` 中用于生成可见输出的 Prompt 字符串
 
 本项目不包含这些 Prompt 周围的 MaiBot Python 代码。复制的 Prompt 材料继续按 GPL-3.0 提供；
-许可证全文见 `LICENSES/MaiBot-GPL-3.0.txt`。详细来源和确切研究版本记录在
+许可证全文见项目根目录的 `LICENSE`。详细来源和确切研究版本记录在
 `docs/research/provenance.md`。

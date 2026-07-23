@@ -40,6 +40,35 @@ def test_context_preview_redacts_secret_fields() -> None:
     assert "[REDACTED]" in context.rendered
 
 
+def test_image_payload_is_separate_from_text_context_preview() -> None:
+    image_url = "data:image/png;base64,iVBORw0KGgo="
+    event = TrustBoundary(AuthorityResolver(owner_id="owner-1")).normalize(
+        IngressEnvelope(
+            content={
+                "text": "What is in this image?",
+                "images": [{"url": image_url, "detail": "high"}],
+            },
+            source_type=SourceType.DIRECT_MESSAGE,
+            source_identity="member-1",
+            authenticated=True,
+        )
+    )
+
+    context = ContextCompiler().compile(event, root_policy="root")
+    social = next(
+        section for section in context.sections if section.kind is ContextKind.SOCIAL_CHAT
+    )
+
+    assert len(social.images) == 1
+    assert social.images[0].url == image_url
+    assert social.images[0].detail == "high"
+    assert image_url not in social.content
+    assert image_url not in context.rendered
+    assert '"source": "data_url"' in social.content
+    assert 'images="1"' in context.rendered
+    assert image_url not in context.model_dump_json()
+
+
 def test_psyche_state_is_separate_and_inherits_event_taint() -> None:
     event = TrustBoundary(AuthorityResolver(owner_id="owner-1")).normalize(
         IngressEnvelope(

@@ -17,11 +17,10 @@ async def chat(
     envelope: IngressEnvelope,
     runtime: Annotated[AgentRuntime, Depends(get_runtime)],
 ) -> ChatResult:
-    utterance_turn = await runtime.begin_utterance_turn(
-        envelope.conversation_id,
+    result, utterance_turn = await runtime.handle_platform_chat(
+        envelope,
         platform="chat_api",
     )
-    result = await runtime.handle_chat(envelope)
     if not await runtime.activate_utterance(utterance_turn, result):
         return result
     for unit_index, _message in enumerate(result.messages):

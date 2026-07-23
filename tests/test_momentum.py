@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from living_agent.interaction.momentum import ConversationMomentum
+from living_agent.interaction.scheduler import ReplyNecessityEvaluator
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.models.events import (
     AuthorityLevel,
@@ -17,8 +18,9 @@ def event(
     source_type: SourceType,
     *,
     created_at: datetime = NOW,
+    event_id: str | None = None,
 ) -> TrustedEvent:
-    return TrustedEvent(
+    trusted = TrustedEvent(
         event_type="message.received",
         content=content,
         source_type=source_type,
@@ -36,6 +38,7 @@ def event(
         ),
         created_at=created_at,
     )
+    return trusted if event_id is None else trusted.model_copy(update={"event_id": event_id})
 
 
 def test_momentum_tracks_recent_back_and_forth_and_agent_unit_count() -> None:
@@ -163,6 +166,40 @@ def test_group_participation_reacts_once_after_threshold_and_cooldown() -> None:
     assert decision.reason_code == "group_auto_participation"
 
 
+def test_group_participation_does_not_interrupt_a_message_addressed_to_another_user() -> None:
+    momentum = ConversationMomentum(
+        phase="user_run",
+        recent_turn_count=5,
+        agent_spoke_last=False,
+        user_turns_since_agent=5,
+        recent_agent_unit_count=0,
+        seconds_since_last_agent=120.0,
+    )
+
+    group_event = event(
+        {"text": "[@user] 你觉得呢", "mentions_agent": False, "mentions_other": True},
+        SourceType.GROUP_MESSAGE,
+    )
+    decision = TurnGate(
+        group_auto_participation=True,
+        group_min_user_turns=1,
+        group_cooldown_seconds=0.0,
+    ).decide(group_event, momentum)
+
+    assert decision.mode == "observe"
+    assert decision.reason_code == "group_addressed_to_other"
+
+    schedule = ReplyNecessityEvaluator().evaluate(
+        group_event,
+        momentum,
+        decision,
+        pending_event_ids=decision.target_event_ids,
+        cooldown_until=None,
+    )
+    assert schedule.action == "suppress"
+    assert schedule.reasons == ["group_addressed_to_other"]
+
+
 def test_group_participation_respects_cooldown() -> None:
     momentum = ConversationMomentum(
         phase="user_run",
@@ -181,6 +218,86 @@ def test_group_participation_respects_cooldown() -> None:
 
     assert decision.mode == "observe"
     assert decision.reason_code == "group_cooldown"
+
+
+def test_group_participation_rate_is_stable_and_bounded() -> None:
+    momentum = ConversationMomentum(
+        phase="user_run",
+        recent_turn_count=5,
+        agent_spoke_last=False,
+        user_turns_since_agent=5,
+        recent_agent_unit_count=0,
+        seconds_since_last_agent=120.0,
+    )
+    gate = TurnGate(
+        group_auto_participation=True,
+        group_participation_rate=0.4,
+        group_min_user_turns=1,
+        group_cooldown_seconds=0.0,
+    )
+
+    selected = gate.decide(
+        event("选中", SourceType.GROUP_MESSAGE, event_id="rate-a"),
+        momentum,
+    )
+    skipped = gate.decide(
+        event("跳过", SourceType.GROUP_MESSAGE, event_id="rate-c"),
+        momentum,
+    )
+
+    assert selected.reason_code == "group_auto_participation"
+    assert skipped.reason_code == "group_rate_skip"
+    assert gate.decide(
+        event("再次选中", SourceType.GROUP_MESSAGE, event_id="rate-a"), momentum
+    ) == selected.model_copy(update={"target_event_ids": ["rate-a"]})
+
+
+def test_group_participation_rate_zero_always_observes() -> None:
+    momentum = ConversationMomentum(
+        phase="user_run",
+        recent_turn_count=1,
+        agent_spoke_last=False,
+        user_turns_since_agent=1,
+        recent_agent_unit_count=0,
+    )
+    decision = TurnGate(
+        group_auto_participation=True,
+        group_participation_rate=0.0,
+        group_min_user_turns=1,
+        group_cooldown_seconds=0.0,
+    ).decide(event("继续", SourceType.GROUP_MESSAGE), momentum)
+
+    assert decision.mode == "observe"
+    assert decision.reason_code == "group_rate_skip"
+
+
+def test_group_participation_rate_is_stable_for_replayed_platform_message() -> None:
+    momentum = ConversationMomentum(
+        phase="user_run",
+        recent_turn_count=1,
+        agent_spoke_last=False,
+        user_turns_since_agent=1,
+        recent_agent_unit_count=0,
+    )
+    gate = TurnGate(
+        group_auto_participation=True,
+        group_participation_rate=0.4,
+        group_min_user_turns=1,
+        group_cooldown_seconds=0.0,
+    )
+    content = {"text": "重复消息", "platform_message_id": 4242}
+
+    first = gate.decide(
+        event(content, SourceType.GROUP_MESSAGE, event_id="first-delivery"),
+        momentum,
+    )
+    replay = gate.decide(
+        event(content, SourceType.GROUP_MESSAGE, event_id="replayed-delivery"),
+        momentum,
+    )
+
+    assert replay.mode == first.mode
+    assert replay.reason_code == first.reason_code
 
 
 def test_suspected_group_instruction_is_observed_even_when_mentioned() -> None:

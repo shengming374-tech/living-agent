@@ -30,6 +30,12 @@
 | `src/maisaka/memory/mid_term.py` | 紧凑摘要和召回线索 |
 | `src/maisaka/memory/heuristic_injector.py` | 带范围、有限频率的记忆召回 |
 | `src/services/memory_flow_service.py` | 人物事实回写的证据选择 |
+| `src/chat/image_system/image_manager.py` | 图片描述、识别结果复用和失败降级的机制研究 |
+| `src/chat/message_receive/message.py`、`image_receive_compressor.py` | 入站图片数量与大小边界的机制研究 |
+| `src/maisaka/visual/mode_utils.py`、`message_limiter.py` | 直接多模态与文本观察模式选择、上下文图片上限 |
+| `src/maisaka/visual/chat_history_refresher.py` | 迟到识别结果刷新占位的机制研究 |
+| `src/maisaka/reasoning_engine.py` | 文本规划前的有界识图等待与降级 |
+| `src/config/official_configs.py`、`src/config/model_configs.py` | 视觉任务分离和模式配置概念；未复制字段或实现 |
 | `src/core/tooling.py` | 类型化工具规格、调用与结果 |
 | `src/plugin_runtime/protocol/envelope.py` | 类型化 RPC 信封概念 |
 | `src/plugin_runtime/host/rpc_server.py` | 宿主强制 RPC 超时 |
@@ -39,6 +45,8 @@
 ## 借用声明
 
 LivingAgent 没有复制 MaiBot 的 Python/JavaScript 源代码、模式、运行时名称或目录结构，也没有逐行翻译任何代码。LivingAgent 运行时仍是在自身类型化合同和测试之上从零实现的独立项目。
+
+0.2.0 图片处理只借鉴视觉识别与回复分层、显式模式选择、结果复用和成本上限这些抽象机制。`auto/caption/direct` 路由、结构化视觉观察模式、内容摘要缓存、来源/污染传播、错误码和测试均为 LivingAgent 独立设计；没有复制 MaiBot 视觉 Prompt、数据库模式、后台任务、占位刷新器或控制流程。
 
 所有者于 2026-07-21 明确授权直接复用 Prompt。以下中文自然语言 Prompt 摘录已复制到 `prompts/social/reply.txt`：
 

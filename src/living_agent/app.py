@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
 
+from living_agent import __version__
 from living_agent.api.audit import router as audit_router
 from living_agent.api.capabilities import router as capabilities_router
 from living_agent.api.chat import router as chat_router
@@ -46,7 +47,10 @@ from living_agent.execution.report_contracts import (
 )
 from living_agent.execution.repository import TaskRepository
 from living_agent.execution.service import TaskService
+from living_agent.interaction.impressions import AttentionCueService, SessionImpressionService
 from living_agent.interaction.repository import UtteranceRepository
+from living_agent.interaction.scheduler import ReplyNecessityEvaluator
+from living_agent.interaction.social_state import SocialStateRepository
 from living_agent.interaction.turn_gate import TurnGate
 from living_agent.interaction.utterance import UtteranceCoordinator
 from living_agent.life.repository import LifeRepository
@@ -61,6 +65,7 @@ from living_agent.memory.extractor import MemoryCandidateExtractor
 from living_agent.memory.firewall import MemoryFirewall
 from living_agent.memory.recall import MemoryRecallService
 from living_agent.memory.repository import MemoryRepository
+from living_agent.memory.self_candidates import SelfMemoryCandidateGenerator
 from living_agent.memory.service import MemoryService
 from living_agent.persona.manager import PersonaManager
 from living_agent.platforms.napcat.adapter import NapCatAdapter
@@ -100,7 +105,7 @@ from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
 from living_agent.runtime.runtime import AgentRuntime
 from living_agent.storage.database import Database
-from living_agent.storage.events import EventRepository
+from living_agent.storage.events import EventRepository, EventStorageQuotaError
 from living_agent.storage.migrations import run_migrations
 from living_agent.trust.authority import AuthorityResolver
 from living_agent.trust.boundary import TrustBoundary
@@ -200,12 +205,17 @@ def create_app(
         max_input_chars=resolved_settings.embedding_max_input_chars,
         max_total_chars=resolved_settings.embedding_max_total_chars,
     )
+    event_repository = EventRepository(
+        database.sessions,
+        max_conversation_storage_bytes=(resolved_settings.event_conversation_storage_limit_bytes),
+        max_total_storage_bytes=resolved_settings.event_total_storage_limit_bytes,
+    )
     memory_repository = MemoryRepository(database.sessions)
     memory_embedding_index = MemoryEmbeddingIndex(
         repository=MemoryEmbeddingRepository(database.sessions),
         memories=memory_repository,
         embeddings=embedding_service,
-        events=EventRepository(database.sessions),
+        events=event_repository,
         audit=audit,
         enabled=resolved_settings.memory_embeddings_enabled,
         allow_remote=resolved_settings.memory_embeddings_allow_remote,
@@ -214,19 +224,24 @@ def create_app(
     )
     memory_service = MemoryService(
         repository=memory_repository,
-        events=EventRepository(database.sessions),
+        events=event_repository,
         firewall=MemoryFirewall(),
         recall=MemoryRecallService(),
         embedding_index=memory_embedding_index,
         extractor=MemoryCandidateExtractor(
             enabled=resolved_settings.memory_auto_candidates_enabled
         ),
+        self_candidate_generator=SelfMemoryCandidateGenerator(
+            enabled=resolved_settings.memory_self_candidates_enabled,
+            rate=resolved_settings.memory_self_candidate_rate,
+        ),
+        auto_approval_enabled=resolved_settings.memory_auto_approval_enabled,
         recall_candidate_limit=resolved_settings.memory_recall_candidate_limit,
         audit=audit,
     )
     psyche_service = PsycheService(
         repository=PsycheRepository(database.sessions),
-        events=EventRepository(database.sessions),
+        events=event_repository,
         audit=audit,
         decay_half_life_hours=resolved_settings.psyche_decay_half_life_hours,
     )
@@ -298,11 +313,19 @@ def create_app(
             base_url=model_base_url,
             api_key=resolved_settings.model_api_key,
             model=resolved_settings.model_name,
+            vision_model=resolved_settings.model_vision_name,
+            image_mode=resolved_settings.model_image_mode,
+            image_description_cache_entries=(
+                resolved_settings.model_image_description_cache_entries
+            ),
+            image_description_max_chars=resolved_settings.model_image_description_max_chars,
+            allowed_image_hosts=resolved_settings.model_image_allowed_hosts,
             timeout_seconds=resolved_settings.model_timeout_seconds,
             max_output_tokens=resolved_settings.model_max_output_tokens,
             temperature=resolved_settings.model_temperature,
             max_context_chars=resolved_settings.model_max_context_chars,
             max_response_bytes=resolved_settings.model_max_response_bytes,
+            allow_insecure_image_urls=resolved_settings.model_allow_insecure_image_urls,
         )
     plugin_process = PluginProcess(
         timeout_seconds=resolved_settings.plugin_timeout_seconds,
@@ -344,6 +367,7 @@ def create_app(
         token=resolved_settings.management_api_token,
     )
     context_compiler = ContextCompiler()
+    social_state_repository = SocialStateRepository(database.sessions)
     utterance_coordinator = UtteranceCoordinator(
         audit=audit,
         repository=UtteranceRepository(database.sessions),
@@ -351,7 +375,7 @@ def create_app(
     )
     runtime = AgentRuntime(
         boundary=trust_boundary,
-        events=EventRepository(database.sessions),
+        events=event_repository,
         audit=audit,
         event_bus=EventBus(),
         social=SocialCognition(
@@ -359,11 +383,13 @@ def create_app(
                 engage_units_min=resolved_settings.social_engage_units_min,
                 engage_units_max=resolved_settings.social_engage_units_max,
                 group_auto_participation=resolved_settings.social_group_auto_participation,
+                group_participation_rate=(resolved_settings.social_group_participation_rate),
                 group_min_user_turns=resolved_settings.social_group_min_user_turns,
                 group_cooldown_seconds=resolved_settings.social_group_cooldown_seconds,
             ),
             followup_delay_min_ms=resolved_settings.social_followup_delay_min_ms,
             followup_delay_max_ms=resolved_settings.social_followup_delay_max_ms,
+            avoid_full_stops=resolved_settings.social_avoid_full_stops,
         ),
         executive=ExecutiveCognition(),
         tasks=task_service,
@@ -375,6 +401,22 @@ def create_app(
         memories=memory_service,
         users=user_service,
         utterances=utterance_coordinator,
+        reply_necessity=ReplyNecessityEvaluator(),
+        social_state=social_state_repository,
+        impressions=SessionImpressionService(
+            repository=social_state_repository,
+            llm=resolved_llm_provider,
+            audit=audit,
+            min_events=resolved_settings.social_mid_term_min_events,
+            ttl_hours=resolved_settings.social_mid_term_ttl_hours,
+        ),
+        attention=AttentionCueService(
+            repository=social_state_repository,
+            ttl_minutes=resolved_settings.social_attention_cue_ttl_minutes,
+        ),
+        social_scheduler_enabled=resolved_settings.social_scheduler_enabled,
+        social_focus_idle_exit_cycles=resolved_settings.social_focus_idle_exit_cycles,
+        social_cooldown_seconds=resolved_settings.social_group_cooldown_seconds,
     )
     napcat_adapter = NapCatAdapter(
         enabled=resolved_settings.napcat_enabled,
@@ -441,7 +483,41 @@ def create_app(
                     finally:
                         await database.dispose()
 
-    app = FastAPI(title=resolved_settings.app_name, version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title=resolved_settings.app_name, version=__version__, lifespan=lifespan)
+
+    @app.exception_handler(EventStorageQuotaError)
+    async def event_storage_quota_exceeded(
+        _request: Request,
+        _exc: EventStorageQuotaError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=413,
+            content={"detail": "conversation_event_storage_quota_exceeded"},
+        )
+
+    @app.middleware("http")
+    async def limit_chat_request_size(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        if request.url.path == "/v1/chat":
+            raw_length = request.headers.get("content-length")
+            try:
+                content_length = int(raw_length) if raw_length is not None else None
+            except ValueError:
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "invalid_content_length"},
+                )
+            if (
+                content_length is not None
+                and content_length > resolved_settings.ingress_max_request_bytes
+            ):
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": "request_body_too_large"},
+                )
+        return await call_next(request)
 
     @app.middleware("http")
     async def authenticate_management_request(
@@ -479,6 +555,7 @@ def create_app(
     app.state.audit = audit
     app.state.runtime = runtime
     app.state.utterance_coordinator = utterance_coordinator
+    app.state.social_state_repository = social_state_repository
     app.state.llm_provider = resolved_llm_provider
     app.state.broker = broker
     app.state.plugin_registry = plugin_registry

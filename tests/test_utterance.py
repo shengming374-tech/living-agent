@@ -52,11 +52,20 @@ def test_engage_preserves_two_or_three_semantic_lines_as_short_units() -> None:
 
 def test_verified_task_result_uses_task_speech_function() -> None:
     session = SocialCognition(TurnGate()).plan_utterance(
-        "I checked it: 1 + 1 = 2.",
+        "我核对过了\uff1a1 + 1 = 2",
         decision("act", 1, 1),
     )
 
     assert session.units[0].function == "task_result"
+
+
+def test_configured_style_removes_sentence_full_stops_but_preserves_decimals() -> None:
+    session = SocialCognition(TurnGate(), avoid_full_stops=True).plan_utterance(
+        "完成了。版本是 0.2.0. 下一步继续!",
+        decision("engage", 2, 3),
+    )
+
+    assert [unit.text for unit in session.units] == ["完成了", "版本是 0.2.0 下一步继续!"]
 
 
 def test_followup_delay_is_configurable_and_validated() -> None:
@@ -128,9 +137,7 @@ async def test_new_turn_cancels_wait_and_replans_remaining_units(
     assert await coordinator.wait_until_ready(old_turn, old_result, unit_index=0)
     assert await coordinator.mark_started(old_turn, old_result, unit_index=0)
 
-    waiting = asyncio.create_task(
-        coordinator.wait_until_ready(old_turn, old_result, unit_index=1)
-    )
+    waiting = asyncio.create_task(coordinator.wait_until_ready(old_turn, old_result, unit_index=1))
     await asyncio.sleep(0)
     new_turn = await coordinator.begin_turn("conversation-1", platform="test")
 

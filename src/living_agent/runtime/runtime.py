@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+from datetime import datetime
 from typing import Any
 
 from living_agent.audit.service import AuditService
@@ -13,15 +15,18 @@ from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAc
 from living_agent.evaluation.simulator import BehaviorSimulation, SimulatedTaskStep
 from living_agent.execution.repository import TaskNotFoundError, TaskStateError
 from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
+from living_agent.interaction.impressions import AttentionCueService, SessionImpressionService
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.interaction.repository import (
     DeliveryDisposition,
     DeliveryResult,
     StoredUtterance,
 )
+from living_agent.interaction.scheduler import ReplyNecessityEvaluator
+from living_agent.interaction.social_state import SocialStateRepository
 from living_agent.interaction.utterance import UtteranceCoordinator, UtteranceTurn
 from living_agent.memory.service import MemoryService
-from living_agent.models.conversation import ChatResult
+from living_agent.models.conversation import ChatResult, TurnDecision, TurnScheduleDecision
 from living_agent.models.events import IngressEnvelope, SourceType, TrustedEvent
 from living_agent.providers.llm import LLMProvider, LLMProviderError
 from living_agent.psyche.service import PsycheService
@@ -51,6 +56,13 @@ class AgentRuntime:
         memories: MemoryService,
         users: UserService,
         utterances: UtteranceCoordinator,
+        reply_necessity: ReplyNecessityEvaluator,
+        social_state: SocialStateRepository,
+        impressions: SessionImpressionService,
+        attention: AttentionCueService,
+        social_scheduler_enabled: bool,
+        social_focus_idle_exit_cycles: int,
+        social_cooldown_seconds: float,
     ) -> None:
         self._boundary = boundary
         self._events = events
@@ -67,6 +79,14 @@ class AgentRuntime:
         self._memories = memories
         self._users = users
         self._utterances = utterances
+        self._reply_necessity = reply_necessity
+        self._social_state = social_state
+        self._impressions = impressions
+        self._attention = attention
+        self._social_scheduler_enabled = social_scheduler_enabled
+        self._social_focus_idle_exit_cycles = social_focus_idle_exit_cycles
+        self._social_cooldown_seconds = social_cooldown_seconds
+        self._social_schedule_lock = asyncio.Lock()
 
     @property
     def root_policy_checksum(self) -> str:
@@ -92,10 +112,31 @@ class AgentRuntime:
         conversation_id: str | None,
         *,
         platform: str,
+        replace_active: bool = True,
     ) -> UtteranceTurn | None:
         if conversation_id is None:
             return None
-        return await self._utterances.begin_turn(conversation_id, platform=platform)
+        return await self._utterances.begin_turn(
+            conversation_id,
+            platform=platform,
+            replace_active=replace_active,
+        )
+
+    async def handle_platform_chat(
+        self,
+        envelope: IngressEnvelope,
+        *,
+        platform: str,
+    ) -> tuple[ChatResult, UtteranceTurn | None]:
+        """Handle ingress and create a visible-speech turn only after scheduling."""
+
+        holder: list[UtteranceTurn] = []
+        result = await self._handle_chat(
+            envelope,
+            planning_platform=platform,
+            planning_holder=holder,
+        )
+        return result, holder[0] if holder else None
 
     async def activate_utterance(
         self,
@@ -165,12 +206,34 @@ class AgentRuntime:
             conversation_events,
             now=event.created_at,
         )
-        turn = self._social.decide_turn(event, momentum)
+        preliminary_turn = self._social.decide_turn(event, momentum)
+        state = (
+            await self._social_state.get(event.conversation_id)
+            if event.conversation_id is not None
+            else None
+        )
+        pending_event_ids = [
+            *(state.pending_event_ids if state is not None else []),
+            event.event_id,
+        ]
+        schedule = self._schedule(
+            event,
+            momentum,
+            preliminary_turn,
+            pending_event_ids=pending_event_ids,
+            cooldown_until=state.cooldown_until if state is not None else None,
+        )
+        turn = self._reply_necessity.apply(preliminary_turn, schedule)
         confirmation = None
         proposal = None
         if turn.mode != "observe":
             confirmation = self._executive.confirmation(event)
             proposal = self._executive.propose(event) if confirmation is None else None
+        preview_impression = (
+            await self._social_state.latest_impression(event.conversation_id, now=event.created_at)
+            if event.conversation_id is not None
+            else None
+        )
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
@@ -180,6 +243,11 @@ class AgentRuntime:
             ),
             conversation_history=self._conversation_history(conversation_events[-8:]),
             interaction_plan=turn.model_dump(mode="json"),
+            session_impression=(
+                preview_impression.model_dump(mode="json")
+                if preview_impression is not None
+                else None
+            ),
         )
         task_steps = []
         if proposal is not None:
@@ -197,16 +265,30 @@ class AgentRuntime:
             event=event,
             turn=turn,
             momentum=momentum,
+            schedule=schedule,
             context_sections=[section.kind.value for section in context.sections],
             task_goal=proposal.task.goal if proposal is not None else None,
             task_steps=task_steps,
-            would_call_model=(
-                turn.mode != "observe" and proposal is None and confirmation is None
-            ),
+            would_call_model=(turn.mode != "observe" and proposal is None and confirmation is None),
             would_execute_tools=proposal is not None,
         )
 
-    async def handle_chat(self, envelope: IngressEnvelope) -> ChatResult:
+    async def handle_chat(
+        self,
+        envelope: IngressEnvelope,
+        *,
+        planning_turn: UtteranceTurn | None = None,
+    ) -> ChatResult:
+        return await self._handle_chat(envelope, planning_turn=planning_turn)
+
+    async def _handle_chat(
+        self,
+        envelope: IngressEnvelope,
+        *,
+        planning_turn: UtteranceTurn | None = None,
+        planning_platform: str | None = None,
+        planning_holder: list[UtteranceTurn] | None = None,
+    ) -> ChatResult:
         event = self._boundary.normalize(envelope)
         await self._events.add(event)
         await self._users.observe(envelope, event)
@@ -239,7 +321,64 @@ class AgentRuntime:
             conversation_events,
             now=event.created_at,
         )
-        turn = self._social.decide_turn(event, momentum)
+        async with self._social_schedule_lock:
+            preliminary_turn = self._social.decide_turn(event, momentum)
+            social_state = await self._social_state.observe(event)
+            schedule = self._schedule(
+                event,
+                momentum,
+                preliminary_turn,
+                pending_event_ids=(
+                    social_state.pending_event_ids
+                    if social_state is not None
+                    else [event.event_id]
+                ),
+                cooldown_until=(
+                    social_state.cooldown_until if social_state is not None else None
+                ),
+            )
+            turn = self._reply_necessity.apply(preliminary_turn, schedule)
+            if turn.mode != "observe" and planning_turn is None and planning_platform is not None:
+                is_auto_group_turn = (
+                    event.source_type is SourceType.GROUP_MESSAGE
+                    and turn.reason_code == "group_auto_participation"
+                )
+                planning_turn = await self.begin_utterance_turn(
+                    event.conversation_id,
+                    platform=planning_platform,
+                    replace_active=not is_auto_group_turn,
+                )
+                if planning_turn is None:
+                    schedule = schedule.model_copy(
+                        update={
+                            "action": "suppress",
+                            "score": 0.1,
+                            "reasons": ["utterance_in_flight"],
+                        }
+                    )
+                    turn = self._reply_necessity.apply(preliminary_turn, schedule)
+                elif planning_holder is not None:
+                    planning_holder.append(planning_turn)
+            if social_state is not None and event.conversation_id is not None:
+                await self._social_state.resolve(
+                    event.conversation_id,
+                    schedule,
+                    now=event.created_at,
+                    idle_exit_cycles=self._social_focus_idle_exit_cycles,
+                )
+        await self._audit.append(
+            action="turn.scheduled",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome=schedule.action,
+            details={
+                "event_id": event.event_id,
+                "score": schedule.score,
+                "reasons": schedule.reasons,
+                "pending_event_ids": schedule.pending_event_ids,
+                "delay_seconds": schedule.delay_seconds,
+            },
+        )
         await self._audit.append(
             action="turn.decided",
             actor_id="living-agent",
@@ -250,7 +389,13 @@ class AgentRuntime:
         await self._psyche.appraise(event, turn)
         psyche_state = await self._psyche.state()
         if turn.mode == "observe":
-            return ChatResult(event=event, turn=turn, message=None, messages=[])
+            return ChatResult(
+                event=event,
+                turn=turn,
+                schedule=schedule,
+                message=None,
+                messages=[],
+            )
 
         confirmation = self._executive.confirmation(event)
         if confirmation is not None:
@@ -270,6 +415,7 @@ class AgentRuntime:
             return ChatResult(
                 event=event,
                 turn=turn,
+                schedule=schedule,
                 message=messages[0],
                 messages=messages,
                 utterance=utterance,
@@ -284,18 +430,33 @@ class AgentRuntime:
             return ChatResult(
                 event=event,
                 turn=turn,
+                schedule=schedule,
                 message=messages[0],
                 messages=messages,
                 utterance=utterance,
             )
 
         conversation_history = self._conversation_history(conversation_events[-8:])
+        impression = None
+        attention_cue = None
+        if event.conversation_id is not None:
+            impression = await self._impressions.consider(
+                event.conversation_id,
+                [*conversation_events, event],
+                now=event.created_at,
+            )
+            attention_cue = await self._attention.consider(
+                event,
+                impression,
+                conversation_events,
+            )
         recalled_memories = []
-        if TaintLabel.SUSPECTED_INSTRUCTION.value not in event.taint_labels:
+        recall_query = self._event_text(event).strip()
+        if recall_query and TaintLabel.SUSPECTED_INSTRUCTION.value not in event.taint_labels:
             recalled_memories = await self._memories.recall(
                 actor_id=event.source_identity or "anonymous",
                 conversation_id=event.conversation_id,
-                query=self._event_text(event),
+                query=recall_query,
                 limit=4,
                 source_event_ids=[event.event_id],
                 taint_labels=event.taint_labels,
@@ -320,6 +481,12 @@ class AgentRuntime:
                 "focus_salience": psyche_state.focus_salience,
                 "current_activity_id": psyche_state.current_activity_id,
             },
+            session_impression=(
+                impression.model_dump(mode="json") if impression is not None else None
+            ),
+            attention_cue=(
+                attention_cue.model_dump(mode="json") if attention_cue is not None else None
+            ),
         )
         try:
             model_response = await self._llm.generate(context)
@@ -338,10 +505,12 @@ class AgentRuntime:
             )
             failure_message = self._social.render_model_failure()
             failure_utterance = self._social.plan_utterance(failure_message, turn)
+            failure_utterance.units[0].function = "model_failure"
             failure_messages = [unit.text for unit in failure_utterance.units]
             return ChatResult(
                 event=event,
                 turn=turn,
+                schedule=schedule,
                 message=failure_messages[0],
                 messages=failure_messages,
                 utterance=failure_utterance,
@@ -358,8 +527,33 @@ class AgentRuntime:
                 "prompt_tokens": model_response.usage.prompt_tokens,
                 "completion_tokens": model_response.usage.completion_tokens,
                 "total_tokens": model_response.usage.total_tokens,
+                "image_count": sum(len(section.images) for section in context.sections),
+                "vision_model": model_response.vision_model,
+                "vision_mode": model_response.vision_mode,
+                "vision_cache_hits": model_response.vision_cache_hits,
+                "vision_prompt_tokens": model_response.vision_usage.prompt_tokens,
+                "vision_completion_tokens": model_response.vision_usage.completion_tokens,
             },
         )
+        if planning_turn is not None and not await self._utterances.turn_is_current(planning_turn):
+            await self._audit.append(
+                action="model.result_discarded",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="stale",
+                details={
+                    "event_id": event.event_id,
+                    "generation": planning_turn.generation,
+                    "reason_code": "superseded_during_planning",
+                },
+            )
+            return ChatResult(
+                event=event,
+                turn=turn,
+                schedule=schedule,
+                message=None,
+                messages=[],
+            )
         claim_evidence = model_response.claim_evidence.model_copy(
             update={
                 "memory_ids": sorted(
@@ -392,6 +586,8 @@ class AgentRuntime:
             model_response.text if continuity.action is CriticAction.APPROVE else message
         )
         utterance = self._social.plan_utterance(utterance_text, turn)
+        if continuity.action is not CriticAction.APPROVE:
+            utterance.units[0].function = "continuity_block"
         messages = [unit.text for unit in utterance.units]
         await self._audit.append(
             action="response.generated",
@@ -407,6 +603,7 @@ class AgentRuntime:
         return ChatResult(
             event=event,
             turn=turn,
+            schedule=schedule,
             message=messages[0],
             messages=messages,
             utterance=utterance,
@@ -414,6 +611,11 @@ class AgentRuntime:
                 [memory.id for memory in recalled_memories]
                 if continuity.action is CriticAction.APPROVE
                 else []
+            ),
+            attention_cue_id=(
+                attention_cue.cue_id
+                if attention_cue is not None and continuity.action is CriticAction.APPROVE
+                else None
             ),
         )
 
@@ -460,6 +662,14 @@ class AgentRuntime:
                     response_id=response_id,
                     conversation_id=conversation_id,
                 )
+            await self._memories.consider_self_candidate(delivered)
+            if result.attention_cue_id is not None:
+                await self._social_state.mark_cue_used(result.attention_cue_id)
+            await self._social_state.mark_agent_spoke(
+                conversation_id,
+                now=delivered.created_at,
+                cooldown_seconds=self._social_cooldown_seconds,
+            )
         await self._audit.append(
             action="response.delivered",
             actor_id="living-agent",
@@ -505,6 +715,14 @@ class AgentRuntime:
                     response_id=session_id,
                     conversation_id=conversation_id,
                 )
+            await self._memories.consider_self_candidate(delivery.event)
+            if stored.attention_cue_id is not None:
+                await self._social_state.mark_cue_used(stored.attention_cue_id)
+            await self._social_state.mark_agent_spoke(
+                conversation_id,
+                now=delivery.event.created_at,
+                cooldown_seconds=self._social_cooldown_seconds,
+            )
         await self._audit.append(
             action="response.delivered",
             actor_id="living-agent",
@@ -541,6 +759,30 @@ class AgentRuntime:
             event.conversation_id,
             limit=128,
             exclude_event_id=event.event_id,
+        )
+
+    def _schedule(
+        self,
+        event: TrustedEvent,
+        momentum: ConversationMomentum,
+        turn: TurnDecision,
+        *,
+        pending_event_ids: list[str],
+        cooldown_until: datetime | None,
+    ) -> TurnScheduleDecision:
+        if not self._social_scheduler_enabled:
+            return TurnScheduleDecision(
+                action="trigger" if turn.mode != "observe" else "suppress",
+                score=turn.urgency,
+                reasons=["scheduler_disabled"],
+                pending_event_ids=pending_event_ids,
+            )
+        return self._reply_necessity.evaluate(
+            event,
+            momentum,
+            turn,
+            pending_event_ids=pending_event_ids,
+            cooldown_until=cooldown_until,
         )
 
     @staticmethod

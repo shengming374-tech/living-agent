@@ -55,3 +55,26 @@ def test_interruption_and_fixed_unit_pattern_are_detected() -> None:
     assert not report.approved
     assert report.fixed_unit_count_detected
     assert all(not case.approved for case in report.cases)
+
+
+def test_attention_and_schedule_require_grounded_visible_behavior() -> None:
+    evaluator = BiomimeticEvaluator()
+    report = evaluator.evaluate(
+        BehaviorSample(
+            case_id="ungrounded-social-runtime",
+            input_text="继续",
+            response_units=["我突然想到另一件事"],
+            attention_cue_used=True,
+            serious_context=True,
+            schedule_action="wait",
+            planning_superseded=True,
+        )
+    )
+    failed = {finding.rule for finding in report.findings if not finding.passed}
+
+    assert {
+        "attention_drift_has_sources",
+        "serious_context_suppresses_drift",
+        "suppressed_schedule_has_no_output",
+        "superseded_planning_has_no_output",
+    } <= failed

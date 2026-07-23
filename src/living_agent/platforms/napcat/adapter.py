@@ -226,12 +226,12 @@ class NapCatAdapter:
         conversation_id = normalized.envelope.conversation_id
         if conversation_id is None:
             raise ValueError("NapCat messages require a conversation")
-        utterance_turn = await self._runtime.begin_utterance_turn(
-            conversation_id,
+        result, utterance_turn = await self._runtime.handle_platform_chat(
+            normalized.envelope,
             platform="napcat",
         )
-        assert utterance_turn is not None
-        result = await self._runtime.handle_chat(normalized.envelope)
+        if utterance_turn is None:
+            return
         if not await self._runtime.activate_utterance(utterance_turn, result):
             return
         if result.message is None:

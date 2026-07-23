@@ -192,7 +192,7 @@ def test_prior_thought_claim_without_evidence_is_blocked(settings: Settings) -> 
         response = send_message(client, "What was on your mind?")
         audit = client.get("/v1/audit", headers=OWNER_HEADERS).json()
 
-    assert response["message"] == "I don't have a record that supports saying that."
+    assert response["message"] == "我没有足够的记录支持那样说"
     blocked = next(entry for entry in audit if entry["action"] == "continuity.blocked")
     assert blocked["details"]["reason_codes"] == [
         "prior_thought_claim_without_earlier_record"
@@ -227,7 +227,7 @@ def test_fake_and_cross_conversation_thought_evidence_is_blocked(settings: Setti
             conversation_id="chat-b",
         )
 
-    fallback = "I don't have a record that supports saying that."
+    fallback = "我没有足够的记录支持那样说"
     assert fake["message"] == fallback
     assert cross_conversation["message"] == fallback
 
@@ -265,6 +265,6 @@ def test_model_reasoning_text_is_not_persisted(settings: Settings) -> None:
         thoughts = client.get("/v1/psyche/thoughts", headers=OWNER_HEADERS).json()
         audit = client.get("/v1/audit", headers=OWNER_HEADERS).json()
 
-    assert response["message"] == "I don't have a record that supports saying that."
+    assert response["message"] == "我没有足够的记录支持那样说"
     assert sentinel not in repr(thoughts)
     assert sentinel not in repr(audit)

@@ -33,6 +33,7 @@ class StoredUtterance:
     conversation_id: str
     source_event_id: str
     recalled_memory_ids: tuple[str, ...]
+    attention_cue_id: str | None
     started_count: int
     generation: int
     replaced_session_id: str | None
@@ -64,6 +65,7 @@ class UtteranceRepository:
         conversation_id: str,
         source_event_id: str,
         recalled_memory_ids: list[str],
+        attention_cue_id: str | None,
         generation: int,
         replaced_session_id: str | None,
         started_count: int = 0,
@@ -78,6 +80,7 @@ class UtteranceRepository:
             intention=session_schema.intention,
             units=[unit.model_dump(mode="json") for unit in session_schema.units],
             recalled_memory_ids=list(recalled_memory_ids),
+            attention_cue_id=attention_cue_id,
             sent_count=session_schema.sent_count,
             started_count=started_count,
             interruption_policy=session_schema.interruption_policy,
@@ -224,6 +227,7 @@ class UtteranceRepository:
                     "utterance_session_id": record.session_id,
                     "unit_index": unit_index,
                     "delivery_platform": platform,
+                    "speech_function": unit.get("function"),
                 },
                 source_type=SourceType.AGENT_MESSAGE,
                 source_identity="living-agent",
@@ -235,9 +239,7 @@ class UtteranceRepository:
             record.sent_count += 1
             record.started_count = max(record.started_count, record.sent_count)
             if record.state != "cancelled":
-                record.state = (
-                    "completed" if record.sent_count >= len(record.units) else "sending"
-                )
+                record.state = "completed" if record.sent_count >= len(record.units) else "sending"
             record.updated_at = _now()
         return DeliveryResult(
             DeliveryDisposition.RECORDED,
@@ -291,6 +293,7 @@ class UtteranceRepository:
             conversation_id=record.conversation_id,
             source_event_id=record.source_event_id,
             recalled_memory_ids=tuple(record.recalled_memory_ids),
+            attention_cue_id=record.attention_cue_id,
             started_count=record.started_count,
             generation=record.generation,
             replaced_session_id=record.replaced_session_id,

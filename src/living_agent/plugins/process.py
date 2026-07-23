@@ -41,6 +41,10 @@ class PluginInvocationError(PluginProcessError):
     error_code = "plugin_invocation_error"
 
 
+class PluginOutputLimitError(PluginProtocolError):
+    error_code = "plugin_output_limit"
+
+
 class PluginProcess:
     def __init__(
         self,
@@ -95,9 +99,32 @@ class PluginProcess:
             start_new_session=True,
         )
         payload = request.model_dump_json().encode("utf-8") + b"\n"
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            await self._terminate(process)
+            raise PluginProtocolError("plugin process pipes were not created")
+
+        process.stdin.write(payload)
+        await process.stdin.drain()
+        process.stdin.close()
+        await process.stdin.wait_closed()
+        total_output = [0]
+
+        async def read_pipe(stream: asyncio.StreamReader, *, capture: bool) -> bytes:
+            chunks: list[bytes] = []
+            while chunk := await stream.read(64 * 1024):
+                total_output[0] += len(chunk)
+                if total_output[0] > self._max_output_bytes:
+                    raise PluginOutputLimitError("plugin output exceeded the host size limit")
+                if capture:
+                    chunks.append(chunk)
+            return b"".join(chunks)
+
+        stdout_task = asyncio.create_task(read_pipe(process.stdout, capture=True))
+        stderr_task = asyncio.create_task(read_pipe(process.stderr, capture=False))
+        wait_task = asyncio.create_task(process.wait())
         try:
-            stdout, _stderr = await asyncio.wait_for(
-                process.communicate(payload),
+            stdout, _stderr, _returncode = await asyncio.wait_for(
+                asyncio.gather(stdout_task, stderr_task, wait_task),
                 timeout=self._timeout_seconds,
             )
         except TimeoutError as exc:
@@ -106,6 +133,14 @@ class PluginProcess:
         except asyncio.CancelledError:
             await self._terminate(process)
             raise
+        except PluginOutputLimitError:
+            await self._terminate(process)
+            raise
+        finally:
+            for task in (stdout_task, stderr_task, wait_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(stdout_task, stderr_task, wait_task, return_exceptions=True)
 
         if process.returncode != 0:
             raise PluginCrashedError("plugin process exited unexpectedly")

@@ -8,6 +8,7 @@ LivingAgent 在 `/v1/adapters/napcat/ws` 提供宿主持有的 NapCat 平台适�
 - `X-Self-ID` 验证和逐帧 `self_id` 一致性检查。
 - OneBot 11 私聊和群聊 `message` 事件。
 - 数组消息和 CQ 码字符串消息。
+- 将带可访问 `url`、HTTP(S) `file` 或 `base64://` 数据的入站 `image` 段交给视觉模型。
 - 为现有 LivingAgent TurnGate 识别群内 `@bot`。
 - 只有 OneBot 操作响应成功后才逐单元记录投递。
 - 同一会话收到新消息时取消未发送单元。
@@ -34,6 +35,14 @@ export LIVING_AGENT_NAPCAT_MAX_MESSAGE_CHARS=12000
 export LIVING_AGENT_NAPCAT_MAX_FRAME_BYTES=1048576
 export LIVING_AGENT_NAPCAT_MAX_IN_FLIGHT_EVENTS=16
 ```
+
+使用远程视觉模型读取 QQ 图片时，还需要允许 NapCat 当前会返回的图片主机：
+
+```bash
+export LIVING_AGENT_MODEL_IMAGE_ALLOWED_HOSTS='["gchat.qpic.cn","gxh.vip.qq.com","multimedia.nt.qq.com.cn"]'
+```
+
+未列入允许名单的图片不会发送给模型。NapCat 可能在不同消息中使用不同图片主机，因此只允许其中一个会造成部分图片及其短期会话历史无法进入视觉模型。
 
 启用 NapCat 却没有非空令牌时，启动验证失败。
 
@@ -93,7 +102,8 @@ WebSocket 令牌认证 NapCat 适配器连接。`X-Self-ID` 提供机器人命�
 
 - 只支持反向 WebSocket；尚未实现正向 WebSocket、HTTP API 和 HTTP Webhook。
 - 只有私聊/群聊消息事件属于认知输入；通知和请求事件会被忽略并审计。
-- 回复仅支持纯文本。图片、文件、语音、引用回复、反应、群管理和 NapCat 扩展 API 均未开放。
+- 回复仅支持纯文本；入站图片可理解，但图片回复、通用文件、语音、引用回复、反应、群管理和 NapCat 扩展 API 均未开放。
+- 只有 OneBot 图片段携带模型可访问 URL 或 Base64 数据时才能识别；仅有平台内部文件 ID 的图片会保留为占位文本。
 - 没有主动或定时消息 API。
 - OneBot `message_id` 重放去重尚未持久化，上游重放的重复事件可能产生重复回复。
 - 在线 NapCat/QQ 账户属于外部基础设施，不在自动测试环境中。
