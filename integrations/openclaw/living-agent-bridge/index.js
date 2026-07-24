@@ -154,6 +154,11 @@ export function buildBridgeRequest(event, context, config) {
       content,
       timestamp_ms: timestampMs,
       is_group: event?.isGroup === true,
+      mentions_agent:
+        event?.mentionsAgent === true ||
+        event?.wasMentioned === true ||
+        context?.mentionsAgent === true ||
+        context?.wasMentioned === true,
       session_key: sessionKey.slice(0, 500) || null,
       run_id: text(context?.runId).slice(0, 100) || null,
     },
@@ -340,6 +345,7 @@ export function createBeforeDispatchHandler(options = {}) {
           conversation_id: built.payload.conversation_id,
           utterance_session_id: response.utterance_session_id,
           unit_index: unitIndex,
+          is_group: built.payload.is_group,
         },
         config,
       );

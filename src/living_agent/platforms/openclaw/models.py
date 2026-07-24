@@ -35,6 +35,7 @@ class OpenClawBridgeRequest(BaseModel):
     content: str = Field(min_length=1, max_length=100000)
     timestamp_ms: int = Field(ge=0)
     is_group: bool = False
+    mentions_agent: bool = False
     session_key: str | None = Field(default=None, max_length=500)
     run_id: str | None = Field(default=None, max_length=100)
 
@@ -59,6 +60,7 @@ class OpenClawReplyArguments(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     messages: list[ShortReply] = Field(default_factory=list, max_length=3)
     source_message_id: str
+    is_group: bool = False
 
     @field_validator("channel_id", "account_id", "conversation_id", "source_message_id")
     @classmethod
@@ -98,6 +100,7 @@ class OpenClawDeliveryReceipt(BaseModel):
     conversation_id: str
     utterance_session_id: str
     unit_index: int = Field(ge=0, le=2)
+    is_group: bool = False
 
     @field_validator(
         "channel_id",
@@ -132,7 +135,7 @@ def normalize_openclaw_message(request: OpenClawBridgeRequest) -> NormalizedOpen
             event_type="openclaw.channel.message",
             content={
                 "text": request.content,
-                "mentions_agent": not request.is_group,
+                "mentions_agent": request.mentions_agent if request.is_group else True,
                 "platform": request.channel_id,
                 "platform_message_id": request.message_id,
             },
@@ -150,6 +153,7 @@ def normalize_openclaw_message(request: OpenClawBridgeRequest) -> NormalizedOpen
             conversation_id=request.conversation_id,
             message="pending",
             source_message_id=request.message_id,
+            is_group=request.is_group,
         ),
     )
 
@@ -157,7 +161,9 @@ def normalize_openclaw_message(request: OpenClawBridgeRequest) -> NormalizedOpen
 def openclaw_reply_scope_matches(arguments: BaseModel, resource_scope: str) -> bool:
     if not isinstance(arguments, OpenClawReplyArguments):
         return False
+    chat_kind = "group" if arguments.is_group else "direct"
     conversation = (
-        f"openclaw:{arguments.channel_id}:{arguments.account_id}:direct:{arguments.conversation_id}"
+        f"openclaw:{arguments.channel_id}:{arguments.account_id}:"
+        f"{chat_kind}:{arguments.conversation_id}"
     )
     return resource_scope.startswith(f"{conversation}/event:")

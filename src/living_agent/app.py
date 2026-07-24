@@ -75,6 +75,7 @@ from living_agent.platforms.napcat.models import (
     NapCatReplyArguments,
     napcat_reply_scope_matches,
 )
+from living_agent.platforms.napcat.storage import NapCatIngressRepository
 from living_agent.platforms.openclaw.adapter import OpenClawBridgeAdapter
 from living_agent.platforms.openclaw.api import router as openclaw_router
 from living_agent.platforms.openclaw.models import (
@@ -424,6 +425,7 @@ def create_app(
         runtime=runtime,
         broker=broker,
         audit=audit,
+        ingress=NapCatIngressRepository(database.sessions),
         action_timeout_seconds=resolved_settings.napcat_action_timeout_seconds,
         max_message_chars=resolved_settings.napcat_max_message_chars,
         max_frame_bytes=resolved_settings.napcat_max_frame_bytes,

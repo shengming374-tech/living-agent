@@ -49,6 +49,7 @@ def bridge_payload(
     sender_id: str = "wechat-user",
     sender_name: str = "System Owner",
     is_group: bool = False,
+    mentions_agent: bool = False,
 ) -> dict[str, object]:
     return {
         "protocol_version": 1,
@@ -61,6 +62,7 @@ def bridge_payload(
         "content": content,
         "timestamp_ms": 1784540000000,
         "is_group": is_group,
+        "mentions_agent": mentions_agent,
         "session_key": "agent:main:openclaw-weixin:wechat-user",
         "run_id": "run-1",
     }
@@ -410,7 +412,6 @@ def test_reused_message_id_with_different_content_is_conflict(
     [
         ({"channel_id": "telegram"}, "channel_not_allowed"),
         ({"account_id": "other-account"}, "account_not_allowed"),
-        ({"is_group": True}, "group_chat_not_supported"),
     ],
 )
 def test_channel_account_and_chat_type_policy_is_fail_closed(
@@ -436,6 +437,67 @@ def test_channel_account_and_chat_type_policy_is_fail_closed(
         and entry["details"]["reason_code"] == reason_code
         for entry in audit
     )
+
+
+def test_mentioned_openclaw_group_message_replies_and_records_delivery(
+    openclaw_client: TestClient,
+) -> None:
+    response = openclaw_client.post(
+        OPENCLAW_PATH,
+        headers=AUTH_HEADERS,
+        json=bridge_payload(
+            content="Hello group",
+            conversation_id="wechat-group",
+            message_id="wechat-group-message-1",
+            is_group=True,
+            mentions_agent=True,
+        ),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["turn"]["mode"] == "react"
+    assert body["message"] == "Hello. What is on your mind?"
+    receipt = openclaw_client.post(
+        DELIVERY_PATH,
+        headers=AUTH_HEADERS,
+        json={
+            "protocol_version": 1,
+            "channel_id": "openclaw-weixin",
+            "account_id": "wechat-account",
+            "conversation_id": "wechat-group",
+            "utterance_session_id": body["utterance_session_id"],
+            "unit_index": 0,
+            "is_group": True,
+        },
+    )
+    assert receipt.status_code == 200
+    assert receipt.json()["reason_code"] == "delivery_recorded"
+
+    audit = audit_entries(openclaw_client)
+    ingested = next(entry for entry in audit if entry["action"] == "event.ingested")
+    assert ingested["conversation_id"] == (
+        "openclaw:openclaw-weixin:wechat-account:group:wechat-group"
+    )
+
+
+def test_unmentioned_openclaw_group_message_is_observed(
+    openclaw_client: TestClient,
+) -> None:
+    response = openclaw_client.post(
+        OPENCLAW_PATH,
+        headers=AUTH_HEADERS,
+        json=bridge_payload(
+            content="Talking to the room",
+            conversation_id="wechat-group",
+            message_id="wechat-group-message-2",
+            is_group=True,
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] is None
+    assert response.json()["turn"]["mode"] == "observe"
 
 
 def test_injected_wechat_message_cannot_authorize_synthetic_reply(

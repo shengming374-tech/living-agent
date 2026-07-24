@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import re
 from typing import Any
@@ -31,6 +32,10 @@ from living_agent.platforms.napcat.models import (
     normalize_message,
     onebot_reply_action,
 )
+from living_agent.platforms.napcat.storage import (
+    NapCatIngressDisposition,
+    NapCatIngressRepository,
+)
 from living_agent.runtime.runtime import AgentRuntime
 
 _SELF_ID_PATTERN = re.compile(r"^[0-9]{1,32}$")
@@ -50,6 +55,7 @@ class NapCatAdapter:
         runtime: AgentRuntime,
         broker: CapabilityBroker,
         audit: AuditService,
+        ingress: NapCatIngressRepository,
         action_timeout_seconds: float,
         max_message_chars: int,
         max_frame_bytes: int,
@@ -60,6 +66,7 @@ class NapCatAdapter:
         self._runtime = runtime
         self._broker = broker
         self._audit = audit
+        self._ingress = ingress
         self._action_timeout_seconds = action_timeout_seconds
         self._max_message_chars = max_message_chars
         self._max_frame_bytes = max_frame_bytes
@@ -211,13 +218,54 @@ class NapCatAdapter:
                 details={"reason_code": "self_message"},
             )
             return
+        key = (message_event.self_id, message_event.message_id)
+        fingerprint = hashlib.sha256(
+            message_event.model_dump_json().encode("utf-8")
+        ).hexdigest()
+        claim = await self._ingress.claim(key, fingerprint=fingerprint)
+        if claim.disposition is not NapCatIngressDisposition.NEW:
+            outcomes = {
+                NapCatIngressDisposition.REPLAY: ("ignored", "idempotent_replay"),
+                NapCatIngressDisposition.CONFLICT: ("rejected", "message_id_conflict"),
+                NapCatIngressDisposition.INCOMPLETE: (
+                    "ignored",
+                    "incomplete_prior_invocation",
+                ),
+            }
+            outcome, reason_code = outcomes[claim.disposition]
+            await self._audit.append(
+                action="napcat.ingress",
+                actor_id=f"napcat:{self_id}",
+                outcome=outcome,
+                details={
+                    "reason_code": reason_code,
+                    "message_id": message_event.message_id,
+                },
+            )
+            return
+        try:
+            await self._handle_message_once(message_event, connection)
+        except BaseException as exc:
+            await self._ingress.fail(
+                key,
+                fingerprint=fingerprint,
+                failure_code=type(exc).__name__,
+            )
+            raise
+        await self._ingress.complete(key, fingerprint=fingerprint)
+
+    async def _handle_message_once(
+        self,
+        message_event: OneBotMessageEvent,
+        connection: NapCatConnection,
+    ) -> None:
         normalized = normalize_message(message_event)
         content = normalized.envelope.content
         text = content.get("text") if isinstance(content, dict) else None
         if not isinstance(text, str) or len(text) > self._max_message_chars:
             await self._audit.append(
                 action="napcat.frame",
-                actor_id=f"napcat:{self_id}",
+                actor_id=f"napcat:{message_event.self_id}",
                 outcome="rejected",
                 details={"reason_code": "message_too_large_or_invalid"},
             )

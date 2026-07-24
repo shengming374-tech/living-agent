@@ -259,6 +259,112 @@ def test_private_message_round_trip_uses_broker_and_plain_text_segment(
     )
 
 
+def test_napcat_message_replay_and_id_conflict_are_suppressed(
+    napcat_client: TestClient,
+) -> None:
+    original = private_event("Hello", message_id=8101)
+    with napcat_client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+        websocket.send_json(original)
+        action = websocket.receive_json()
+        websocket.send_json(action_success(action))
+        wait_for_audit(
+            napcat_client,
+            lambda entry: (
+                entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
+            ),
+        )
+
+        websocket.send_json(original)
+        wait_for_audit(
+            napcat_client,
+            lambda entry: (
+                entry["action"] == "napcat.ingress"
+                and entry["details"]["reason_code"]
+                in {"idempotent_replay", "incomplete_prior_invocation"}
+            ),
+        )
+        websocket.send_json(private_event("Different content", message_id=8101))
+        wait_for_audit(
+            napcat_client,
+            lambda entry: (
+                entry["action"] == "napcat.ingress"
+                and entry["outcome"] == "rejected"
+                and entry["details"]["reason_code"] == "message_id_conflict"
+            ),
+        )
+        close_websocket(websocket, napcat_client)
+
+    assert sum(
+        entry["action"] == "event.ingested" for entry in audit_entries(napcat_client)
+    ) == 1
+
+
+def test_napcat_concurrent_replay_is_suppressed_while_original_is_in_flight(
+    napcat_client: TestClient,
+) -> None:
+    original = private_event("Hello", message_id=8102)
+    with napcat_client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+        websocket.send_json(original)
+        action = websocket.receive_json()
+        websocket.send_json(original)
+        wait_for_audit(
+            napcat_client,
+            lambda entry: (
+                entry["action"] == "napcat.ingress"
+                and entry["details"]["reason_code"] == "incomplete_prior_invocation"
+            ),
+        )
+        websocket.send_json(action_success(action))
+        wait_for_audit(
+            napcat_client,
+            lambda entry: (
+                entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
+            ),
+        )
+        close_websocket(websocket, napcat_client)
+
+    assert sum(
+        entry["action"] == "event.ingested" for entry in audit_entries(napcat_client)
+    ) == 1
+
+
+def test_napcat_message_replay_remains_suppressed_after_restart(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.napcat_enabled = True
+    configured.napcat_access_token = SecretStr(NAPCAT_TOKEN)
+    original = private_event("Hello", message_id=8103)
+
+    with TestClient(create_app(configured)) as first_client:
+        with first_client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(original)
+            action = websocket.receive_json()
+            websocket.send_json(action_success(action))
+            wait_for_audit(
+                first_client,
+                lambda entry: (
+                    entry["action"] == "napcat.outbound" and entry["outcome"] == "success"
+                ),
+            )
+            close_websocket(websocket, first_client)
+
+    with TestClient(create_app(configured)) as second_client:
+        with second_client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(original)
+            wait_for_audit(
+                second_client,
+                lambda entry: (
+                    entry["action"] == "napcat.ingress"
+                    and entry["details"]["reason_code"] == "idempotent_replay"
+                ),
+            )
+            close_websocket(websocket, second_client)
+        assert sum(
+            entry["action"] == "event.ingested" for entry in audit_entries(second_client)
+        ) == 1
+
+
 def test_private_image_message_reaches_multimodal_context(settings: Settings) -> None:
     configured = settings.model_copy(deep=True)
     configured.napcat_enabled = True

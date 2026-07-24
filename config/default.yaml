@@ -35,8 +35,8 @@ embedding_max_input_chars: 12000
 embedding_max_total_chars: 48000
 embedding_max_response_bytes: 4194304
 embedding_allow_insecure_http: false
-memory_auto_candidates_enabled: false
-memory_auto_approval_enabled: false
+memory_auto_candidates_enabled: true
+memory_auto_approval_enabled: true
 memory_self_candidates_enabled: false
 memory_self_candidate_rate: 0.05
 memory_embeddings_enabled: false

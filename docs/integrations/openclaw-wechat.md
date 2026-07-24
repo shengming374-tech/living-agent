@@ -17,7 +17,8 @@ OpenClaw 负责微信登录、轮询和最终消息投递。它不是人格前�
 
 ## 已支持的垂直切片
 
-- 配置的 `openclaw-weixin` 账户收到的私聊文本消息。
+- 配置的 `openclaw-weixin` 账户收到的私聊与群聊文本消息。
+- 群聊提及元数据进入既有发言判断；明确提及会触发，未提及消息默认只观察。
 - 桥接两端都使用精确通道和可选账户白名单。
 - 稳定、带平台命名空间的用户和会话身份。
 - 持久化请求指纹去重和消息 ID 冲突检测。
@@ -26,7 +27,7 @@ OpenClaw 负责微信登录、轮询和最终消息投递。它不是人格前�
 - 失败关闭的 OpenClaw 行为：桥接错误记录为有界错误码，不回退到其他 OpenClaw 人格。
 - 需要 `operator.read` 的只读 `livingAgentBridge.status` Gateway RPC。
 
-本切片刻意不实现群聊、附件、富回复和主动发送。
+本切片刻意不实现附件、富回复和主动发送。
 
 ## LivingAgent 配置
 
@@ -103,9 +104,10 @@ OpenClaw 可能要求本地 CLI 设备已配对，或获批 `operator.read` 范�
 ```text
 操作者:  openclaw:<channel>:<account>:user:<sender>
 私聊:    openclaw:<channel>:<account>:direct:<conversation>
+群聊:    openclaw:<channel>:<account>:group:<conversation>
 ```
 
-OpenClaw 2026.6.10 的类型化 `before_dispatch` 合同不保证通道把旧 `From`/`To` 值映射到 `senderId` 和 `conversationId`。私聊中二者都不存在时，桥接会根据认证通道、账户和 OpenClaw Session 键派生稳定不透明 `session-<sha256>` 身份；原始 Session 键和微信 ID 不进入该身份。既没有显式 ID，也没有稳定 Session 键时，消息失败关闭。
+OpenClaw 2026.6.10 的类型化 `before_dispatch` 合同不保证通道把旧 `From`/`To` 值映射到 `senderId` 和 `conversationId`。私聊中二者都不存在时，桥接会根据认证通道、账户和 OpenClaw Session 键派生稳定不透明 `session-<sha256>` 身份；原始 Session 键和微信 ID 不进入该身份。既没有显式 ID，也没有稳定 Session 键时，消息失败关闭。群聊依赖 Hook 提供 `isGroup` 以及 `wasMentioned` 或 `mentionsAgent` 信号；缺失提及信号时按未提及群消息处理，不会扩大回复权限。
 
 共享令牌认证已安装桥接进程，通道和账户白名单限制其范围。`senderId`、`conversationId` 和账户元数据由认证 OpenClaw 通道提供。展示名和消息内容永远不能授予所有者或管理员权限。只有单独验证平台账户后，才能把所有者绑定到完整命名空间操作者 ID。
 
@@ -119,7 +121,7 @@ OpenClaw 插件不注册工具、模型提供方、通道、后台服务或执�
 
 ## 当前限制
 
-- 只接受私聊文本消息；群聊失败关闭。
+- 只接受文本消息；群聊需要通道提供稳定会话和发送者身份，缺失提及元数据时只按未提及消息处理。
 - 首个响应是一个合成文本载荷；附件和平台操作不可用。
 - 入站消息 ID 指纹和终止重放响应已经持久化。先前调用被中断后的重试会失败关闭，不重新进入运行时；发送方可使用新的平台消息 ID 显式重试。
 - 后备消息 ID 是确定性哈希，因为当前 `before_dispatch` 合同没有暴露原生消息 ID。

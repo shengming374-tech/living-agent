@@ -271,6 +271,18 @@ test("message id derivation is deterministic", () => {
   assert.equal(first.payload.message_id, second.payload.message_id);
 });
 
+test("forwards group and mention metadata", () => {
+  const built = buildBridgeRequest(
+    event({ isGroup: true, wasMentioned: true }),
+    context({ conversationId: "wechat-group" }),
+    config(),
+  );
+
+  assert.equal(built.payload.is_group, true);
+  assert.equal(built.payload.mentions_agent, true);
+  assert.equal(built.deliveryTarget, "wechat-group");
+});
+
 test("uses a model-aware bridge timeout with bounded overrides", () => {
   assert.equal(config().timeoutMs, 90000);
   assert.equal(config().followupDelayMs, 450);

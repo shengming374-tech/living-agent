@@ -80,8 +80,8 @@ class Settings(BaseSettings):
     embedding_max_total_chars: int = Field(default=48000, ge=1, le=1000000)
     embedding_max_response_bytes: int = Field(default=4194304, ge=1024, le=67108864)
     embedding_allow_insecure_http: bool = False
-    memory_auto_candidates_enabled: bool = False
-    memory_auto_approval_enabled: bool = False
+    memory_auto_candidates_enabled: bool = True
+    memory_auto_approval_enabled: bool = True
     memory_self_candidates_enabled: bool = False
     memory_self_candidate_rate: float = Field(default=0.05, ge=0.0, le=1.0)
     memory_embeddings_enabled: bool = False

@@ -40,6 +40,7 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         "session_impressions",
         "attention_cues",
         "openclaw_ingress_keys",
+        "napcat_ingress_keys",
         "private_projects",
         "daily_plans",
         "life_activity_logs",
