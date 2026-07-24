@@ -63,29 +63,30 @@ class MemoryService:
         return await self._embedding_index.initialize()
 
     async def observe(self, event: TrustedEvent) -> MemoryCandidate | None:
-        candidate = self._extractor.extract(event)
-        if candidate is None:
-            return None
-        if await self._repository.candidate_exists(candidate.candidate_id):
-            return await self._repository.get_candidate(candidate.candidate_id)
-        created = await self.create_candidate(
-            candidate,
-            proposer_id=event.source_identity or "anonymous",
-        )
-        await self._audit.append(
-            action="memory.candidate_extracted",
-            actor_id="living-agent",
-            conversation_id=event.conversation_id,
-            outcome="pending",
-            details={
-                "candidate_id": created.candidate_id,
-                "source_event_ids": created.source_event_ids,
-                "scope": created.scope,
-            },
-        )
-        if self._auto_approval_enabled:
-            return await self._auto_approve(created)
-        return created
+        observed: list[MemoryCandidate] = []
+        for candidate in self._extractor.extract_all(event):
+            if await self._repository.candidate_exists(candidate.candidate_id):
+                observed.append(await self._repository.get_candidate(candidate.candidate_id))
+                continue
+            created = await self.create_candidate(
+                candidate,
+                proposer_id=event.source_identity or "anonymous",
+            )
+            await self._audit.append(
+                action="memory.candidate_extracted",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="pending",
+                details={
+                    "candidate_id": created.candidate_id,
+                    "source_event_ids": created.source_event_ids,
+                    "scope": created.scope,
+                },
+            )
+            observed.append(
+                await self._auto_approve(created) if self._auto_approval_enabled else created
+            )
+        return observed[0] if observed else None
 
     async def consider_self_candidate(self, event: TrustedEvent) -> MemoryCandidate | None:
         """Create a self-originated candidate without entering automatic approval."""

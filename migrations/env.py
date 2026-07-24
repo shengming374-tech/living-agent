@@ -33,6 +33,7 @@ from living_agent.memory.models import (
     MemoryUsageORM,
     MemoryVersionORM,
 )
+from living_agent.platforms.napcat.storage import NapCatIngressORM
 from living_agent.platforms.openclaw.storage import OpenClawIngressORM
 from living_agent.psyche.models import (
     ActivityRecordORM,
@@ -60,6 +61,7 @@ _ = (
     MemoryNodeORM,
     MemoryUsageORM,
     MemoryVersionORM,
+    NapCatIngressORM,
     OpenClawIngressORM,
     PrivateProjectORM,
     PsycheStateORM,

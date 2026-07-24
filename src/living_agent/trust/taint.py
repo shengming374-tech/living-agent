@@ -24,6 +24,7 @@ _INSTRUCTION_PATTERNS = (
     re.compile(r"\b(?:i\s+am|i'm).{0,20}(?:admin|administrator|owner)\b", re.IGNORECASE),
     re.compile(r"(?:调用|执行|运行).{0,12}(?:工具|命令|插件)"),
     re.compile(r"(?:系统|开发者).{0,8}(?:消息|指令|提示词)"),
+    re.compile(r"(?:忽略|无视).{0,12}(?:之前|此前|以上|前面).{0,8}(?:指令|提示|要求)"),
 )
 
 

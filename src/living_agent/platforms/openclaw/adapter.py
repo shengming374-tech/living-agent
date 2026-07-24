@@ -183,9 +183,10 @@ class OpenClawBridgeAdapter:
                     or receipt.conversation_id != issued.conversation_id
                 ):
                     await self._reject_delivery(receipt, "delivery_scope_mismatch")
+            chat_kind = "group" if receipt.is_group else "direct"
             expected_conversation = (
-                f"openclaw:{receipt.channel_id}:{receipt.account_id}:direct:"
-                f"{receipt.conversation_id}"
+                f"openclaw:{receipt.channel_id}:{receipt.account_id}:"
+                f"{chat_kind}:{receipt.conversation_id}"
             )
             if (
                 stored.platform != "openclaw"
@@ -267,8 +268,6 @@ class OpenClawBridgeAdapter:
             raise OpenClawBridgePolicyError("channel_not_allowed")
         if self._allowed_account_ids and request.account_id not in self._allowed_account_ids:
             raise OpenClawBridgePolicyError("account_not_allowed")
-        if request.is_group:
-            raise OpenClawBridgePolicyError("group_chat_not_supported")
         if len(request.content) > self._max_message_chars:
             raise OpenClawBridgePolicyError("message_too_large")
 

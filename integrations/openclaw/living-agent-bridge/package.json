@@ -1,6 +1,6 @@
 {
   "name": "living-agent-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "面向 LivingAgent、失败即关闭的 OpenClaw 通道桥接。",
