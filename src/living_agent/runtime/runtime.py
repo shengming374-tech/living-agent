@@ -13,8 +13,10 @@ from living_agent.cognition.executive import ExecutiveCognition
 from living_agent.cognition.social import SocialCognition
 from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
 from living_agent.evaluation.simulator import BehaviorSimulation, SimulatedTaskStep
+from living_agent.execution.contracts import TaskRun, TaskRunStatus, TaskStepStatus
 from living_agent.execution.repository import TaskNotFoundError, TaskStateError
 from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
+from living_agent.execution.work_contracts import is_work_write_handler
 from living_agent.interaction.impressions import AttentionCueService, SessionImpressionService
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.interaction.repository import (
@@ -257,7 +259,10 @@ class AgentRuntime:
                     handler=step.action.handler,
                     capability=step.action.capability_request.capability,
                     operation=step.action.capability_request.operation,
-                    requires_confirmation=step.action.handler == "task_report",
+                    requires_confirmation=(
+                        step.action.handler == "task_report"
+                        or is_work_write_handler(step.action.handler)
+                    ),
                 )
                 for step in proposal.plan.steps
             ]
@@ -269,7 +274,25 @@ class AgentRuntime:
             context_sections=[section.kind.value for section in context.sections],
             task_goal=proposal.task.goal if proposal is not None else None,
             task_steps=task_steps,
-            would_call_model=(turn.mode != "observe" and proposal is None and confirmation is None),
+            would_call_model=(
+                turn.mode != "observe"
+                and confirmation is None
+                and (
+                    proposal is None
+                    or any(
+                        step.action.handler
+                        in {
+                            "workspace_read",
+                            "workspace_list",
+                            "workspace_search",
+                            "web_fetch",
+                            "web_search",
+                            "daily_plan_read",
+                        }
+                        for step in proposal.plan.steps
+                    )
+                )
+            ),
             would_execute_tools=proposal is not None,
         )
 
@@ -329,13 +352,9 @@ class AgentRuntime:
                 momentum,
                 preliminary_turn,
                 pending_event_ids=(
-                    social_state.pending_event_ids
-                    if social_state is not None
-                    else [event.event_id]
+                    social_state.pending_event_ids if social_state is not None else [event.event_id]
                 ),
-                cooldown_until=(
-                    social_state.cooldown_until if social_state is not None else None
-                ),
+                cooldown_until=(social_state.cooldown_until if social_state is not None else None),
             )
             turn = self._reply_necessity.apply(preliminary_turn, schedule)
             if turn.mode != "observe" and planning_turn is None and planning_platform is not None:
@@ -424,7 +443,16 @@ class AgentRuntime:
         proposal = self._executive.propose(event)
         if proposal is not None:
             task_run = await self._tasks.submit(proposal)
-            message = self._social.render_task_run(task_run)
+            if self._task_requires_synthesis(task_run):
+                message = await self._synthesize_task_run(
+                    event,
+                    turn,
+                    task_run,
+                    conversation_events=conversation_events,
+                    psyche_state=psyche_state.model_dump(mode="json"),
+                )
+            else:
+                message = self._social.render_task_run(task_run)
             utterance = self._social.plan_utterance(message, turn)
             messages = [unit.text for unit in utterance.units]
             return ChatResult(
@@ -618,6 +646,157 @@ class AgentRuntime:
                 else None
             ),
         )
+
+    @staticmethod
+    def _task_requires_synthesis(run: TaskRun) -> bool:
+        synthesis_handlers = {
+            "workspace_read",
+            "workspace_list",
+            "workspace_search",
+            "web_fetch",
+            "web_search",
+            "daily_plan_read",
+        }
+        return run.status is TaskRunStatus.COMPLETED and any(
+            step.action.handler in synthesis_handlers for step in run.plan.steps
+        )
+
+    async def _synthesize_task_run(
+        self,
+        event: TrustedEvent,
+        turn: TurnDecision,
+        run: TaskRun,
+        *,
+        conversation_events: list[TrustedEvent],
+        psyche_state: dict[str, Any],
+    ) -> str:
+        steps_by_id = {step.step_id: step for step in run.plan.steps}
+        tool_results = []
+        tool_audit_ids = []
+        for result in run.step_results:
+            if result.status is not TaskStepStatus.COMPLETED or result.output is None:
+                continue
+            step = steps_by_id[result.step_id]
+            taint_labels = result.output.get("taint_labels", ["untrusted_tool_result"])
+            tool_results.append(
+                {
+                    "handler": step.action.handler,
+                    "output": result.output,
+                    "source_event_ids": run.source_event_ids,
+                    "taint_labels": taint_labels,
+                }
+            )
+            for evidence in result.evidence:
+                audit_id = evidence.data.get("tool_audit_id")
+                if isinstance(audit_id, str):
+                    tool_audit_ids.append(audit_id)
+        context = self._context_compiler.compile(
+            event,
+            root_policy=self._root_policy,
+            current_task={
+                "task_id": run.task.task_id,
+                "goal": run.task.goal,
+                "status": run.status.value,
+                "steps": [
+                    {
+                        "title": step.title,
+                        "handler": step.action.handler,
+                        "status": next(
+                            result.status.value
+                            for result in run.step_results
+                            if result.step_id == step.step_id
+                        ),
+                    }
+                    for step in run.plan.steps
+                ],
+            },
+            tool_results=tool_results,
+            available_capabilities=run.task.allowed_capabilities,
+            conversation_history=self._conversation_history(conversation_events[-8:]),
+            interaction_plan={
+                "mode": turn.mode,
+                "expected_units_min": turn.expected_units_min,
+                "expected_units_max": turn.expected_units_max,
+                "task_result": True,
+                "format": "plain_text_grounded_in_tool_results",
+            },
+            psyche_state=psyche_state,
+        )
+        try:
+            model_response = await self._llm.generate(context)
+        except LLMProviderError as exc:
+            await self._audit.append(
+                action="model.called",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="failure",
+                details={
+                    "event_id": event.event_id,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                    "error_code": exc.code,
+                    "phase": "task_result_synthesis",
+                },
+            )
+            return self._social.render_task_run(run)
+        await self._audit.append(
+            action="model.called",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome="success",
+            details={
+                "event_id": event.event_id,
+                "provider": model_response.provider,
+                "model": model_response.model,
+                "prompt_tokens": model_response.usage.prompt_tokens,
+                "completion_tokens": model_response.usage.completion_tokens,
+                "total_tokens": model_response.usage.total_tokens,
+                "phase": "task_result_synthesis",
+            },
+        )
+        claim_evidence = model_response.claim_evidence.model_copy(
+            update={
+                "activity_ids": sorted(
+                    set(model_response.claim_evidence.activity_ids)
+                    | ({run.activity_id} if run.activity_id is not None else set())
+                ),
+                "tool_audit_ids": sorted(
+                    set(model_response.claim_evidence.tool_audit_ids) | set(tool_audit_ids)
+                ),
+            }
+        )
+        continuity = await self._continuity_critic.evaluate(
+            model_response.text,
+            claim_evidence,
+            conversation_id=event.conversation_id,
+            actor_id=event.source_identity or "anonymous",
+        )
+        if continuity.action is not CriticAction.APPROVE:
+            await self._audit.append(
+                action="continuity.blocked",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="blocked",
+                details={
+                    "event_id": event.event_id,
+                    "reason_codes": continuity.reason_codes,
+                    "phase": "task_result_synthesis",
+                },
+            )
+            return self._social.render_continuity_block()
+        await self._audit.append(
+            action="response.generated",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome="success",
+            details={
+                "event_id": event.event_id,
+                "provider": model_response.provider,
+                "context_sections": [section.kind.value for section in context.sections],
+                "task_id": run.task.task_id,
+            },
+        )
+        return self._social.render_model_text(model_response.text)
 
     async def record_delivery(
         self,

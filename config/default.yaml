@@ -54,6 +54,13 @@ plugin_sandbox_mode: auto
 persona_root: personas/default
 prompt_root: prompts
 root_prompt_second_factor_sha256: null
+work_workspace_root: .
+work_max_file_bytes: 1048576
+work_web_search_endpoint: https://html.duckduckgo.com/html/
+work_web_allowed_hosts: []
+work_web_allow_insecure_http: false
+work_web_timeout_seconds: 15.0
+work_web_max_response_bytes: 1048576
 psyche_decay_half_life_hours: 12.0
 social_engage_units_min: 2
 social_engage_units_max: 3

@@ -106,7 +106,19 @@ class TaskStepStatus(StrEnum):
 class PlannedAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    handler: Literal["calculator", "task_report"]
+    handler: Literal[
+        "calculator",
+        "task_report",
+        "workspace_read",
+        "workspace_list",
+        "workspace_search",
+        "workspace_write",
+        "web_fetch",
+        "web_search",
+        "daily_plan_read",
+        "daily_plan_write",
+        "daily_plan_update",
+    ]
     capability_request: CapabilityRequest
     plugin_id: str | None = None
     plugin_operation: str | None = None
@@ -116,8 +128,8 @@ class PlannedAction(BaseModel):
         plugin_fields = (self.plugin_id, self.plugin_operation)
         if self.handler == "calculator" and any(value is None for value in plugin_fields):
             raise ValueError("calculator actions require plugin metadata")
-        if self.handler == "task_report" and any(value is not None for value in plugin_fields):
-            raise ValueError("host task-report actions cannot declare plugin metadata")
+        if self.handler != "calculator" and any(value is not None for value in plugin_fields):
+            raise ValueError("host actions cannot declare plugin metadata")
         return self
 
 

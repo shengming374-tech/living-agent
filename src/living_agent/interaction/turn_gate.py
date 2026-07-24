@@ -89,6 +89,8 @@ class TurnGate:
             return self._decision(event, "react", 0.65, 1, 1, "image_message")
         executive_reason = executive_reason_code(content)
         if executive_reason is not None:
+            if executive_reason in {"work_task", "daily_plan_task"}:
+                return self._decision(event, "act", 0.8, 1, 3, executive_reason)
             return self._decision(event, "act", 0.8, 1, 1, executive_reason)
         normalized = text.strip()
         plain = normalized.rstrip(self._trailing_punctuation)

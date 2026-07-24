@@ -86,6 +86,7 @@ class ContextCompiler:
         *,
         root_policy: str,
         current_task: dict[str, Any] | None = None,
+        tool_results: list[dict[str, Any]] | None = None,
         retrieved_memories: list[dict[str, Any]] | None = None,
         available_capabilities: list[str] | None = None,
         psyche_state: dict[str, Any] | None = None,
@@ -196,6 +197,22 @@ class ContextCompiler:
                     content=self._serialize(current_task),
                     source_event_ids=[event.event_id],
                     taint_labels=set(event.taint_labels),
+                )
+            )
+        for result in tool_results or []:
+            source_event_ids = [str(item) for item in result.get("source_event_ids", [])]
+            supplied_taint = result.get("taint_labels", [])
+            taint_labels = (
+                {str(item) for item in supplied_taint}
+                if isinstance(supplied_taint, list)
+                else set()
+            )
+            sections.append(
+                ContextSection(
+                    kind=ContextKind.UNTRUSTED_TOOL_RESULT,
+                    content=self._serialize(result),
+                    source_event_ids=source_event_ids or [event.event_id],
+                    taint_labels=taint_labels | {"untrusted_tool_result"},
                 )
             )
         sections.append(

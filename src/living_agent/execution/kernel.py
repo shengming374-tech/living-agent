@@ -9,6 +9,7 @@ from living_agent.audit.service import AuditService
 from living_agent.evaluation.task_verifier import TaskPlanVerifier
 from living_agent.execution.contracts import (
     ExecutiveProposal,
+    PlannedAction,
     TaskPlanProposal,
     TaskRun,
     TaskRunStatus,
@@ -18,12 +19,24 @@ from living_agent.execution.contracts import (
 )
 from living_agent.execution.report import TaskReportExecutor
 from living_agent.execution.repository import TaskRepository, TaskStateError
+from living_agent.execution.work_contracts import is_work_handler, is_work_write_handler
+from living_agent.models.tasks import TaskContract
 
 _RETRYABLE_ERRORS = frozenset({"plugin_timeout", "plugin_crashed", "plugin_protocol_error"})
 
 
 class CalculatorExecutor(Protocol):
     async def execute(self, proposal: ExecutiveProposal) -> VerifiedTaskResult: ...
+
+
+class WorkExecutor(Protocol):
+    async def execute(
+        self,
+        *,
+        task: TaskContract,
+        action: PlannedAction,
+        confirmed_by: str | None,
+    ) -> TaskStepResult: ...
 
 
 class TaskPlanValidationError(ValueError):
@@ -39,12 +52,14 @@ class TaskKernel:
         reports: TaskReportExecutor,
         verifier: TaskPlanVerifier,
         audit: AuditService,
+        work: WorkExecutor | None = None,
     ) -> None:
         self._repository = repository
         self._calculator = calculator
         self._reports = reports
         self._verifier = verifier
         self._audit = audit
+        self._work = work
         self._run_lock = asyncio.Lock()
 
     async def submit(
@@ -109,7 +124,9 @@ class TaskKernel:
                 if result.status is not TaskStepStatus.RUNNING:
                     continue
                 step = next(item for item in run.plan.steps if item.step_id == result.step_id)
-                if step.action.handler == "task_report":
+                if step.action.handler == "task_report" or is_work_write_handler(
+                    step.action.handler
+                ):
                     waiting = result.model_copy(
                         update={
                             "status": TaskStepStatus.WAITING_CONFIRMATION,
@@ -336,6 +353,18 @@ class TaskKernel:
                 output=result.output,
                 evidence=result.evidence,
                 errors=result.errors,
+            )
+        if is_work_handler(step.action.handler):
+            if self._work is None:
+                return TaskStepResult(
+                    step_id=step_id,
+                    status=TaskStepStatus.FAILED,
+                    errors=["work_executor_unavailable"],
+                )
+            return await self._work.execute(
+                task=run.task,
+                action=step.action,
+                confirmed_by=confirmed_by,
             )
         return await self._reports.execute(
             task=run.task,

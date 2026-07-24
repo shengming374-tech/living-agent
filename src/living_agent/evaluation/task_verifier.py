@@ -7,7 +7,7 @@ import math
 import operator
 from collections.abc import Callable
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from living_agent.execution.contracts import (
     CALCULATOR_CAPABILITY,
@@ -21,6 +21,30 @@ from living_agent.execution.contracts import (
     VerifiedTaskResult,
 )
 from living_agent.execution.report_contracts import TASK_REPORT_CAPABILITY, TaskReportArguments
+from living_agent.execution.work_contracts import (
+    DAILY_PLAN_READ_CAPABILITY,
+    DAILY_PLAN_UPDATE_CAPABILITY,
+    DAILY_PLAN_WRITE_CAPABILITY,
+    WEB_FETCH_CAPABILITY,
+    WEB_SEARCH_CAPABILITY,
+    WORKSPACE_LIST_CAPABILITY,
+    WORKSPACE_READ_CAPABILITY,
+    WORKSPACE_SEARCH_CAPABILITY,
+    WORKSPACE_WRITE_CAPABILITY,
+    DailyPlanReadArguments,
+    DailyPlanUpdateArguments,
+    DailyPlanWriteArguments,
+    WebFetchArguments,
+    WebSearchArguments,
+    WorkspaceListArguments,
+    WorkspaceReadArguments,
+    WorkspaceSearchArguments,
+    WorkspaceWriteArguments,
+    daily_plan_scope_matches,
+    web_fetch_scope,
+    web_search_scope_matches,
+    workspace_scope_matches,
+)
 from living_agent.models.tasks import TaskContract
 from living_agent.plugins.rpc import PluginInvocationResult
 
@@ -169,6 +193,22 @@ class TaskPlanVerifier:
                         or request.resource_scope != f"tasks/{proposal.task.task_id}/report"
                     ):
                         errors.append("task_report_scope_mismatch")
+            work_spec = self._work_spec(action.handler)
+            if work_spec is not None:
+                capability, operation, argument_model, scope_validator, requires_confirmation = (
+                    work_spec
+                )
+                if request.capability != capability or request.operation != operation:
+                    errors.append("work_action_mismatch")
+                try:
+                    work_arguments = argument_model.model_validate(request.arguments)
+                except ValidationError:
+                    errors.append("work_arguments_invalid")
+                else:
+                    if not scope_validator(work_arguments, request.resource_scope):
+                        errors.append("work_scope_mismatch")
+                if requires_confirmation and not proposal.task.confirmation_requirements:
+                    errors.append("work_confirmation_missing")
         return sorted(set(errors))
 
     @staticmethod
@@ -187,6 +227,93 @@ class TaskPlanVerifier:
                 errors.append("calculator_evidence_missing")
             if step.action.handler == "task_report" and "database_commit" not in evidence_kinds:
                 errors.append("task_report_evidence_missing")
+            expected_work_evidence = {
+                "workspace_read": "file_snapshot",
+                "workspace_list": "directory_snapshot",
+                "workspace_search": "workspace_search",
+                "workspace_write": "file_commit",
+                "web_fetch": "remote_response",
+                "web_search": "remote_search_response",
+                "daily_plan_read": "database_read",
+                "daily_plan_write": "database_commit",
+                "daily_plan_update": "database_commit",
+            }.get(step.action.handler)
+            if expected_work_evidence is not None and expected_work_evidence not in evidence_kinds:
+                errors.append("work_evidence_missing")
             if result.errors:
                 errors.append("completed_step_has_errors")
         return sorted(set(errors))
+
+    @staticmethod
+    def _work_spec(
+        handler: str,
+    ) -> tuple[str, str, type[BaseModel], Callable[[BaseModel, str], bool], bool] | None:
+        specs: dict[
+            str,
+            tuple[str, str, type[BaseModel], Callable[[BaseModel, str], bool], bool],
+        ] = {
+            "workspace_read": (
+                WORKSPACE_READ_CAPABILITY,
+                "read",
+                WorkspaceReadArguments,
+                workspace_scope_matches,
+                False,
+            ),
+            "workspace_list": (
+                WORKSPACE_LIST_CAPABILITY,
+                "list",
+                WorkspaceListArguments,
+                workspace_scope_matches,
+                False,
+            ),
+            "workspace_search": (
+                WORKSPACE_SEARCH_CAPABILITY,
+                "search",
+                WorkspaceSearchArguments,
+                workspace_scope_matches,
+                False,
+            ),
+            "workspace_write": (
+                WORKSPACE_WRITE_CAPABILITY,
+                "write",
+                WorkspaceWriteArguments,
+                workspace_scope_matches,
+                True,
+            ),
+            "web_fetch": (
+                WEB_FETCH_CAPABILITY,
+                "read",
+                WebFetchArguments,
+                web_fetch_scope,
+                False,
+            ),
+            "web_search": (
+                WEB_SEARCH_CAPABILITY,
+                "search",
+                WebSearchArguments,
+                web_search_scope_matches,
+                False,
+            ),
+            "daily_plan_read": (
+                DAILY_PLAN_READ_CAPABILITY,
+                "read",
+                DailyPlanReadArguments,
+                daily_plan_scope_matches,
+                False,
+            ),
+            "daily_plan_write": (
+                DAILY_PLAN_WRITE_CAPABILITY,
+                "write",
+                DailyPlanWriteArguments,
+                daily_plan_scope_matches,
+                True,
+            ),
+            "daily_plan_update": (
+                DAILY_PLAN_UPDATE_CAPABILITY,
+                "update",
+                DailyPlanUpdateArguments,
+                daily_plan_scope_matches,
+                True,
+            ),
+        }
+        return specs.get(handler)
