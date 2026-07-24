@@ -6,8 +6,10 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import httpx2
 from fastapi import FastAPI
 from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
@@ -39,6 +41,7 @@ from living_agent.execution.broker import CapabilityBroker, CapabilityDefinition
 from living_agent.execution.contracts import CALCULATOR_CAPABILITY, CalculatorArguments
 from living_agent.execution.executor import CalculatorTaskExecutor
 from living_agent.execution.kernel import TaskKernel
+from living_agent.execution.planner import TaskPlanner
 from living_agent.execution.report import TaskReportExecutor
 from living_agent.execution.report_contracts import (
     TASK_REPORT_CAPABILITY,
@@ -47,6 +50,31 @@ from living_agent.execution.report_contracts import (
 )
 from living_agent.execution.repository import TaskRepository
 from living_agent.execution.service import TaskService
+from living_agent.execution.work import WorkTaskExecutor
+from living_agent.execution.work_contracts import (
+    DAILY_PLAN_READ_CAPABILITY,
+    DAILY_PLAN_UPDATE_CAPABILITY,
+    DAILY_PLAN_WRITE_CAPABILITY,
+    WEB_FETCH_CAPABILITY,
+    WEB_SEARCH_CAPABILITY,
+    WORKSPACE_LIST_CAPABILITY,
+    WORKSPACE_READ_CAPABILITY,
+    WORKSPACE_SEARCH_CAPABILITY,
+    WORKSPACE_WRITE_CAPABILITY,
+    DailyPlanReadArguments,
+    DailyPlanUpdateArguments,
+    DailyPlanWriteArguments,
+    WebFetchArguments,
+    WebSearchArguments,
+    WorkspaceListArguments,
+    WorkspaceReadArguments,
+    WorkspaceSearchArguments,
+    WorkspaceWriteArguments,
+    daily_plan_scope_matches,
+    web_fetch_scope,
+    web_search_scope_matches,
+    workspace_scope_matches,
+)
 from living_agent.interaction.impressions import AttentionCueService, SessionImpressionService
 from living_agent.interaction.repository import UtteranceRepository
 from living_agent.interaction.scheduler import ReplyNecessityEvaluator
@@ -67,6 +95,7 @@ from living_agent.memory.recall import MemoryRecallService
 from living_agent.memory.repository import MemoryRepository
 from living_agent.memory.self_candidates import SelfMemoryCandidateGenerator
 from living_agent.memory.service import MemoryService
+from living_agent.models.events import AuthorityLevel
 from living_agent.persona.manager import PersonaManager
 from living_agent.platforms.napcat.adapter import NapCatAdapter
 from living_agent.platforms.napcat.api import router as napcat_router
@@ -123,6 +152,7 @@ def create_app(
     *,
     llm_provider: LLMProvider | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    work_http_client: httpx2.AsyncClient | None = None,
 ) -> FastAPI:
     resolved_settings = settings or load_settings()
     configure_logging(resolved_settings.log_level)
@@ -146,6 +176,70 @@ def create_app(
             sandbox_required=True,
         )
     )
+    for definition in (
+        CapabilityDefinition(
+            name=WORKSPACE_READ_CAPABILITY,
+            operations=frozenset({"read"}),
+            argument_model=WorkspaceReadArguments,
+            scope_validator=workspace_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+        CapabilityDefinition(
+            name=WORKSPACE_LIST_CAPABILITY,
+            operations=frozenset({"list"}),
+            argument_model=WorkspaceListArguments,
+            scope_validator=workspace_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+        CapabilityDefinition(
+            name=WORKSPACE_SEARCH_CAPABILITY,
+            operations=frozenset({"search"}),
+            argument_model=WorkspaceSearchArguments,
+            scope_validator=workspace_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+        CapabilityDefinition(
+            name=WORKSPACE_WRITE_CAPABILITY,
+            operations=frozenset({"write"}),
+            argument_model=WorkspaceWriteArguments,
+            scope_validator=workspace_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+        CapabilityDefinition(
+            name=WEB_FETCH_CAPABILITY,
+            operations=frozenset({"read"}),
+            argument_model=WebFetchArguments,
+            scope_validator=web_fetch_scope,
+        ),
+        CapabilityDefinition(
+            name=WEB_SEARCH_CAPABILITY,
+            operations=frozenset({"search"}),
+            argument_model=WebSearchArguments,
+            scope_validator=web_search_scope_matches,
+        ),
+        CapabilityDefinition(
+            name=DAILY_PLAN_READ_CAPABILITY,
+            operations=frozenset({"read"}),
+            argument_model=DailyPlanReadArguments,
+            scope_validator=daily_plan_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+        CapabilityDefinition(
+            name=DAILY_PLAN_WRITE_CAPABILITY,
+            operations=frozenset({"write"}),
+            argument_model=DailyPlanWriteArguments,
+            scope_validator=daily_plan_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+        CapabilityDefinition(
+            name=DAILY_PLAN_UPDATE_CAPABILITY,
+            operations=frozenset({"update"}),
+            argument_model=DailyPlanUpdateArguments,
+            scope_validator=daily_plan_scope_matches,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        ),
+    ):
+        broker.register_capability(definition)
     broker.register_capability(
         CapabilityDefinition(
             name=TASK_REPORT_CAPABILITY,
@@ -343,6 +437,19 @@ def create_app(
         audit=audit,
         verifier=CalculatorTaskVerifier(),
     )
+    work_executor = WorkTaskExecutor(
+        broker=broker,
+        audit=audit,
+        life=life_service,
+        workspace_root=resolved_settings.work_workspace_root,
+        http_client=work_http_client,
+        web_search_endpoint=resolved_settings.work_web_search_endpoint,
+        web_allowed_hosts=resolved_settings.work_web_allowed_hosts,
+        allow_insecure_http=resolved_settings.work_web_allow_insecure_http,
+        max_file_bytes=resolved_settings.work_max_file_bytes,
+        max_web_bytes=resolved_settings.work_web_max_response_bytes,
+        web_timeout_seconds=resolved_settings.work_web_timeout_seconds,
+    )
     task_repository = TaskRepository(database.sessions)
     task_kernel = TaskKernel(
         repository=task_repository,
@@ -354,6 +461,7 @@ def create_app(
         ),
         verifier=TaskPlanVerifier(),
         audit=audit,
+        work=work_executor,
     )
     task_service = TaskService(
         kernel=task_kernel,
@@ -392,7 +500,9 @@ def create_app(
             followup_delay_max_ms=resolved_settings.social_followup_delay_max_ms,
             avoid_full_stops=resolved_settings.social_avoid_full_stops,
         ),
-        executive=ExecutiveCognition(),
+        executive=ExecutiveCognition(
+            TaskPlanner(today=lambda: datetime.now(life_service.timezone).date())
+        ),
         tasks=task_service,
         context_compiler=context_compiler,
         llm=resolved_llm_provider,
@@ -481,9 +591,12 @@ def create_app(
                         await resolved_llm_provider.close()
                 finally:
                     try:
-                        await embedding_service.close()
+                        await work_executor.close()
                     finally:
-                        await database.dispose()
+                        try:
+                            await embedding_service.close()
+                        finally:
+                            await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version=__version__, lifespan=lifespan)
 
@@ -572,6 +685,7 @@ def create_app(
     app.state.task_repository = task_repository
     app.state.task_kernel = task_kernel
     app.state.task_service = task_service
+    app.state.work_executor = work_executor
     app.state.life_repository = life_repository
     app.state.life_service = life_service
     app.state.self_change_service = self_change_service

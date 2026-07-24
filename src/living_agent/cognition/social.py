@@ -50,7 +50,11 @@ class SocialCognition:
         return normalized[:4000]
 
     def plan_utterance(self, text: str, turn: TurnDecision) -> UtteranceSession:
-        units = self._semantic_units(text, maximum=max(1, turn.expected_units_max))
+        units = self._semantic_units(
+            text,
+            maximum=max(1, turn.expected_units_max),
+            unit_chars=1200 if turn.mode == "act" else 120,
+        )
         if turn.mode == "react":
             units = units[:1]
         if self._avoid_full_stops:
@@ -95,10 +99,19 @@ class SocialCognition:
 
     def render_task_run(self, run: TaskRun) -> str:
         if run.status is TaskRunStatus.WAITING_CONFIRMATION:
-            return (
-                f"内容已经核对好了\uff0c保存报告还需要所有者确认\uff0c"
-                f"任务是 {run.task.task_id}"
+            pending = next(
+                (step for step in run.plan.steps if step.step_id == run.pending_step_id),
+                None,
             )
+            if pending is not None and pending.action.handler == "workspace_write":
+                path = pending.action.capability_request.arguments.get("path", "目标文件")
+                return f"文件 {path} 已准备好, 确认任务 {run.task.task_id} 后写入"
+            if pending is not None and pending.action.handler in {
+                "daily_plan_write",
+                "daily_plan_update",
+            }:
+                return f"工作计划已准备好, 确认任务 {run.task.task_id} 后保存"
+            return f"内容已经核对好了\uff0c保存报告还需要所有者确认\uff0c任务是 {run.task.task_id}"
         outputs = [
             result.output
             for result in run.step_results
@@ -110,6 +123,33 @@ class SocialCognition:
             if "expression" in output and "value" in output
         ]
         report_saved = any("report_id" in output for output in outputs)
+        workspace_writes = [output for output in outputs if output.get("kind") == "workspace_write"]
+        plan_writes = [output for output in outputs if output.get("kind") == "daily_plan_write"]
+        plan_updates = [output for output in outputs if output.get("kind") == "daily_plan_update"]
+        if run.status is TaskRunStatus.COMPLETED and workspace_writes:
+            return f"文件已经写入 {workspace_writes[-1].get('path')}"
+        if run.status is TaskRunStatus.COMPLETED and plan_writes:
+            plan = plan_writes[-1]
+            return f"{plan.get('plan_date')} 的工作计划已经保存, 共 {len(plan.get('items', []))} 项"
+        if run.status is TaskRunStatus.COMPLETED and plan_updates:
+            update = plan_updates[-1]
+            return f"计划项 {update.get('item_title')} 已更新为 {update.get('status')}"
+        if run.status is TaskRunStatus.COMPLETED and outputs:
+            output = outputs[-1]
+            if output.get("kind") == "workspace_file":
+                return f"文件 {output.get('path')} 已读取, 共 {output.get('bytes')} 字节"
+            if output.get("kind") == "workspace_listing":
+                return f"目录 {output.get('path')} 已列出, 共 {len(output.get('entries', []))} 项"
+            if output.get("kind") == "workspace_search":
+                return f"工作区搜索完成, 找到 {len(output.get('matches', []))} 处匹配"
+            if output.get("kind") == "web_page":
+                return f"网页已读取: {output.get('title') or output.get('url')}"
+            if output.get("kind") == "web_search":
+                return f"网页搜索完成, 找到 {len(output.get('results', []))} 条结果"
+            if output.get("kind") == "daily_plan":
+                if not output.get("found"):
+                    return f"{output.get('plan_date')} 还没有保存工作计划"
+                return f"{output.get('plan_date')} 的工作计划已读取"
         if run.status is TaskRunStatus.COMPLETED and len(calculations) == 1 and not report_saved:
             expression, value = calculations[0]
             return f"我核对过了\uff1a{expression} = {value}"
@@ -134,6 +174,12 @@ class SocialCognition:
             return "重试过了\uff0c但任务工具还是一直中断"
         if "tainted_write_denied" in errors:
             return "这份内容的来源不适合执行写入\uff0c所以我没有保存"
+        if "workspace_path_escape_denied" in errors or "workspace_absolute_path_denied" in errors:
+            return "目标路径超出了允许的工作区, 所以我没有访问"
+        if "workspace_sensitive_path_denied" in errors:
+            return "这个文件属于敏感路径, 不能通过聊天读取或写入"
+        if any(error.startswith("web_") for error in errors):
+            return "网页读取没有通过网络安全检查, 任务已停止"
         return "任务结果没法可靠核对\uff0c我停掉了后面的步骤"
 
     def render_task_confirmation_denied(self) -> str:
@@ -149,7 +195,7 @@ class SocialCognition:
         return "刚才没能连接到语言模型"
 
     @staticmethod
-    def _semantic_units(text: str, *, maximum: int) -> list[str]:
+    def _semantic_units(text: str, *, maximum: int, unit_chars: int = 120) -> list[str]:
         lines = [" ".join(line.split()) for line in text.strip().splitlines() if line.strip()]
         if len(lines) == 1:
             sentences = [
@@ -162,7 +208,7 @@ class SocialCognition:
             ]
             if len(sentences) > 1:
                 lines = sentences
-        normalized = [line[:120].strip() for line in lines if line.strip()]
+        normalized = [line[:unit_chars].strip() for line in lines if line.strip()]
         if not normalized:
             normalized = ["..."]
         if maximum == 1:
@@ -170,5 +216,5 @@ class SocialCognition:
         if len(normalized) <= maximum:
             return normalized
         head = normalized[: maximum - 1]
-        tail = " ".join(normalized[maximum - 1 :])[:120].strip()
+        tail = " ".join(normalized[maximum - 1 :])[:unit_chars].strip()
         return [*head, tail]

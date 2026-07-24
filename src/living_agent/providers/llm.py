@@ -69,6 +69,9 @@ class MockLLMProvider:
         self._model = model
 
     async def generate(self, context: CompiledContext) -> ModelResponse:
+        task_reply = self._task_reply(context)
+        if task_reply is not None:
+            return ModelResponse(text=task_reply, provider="mock", model=self._model)
         social = next(
             (
                 section.content
@@ -85,6 +88,50 @@ class MockLLMProvider:
         else:
             text = "I heard you. What would you like me to focus on?"
         return ModelResponse(text=text, provider="mock", model=self._model)
+
+    @staticmethod
+    def _task_reply(context: CompiledContext) -> str | None:
+        results = [
+            section
+            for section in context.sections
+            if section.kind is ContextKind.UNTRUSTED_TOOL_RESULT
+        ]
+        if not results:
+            return None
+        try:
+            payload = json.loads(results[-1].content)
+            output = payload["output"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            return "任务已完成, 但结果无法整理"
+        kind = output.get("kind")
+        if kind == "workspace_file":
+            excerpt = " ".join(str(output.get("text", "")).split())[:800]
+            return f"已读取 {output.get('path')}: {excerpt}"
+        if kind == "workspace_listing":
+            entries = output.get("entries", [])
+            paths = [str(item.get("path")) for item in entries[:30]]
+            return f"目录 {output.get('path')} 共列出 {len(entries)} 项: " + "、".join(paths)
+        if kind == "workspace_search":
+            matches = output.get("matches", [])
+            rendered = [
+                f"{item.get('path')}:{item.get('line')} {item.get('text')}" for item in matches[:20]
+            ]
+            return f"找到 {len(matches)} 处匹配: " + "; ".join(rendered)
+        if kind == "web_page":
+            excerpt = " ".join(str(output.get("text", "")).split())[:800]
+            title = output.get("title") or output.get("url")
+            return f"已读取 {title}: {excerpt}"
+        if kind == "web_search":
+            search_results = output.get("results", [])
+            rendered = [f"{item.get('title')} {item.get('url')}" for item in search_results[:8]]
+            return f"搜索到 {len(search_results)} 条结果: " + "; ".join(rendered)
+        if kind == "daily_plan":
+            if not output.get("found"):
+                return f"{output.get('plan_date')} 还没有保存工作计划"
+            items = output.get("items", [])
+            rendered = [str(item.get("title")) for item in items]
+            return f"{output.get('plan_date')} 的工作计划有 {len(items)} 项: " + "、".join(rendered)
+        return "任务已完成, 结果已经核对"
 
     async def close(self) -> None:
         return None

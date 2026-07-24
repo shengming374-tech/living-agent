@@ -9,6 +9,7 @@ from living_agent.models.capabilities import (
     CapabilityRequest,
     DecisionOutcome,
 )
+from living_agent.models.events import AuthorityLevel
 
 
 class FileArguments(BaseModel):
@@ -87,6 +88,62 @@ async def test_broker_allows_declared_scoped_read(client: TestClient) -> None:
         )
     )
     assert consumed.reason_code == "grant_missing"
+
+
+async def test_owner_only_capability_rejects_member_and_describes_boundary(
+    client: TestClient,
+) -> None:
+    broker: CapabilityBroker = client.app.state.broker
+    broker.register_capability(
+        CapabilityDefinition(
+            name="owner-filesystem",
+            operations=frozenset({"read"}),
+            argument_model=FileArguments,
+            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+        )
+    )
+    for actor_id in ("member-1", "owner-1"):
+        broker.add_grant(
+            CapabilityGrant(
+                actor_id=actor_id,
+                capability="owner-filesystem",
+                operations={"read"},
+                resource_scopes={"workspace/*"},
+                conversation_id="chat-1",
+            )
+        )
+
+    member_decision = await broker.decide(
+        CapabilityRequest(
+            actor_id="member-1",
+            capability="owner-filesystem",
+            operation="read",
+            resource_scope="workspace/readme.md",
+            arguments={"path": "readme.md"},
+            source_event_ids=["event-1"],
+            reason="inspect owner workspace",
+            conversation_id="chat-1",
+        )
+    )
+    owner_decision = await broker.decide(
+        CapabilityRequest(
+            actor_id="owner-1",
+            capability="owner-filesystem",
+            operation="read",
+            resource_scope="workspace/readme.md",
+            arguments={"path": "readme.md"},
+            source_event_ids=["event-2"],
+            reason="inspect owner workspace",
+            conversation_id="chat-1",
+        )
+    )
+    snapshot = await broker.snapshot()
+    definition = next(item for item in snapshot.definitions if item.name == "owner-filesystem")
+
+    assert member_decision.outcome is DecisionOutcome.DENY
+    assert member_decision.reason_code == "capability_authority_denied"
+    assert owner_decision.outcome is DecisionOutcome.ALLOW_READ_ONLY
+    assert definition.allowed_authorities == ["owner"]
 
 
 async def test_broker_denies_missing_grant_invalid_schema_and_cross_session(

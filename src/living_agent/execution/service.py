@@ -66,12 +66,25 @@ class TaskService:
                 await self._finish_activity_if_terminal(run)
 
     async def submit(self, proposal: TaskPlanProposal) -> TaskRun:
-        activity_kind = (
-            "calculator_task"
-            if len(proposal.plan.steps) == 1
-            and proposal.plan.steps[0].action.handler == "calculator"
-            else "executive_task"
-        )
+        handlers = {step.action.handler for step in proposal.plan.steps}
+        if handlers == {"calculator"}:
+            activity_kind = "calculator_task"
+        elif handlers.intersection(
+            {
+                "workspace_read",
+                "workspace_list",
+                "workspace_search",
+                "workspace_write",
+                "web_fetch",
+                "web_search",
+                "daily_plan_read",
+                "daily_plan_write",
+                "daily_plan_update",
+            }
+        ):
+            activity_kind = "work_task"
+        else:
+            activity_kind = "executive_task"
         activity = await self._psyche.start_activity(
             kind=activity_kind,
             summary=f"Executing task {proposal.task.task_id}.",

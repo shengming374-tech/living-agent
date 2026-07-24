@@ -98,6 +98,17 @@ class Settings(BaseSettings):
     persona_root: Path = Path("personas/default")
     prompt_root: Path = Path("prompts")
     root_prompt_second_factor_sha256: str | None = None
+    work_workspace_root: Path = Path(".")
+    work_max_file_bytes: int = Field(default=1_048_576, ge=1024, le=16_777_216)
+    work_web_search_endpoint: str = "https://html.duckduckgo.com/html/"
+    work_web_allowed_hosts: list[str] = Field(default_factory=list, max_length=100)
+    work_web_allow_insecure_http: bool = False
+    work_web_timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
+    work_web_max_response_bytes: int = Field(
+        default=1_048_576,
+        ge=1024,
+        le=16_777_216,
+    )
     psyche_decay_half_life_hours: float = Field(default=12.0, gt=0.0, le=720.0)
     social_engage_units_min: int = Field(default=2, ge=1, le=3)
     social_engage_units_max: int = Field(default=3, ge=1, le=3)
@@ -183,7 +194,7 @@ class Settings(BaseSettings):
             raise ValueError("model names must contain 1 to 255 characters")
         return normalized
 
-    @field_validator("model_image_allowed_hosts")
+    @field_validator("model_image_allowed_hosts", "work_web_allowed_hosts")
     @classmethod
     def validate_image_allowed_hosts(cls, value: list[str]) -> list[str]:
         normalized: list[str] = []
@@ -199,6 +210,21 @@ class Settings(BaseSettings):
                 raise ValueError("model_image_allowed_hosts must contain exact hostnames")
             if candidate not in normalized:
                 normalized.append(candidate)
+        return normalized
+
+    @field_validator("work_web_search_endpoint")
+    @classmethod
+    def validate_work_search_endpoint(cls, value: str) -> str:
+        normalized = value.strip()
+        parsed = urlsplit(normalized)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.fragment
+        ):
+            raise ValueError("work_web_search_endpoint must be an HTTP(S) URL without credentials")
         return normalized
 
     @field_validator("root_prompt_second_factor_sha256")
@@ -265,6 +291,11 @@ class Settings(BaseSettings):
                 setting_name="embedding_api_base_url",
                 allow_insecure_http=self.embedding_allow_insecure_http,
             )
+        self._validate_external_api_url(
+            self.work_web_search_endpoint,
+            setting_name="work_web_search_endpoint",
+            allow_insecure_http=self.work_web_allow_insecure_http,
+        )
         if self.napcat_enabled:
             token = self.napcat_access_token
             if token is None or not token.get_secret_value().strip():

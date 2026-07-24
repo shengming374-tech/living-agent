@@ -30,6 +30,7 @@ class CapabilityDefinition:
     argument_model: type[BaseModel]
     sandbox_required: bool = False
     scope_validator: Callable[[BaseModel, str], bool] | None = None
+    allowed_authorities: frozenset[AuthorityLevel] | None = None
 
 
 class CapabilityBroker:
@@ -82,6 +83,11 @@ class CapabilityBroker:
                 argument_schema=definition.argument_model.__name__,
                 sandbox_required=definition.sandbox_required,
                 scope_bound=definition.scope_validator is not None,
+                allowed_authorities=(
+                    sorted(item.value for item in definition.allowed_authorities)
+                    if definition.allowed_authorities is not None
+                    else []
+                ),
             )
             for definition in sorted(self._definitions.values(), key=lambda item: item.name)
         ]
@@ -172,6 +178,17 @@ class CapabilityBroker:
                 "Arguments target a resource outside the requested scope.",
             )
 
+        authority = self._actor_authority(request.actor_id)
+        if (
+            definition.allowed_authorities is not None
+            and authority not in definition.allowed_authorities
+        ):
+            return self._deny(
+                request,
+                "capability_authority_denied",
+                "The authenticated actor does not have authority for this capability.",
+            )
+
         grant = self._matching_grant(request)
         if grant is None:
             return self._deny(
@@ -201,7 +218,6 @@ class CapabilityBroker:
                 "Dangerously tainted content cannot authorize a write or send operation.",
             )
 
-        authority = self._actor_authority(request.actor_id)
         confirmation = self._rules.confirmation_outcome(
             authority=authority,
             operation=request.operation,
