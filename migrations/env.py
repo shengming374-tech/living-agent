@@ -30,6 +30,8 @@ from living_agent.memory.models import (
     MemoryCandidateORM,
     MemoryEmbeddingORM,
     MemoryNodeORM,
+    MemoryRecallTraceItemORM,
+    MemoryRecallTraceORM,
     MemoryUsageORM,
     MemoryVersionORM,
 )
@@ -59,6 +61,8 @@ _ = (
     MemoryCandidateORM,
     MemoryEmbeddingORM,
     MemoryNodeORM,
+    MemoryRecallTraceItemORM,
+    MemoryRecallTraceORM,
     MemoryUsageORM,
     MemoryVersionORM,
     NapCatIngressORM,

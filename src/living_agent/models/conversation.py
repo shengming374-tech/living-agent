@@ -125,4 +125,5 @@ class ChatResult(BaseModel):
     messages: list[str] = Field(default_factory=list, max_length=3)
     utterance: UtteranceSession | None = None
     recalled_memory_ids: list[str] = Field(default_factory=list, max_length=8)
+    memory_trace_id: str | None = None
     attention_cue_id: str | None = None

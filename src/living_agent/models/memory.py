@@ -15,7 +15,13 @@ def validate_memory_scope(value: str) -> str:
     normalized = value.strip()
     if normalized == "global":
         return normalized
-    if re.fullmatch(r"(?:private|conversation):[^:\s]+", normalized) is None:
+    if (
+        re.fullmatch(
+            r"(?:private|conversation):[^:\s]+(?::[^:\s]+)*",
+            normalized,
+        )
+        is None
+    ):
         raise ValueError("scope must be global, private:<id>, or conversation:<id>")
     return normalized
 
@@ -26,6 +32,12 @@ class MemoryType(StrEnum):
     RELATIONSHIP = "relationship"
     SELF = "self"
     CORE = "core"
+
+
+class MemoryLayer(StrEnum):
+    FACT = "fact"
+    NARRATIVE = "narrative"
+    LEGACY = "legacy"
 
 
 class MemoryFactuality(StrEnum):
@@ -48,6 +60,14 @@ class CandidateStatus(StrEnum):
     REJECTED = "rejected"
 
 
+class MemorySupportMode(StrEnum):
+    PENDING = "pending"
+    MEMORY_ONLY = "memory_only"
+    CORROBORATED = "corroborated"
+    INJECTED_UNVERIFIED = "injected_unverified"
+    NOT_INJECTED = "not_injected"
+
+
 class MemoryCandidateCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -60,6 +80,11 @@ class MemoryCandidateCreate(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
     scope: str
+    memory_layer: MemoryLayer | None = None
+    entity_id: str | None = None
+    memory_key: str | None = None
+    valid_until: datetime | None = None
+    superseded_by_id: str | None = None
 
     @field_validator("subject", "scope")
     @classmethod
@@ -104,6 +129,11 @@ class MemoryNode(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     importance: float = Field(ge=0.0, le=1.0)
     scope: str
+    memory_layer: MemoryLayer | None = None
+    entity_id: str | None = None
+    memory_key: str | None = None
+    valid_until: datetime | None = None
+    superseded_by_id: str | None = None
     created_at: datetime
     updated_at: datetime
     status: MemoryStatus
@@ -153,6 +183,107 @@ class MemoryUsage(BaseModel):
     response_id: str
     conversation_id: str
     created_at: datetime
+
+
+class MemoryRecallTraceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str = Field(default_factory=lambda: str(uuid4()))
+    event_id: str
+    response_id: str | None = None
+    conversation_id: str
+    actor_id: str
+    route: str
+    query_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    context_fingerprint: str | None = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    support_mode: MemorySupportMode = MemorySupportMode.PENDING
+
+
+class MemoryRecallTrace(MemoryRecallTraceCreate):
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryRecallTraceItemCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    row_id: str = Field(default_factory=lambda: str(uuid4()))
+    trace_id: str
+    memory_id: str
+    memory_layer: MemoryLayer
+    selection_reason: str
+    lexical_score: float | None = None
+    semantic_score: float | None = None
+    final_score: float | None = None
+    selected: bool = False
+    injected: bool = False
+    response_match: bool | None = None
+    source_overlap: bool = False
+
+
+class MemoryRecallTraceItem(MemoryRecallTraceItemCreate):
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryRecallTraceBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace: MemoryRecallTrace
+    items: list[MemoryRecallTraceItem] = Field(default_factory=list)
+
+
+class MemoryRecallBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    memories: list[MemoryNode] = Field(default_factory=list, max_length=8)
+    trace_id: str
+    route: str
+
+
+class MemoryProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    subject_id: str = Field(min_length=1, max_length=255)
+    prompt: str = Field(min_length=1, max_length=500)
+    fact_keys: list[str] = Field(min_length=1, max_length=8)
+
+    @field_validator("subject_id", "prompt")
+    @classmethod
+    def normalize_probe_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("fact_keys")
+    @classmethod
+    def normalize_fact_keys(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip() for item in value if item.strip()]
+        if not normalized:
+            raise ValueError("at least one fact key is required")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("fact keys must be unique")
+        return normalized
+
+
+class MemoryProbeVariant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    selected_memory_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class MemoryProbeResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: str
+    support_mode: MemorySupportMode
+    with_memory: MemoryProbeVariant
+    without_memory: MemoryProbeVariant
+    trace_id: str
 
 
 class MemoryEmbeddingStatus(BaseModel):

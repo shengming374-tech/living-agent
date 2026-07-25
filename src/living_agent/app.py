@@ -349,6 +349,9 @@ def create_app(
         ),
         auto_approval_enabled=resolved_settings.memory_auto_approval_enabled,
         recall_candidate_limit=resolved_settings.memory_recall_candidate_limit,
+        recall_mode=resolved_settings.memory_recall_mode,
+        recall_min_score=resolved_settings.memory_recall_min_score,
+        narrative_recall_limit=resolved_settings.memory_narrative_recall_limit,
         audit=audit,
     )
     psyche_service = PsycheService(

@@ -118,6 +118,7 @@ def test_runtime_recalls_private_memory_without_cross_actor_or_injection_leak(
                 "X-Conversation-ID": "recall-chat",
             },
         )
+        traces = client.get("/v1/memories/traces?limit=20", headers=OWNER_HEADERS)
         audit = client.get("/v1/audit?limit=200", headers=OWNER_HEADERS).json()
 
     assert recalled["message"] == "我记得\uff0c你喜欢绿色。"
@@ -128,10 +129,15 @@ def test_runtime_recalls_private_memory_without_cross_actor_or_injection_leak(
     assert injected["recalled_memory_ids"] == []
     assert memory_sections(injected_context) == []
     assert usages.status_code == 200
-    assert len(usages.json()) == 1
-    assert usages.json()[0]["memory_id"] == memory["id"]
+    assert usages.json() == []
+    assert traces.status_code == 200
+    matching_trace = next(
+        trace for trace in traces.json() if trace["trace_id"] == recalled["memory_trace_id"]
+    )
+    assert matching_trace["support_mode"] == "injected_unverified"
     recall_audits = [entry for entry in audit if entry["action"] == "memory.recalled"]
     assert recall_audits
+    assert any(entry["action"] == "memory.response_supported" for entry in audit)
     assert "我最喜欢的颜色是绿色" not in repr(recall_audits)
 
 

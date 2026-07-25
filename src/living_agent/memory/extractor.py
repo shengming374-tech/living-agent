@@ -29,7 +29,18 @@ _CLAIM_PATTERNS: tuple[_ClaimPattern, ...] = (
     ),
     _ClaimPattern(
         "profile:name",
-        re.compile(r"^(?:我叫|我的(?:名字|昵称)是|我是)(?P<detail>.{1,80})$"),
+        re.compile(r"^(?:我叫|我的(?:名字|昵称)是)(?P<detail>.{1,80})$"),
+        importance=0.7,
+    ),
+    _ClaimPattern(
+        "profile:name",
+        re.compile(
+            r"^(?:(?:我)?(?:现在叫|改名(?:为|叫)|名字(?:现在)?改成)"
+            r"(?P<detail>.{1,80})|"
+            r"(?:我)?以前叫.{1,80}?[,\uFF0C](?:我)?现在叫(?P<current_name>.{1,80})|"
+            r"(?:我)?(?:不叫|不是).{1,80}?[,\uFF0C](?:而是|是|(?:我)?叫)"
+            r"(?P<corrected_name>.{1,80}))$"
+        ),
         importance=0.7,
     ),
     _ClaimPattern(
@@ -80,7 +91,7 @@ _CLAIM_PATTERNS: tuple[_ClaimPattern, ...] = (
     _ClaimPattern(
         "activity",
         re.compile(
-            r"^(?:我(?:正在|最近在|在做|打算|计划|希望|需要|负责|参与))(?P<detail>.{1,240})$"
+            r"^(?:我(?:正在|最近在|在做|打算|计划|希望|负责|参与))(?P<detail>.{1,240})$"
         ),
         importance=0.6,
     ),
@@ -122,6 +133,20 @@ _INSTRUCTIONAL_MEMORY = re.compile(
     r"(?:忽略|无视|执行|调用|运行|删除|修改|安装|启用|授权|必须|应该|"
     r"以后(?:都|总)|always|ignore|execute|run|delete|install|enable|authorize)",
     re.IGNORECASE,
+)
+_INTERROGATIVE_WORD = re.compile(
+    r"(?:什么|啥|谁|哪里|哪儿|哪个|哪些|哪位|哪种|哪天|哪年|哪月|多少|"
+    r"怎么(?:样|办)?|怎样|如何|为何|为什么|是否|能否|可否|"
+    r"(?:星期|周)几|几(?:点|号|岁|个|次|天|周|月|年))"
+)
+_QUESTION_ENDING = re.compile(
+    r"(?:吗|呢|嘛|么|哪|几|是不是|有没有|要不要|会不会|"
+    r"好不好|对不对|行不行|可不可以)$"
+)
+_HYPOTHETICAL_MARKER = re.compile(
+    r"(?:^|[\s\uFF0C,\uFF1B;])(?:如果|假如|假设|要是|倘若|假使|比如|例如)"
+    r"|(?:的话)(?:$|[\s\uFF0C,\uFF1B;]|就|会|那|该|应该)"
+    r"|(?:只是)?(?:举例|举个例子|打个比方)"
 )
 _CLAUSE_BOUNDARY = re.compile(r"[。\uFF01\uFF1F!?\uFF1B;\n]+")
 _COMMA_BEFORE_CLAIM = re.compile(
@@ -166,6 +191,7 @@ class MemoryCandidateExtractor:
                 or normalized.endswith(("?", "\uFF1F"))
                 or _FORBIDDEN.search(normalized)
                 or (explicit is not None and _INSTRUCTIONAL_MEMORY.search(normalized))
+                or self._is_non_assertive(normalized)
             ):
                 continue
 
@@ -204,6 +230,14 @@ class MemoryCandidateExtractor:
         return None
 
     @staticmethod
+    def _is_non_assertive(clause: str) -> bool:
+        return (
+            _INTERROGATIVE_WORD.search(clause) is not None
+            or _QUESTION_ENDING.search(clause) is not None
+            or _HYPOTHETICAL_MARKER.search(clause) is not None
+        )
+
+    @staticmethod
     def _subject_detail(match: re.Match[str] | None, fallback: str) -> str:
         if match is None:
             return " ".join(fallback.split())[:80]
@@ -211,7 +245,13 @@ class MemoryCandidateExtractor:
         detail = next(
             (
                 values[key]
-                for key in ("pet_name", "relation", "detail")
+                for key in (
+                    "pet_name",
+                    "relation",
+                    "detail",
+                    "current_name",
+                    "corrected_name",
+                )
                 if values.get(key)
             ),
             fallback,

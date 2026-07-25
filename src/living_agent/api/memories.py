@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 
-from living_agent.api.dependencies import get_authority, get_memory_service
+from living_agent.api.dependencies import get_authority, get_memory_service, get_runtime
 from living_agent.memory.repository import MemoryNotFoundError, MemoryVersionConflictError
 from living_agent.memory.service import MemoryAccessError, MemoryService
 from living_agent.models.events import AuthorityLevel, TrustedEvent
@@ -18,6 +18,10 @@ from living_agent.models.memory import (
     MemoryEmbeddingStatus,
     MemoryMergeRequest,
     MemoryNode,
+    MemoryProbeRequest,
+    MemoryProbeResponse,
+    MemoryRecallTrace,
+    MemoryRecallTraceBundle,
     MemoryReindexResult,
     MemorySplitRequest,
     MemoryStatus,
@@ -25,6 +29,7 @@ from living_agent.models.memory import (
     MemoryUsage,
     MemoryVersion,
 )
+from living_agent.runtime.runtime import AgentRuntime
 from living_agent.trust.authority import AuthorityResolver
 
 router = APIRouter(prefix="/v1/memories", tags=["memories"])
@@ -33,6 +38,7 @@ ActorHeader = Annotated[str, Header(alias="X-Actor-ID")]
 ConversationHeader = Annotated[str | None, Header(alias="X-Conversation-ID")]
 AuthorityDependency = Annotated[AuthorityResolver, Depends(get_authority)]
 MemoryDependency = Annotated[MemoryService, Depends(get_memory_service)]
+RuntimeDependency = Annotated[AgentRuntime, Depends(get_runtime)]
 
 
 def _owner(actor_id: str, authority: AuthorityResolver) -> bool:
@@ -109,7 +115,26 @@ async def commit_candidate(
 ) -> MemoryCommitResult:
     _require_owner(actor_id, authority)
     try:
-        return await memories.commit_candidate(
+        return await memories.apply_candidate(
+            candidate_id,
+            actor_id=actor_id,
+            replace_conflicts=replace_conflicts,
+        )
+    except (MemoryNotFoundError, MemoryVersionConflictError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/candidates/{candidate_id}/apply", response_model=MemoryCommitResult)
+async def apply_candidate(
+    candidate_id: str,
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+    replace_conflicts: bool = Query(default=False),
+) -> MemoryCommitResult:
+    _require_owner(actor_id, authority)
+    try:
+        return await memories.apply_candidate(
             candidate_id,
             actor_id=actor_id,
             replace_conflicts=replace_conflicts,
@@ -206,6 +231,42 @@ async def reindex_memories(
 ) -> MemoryReindexResult:
     _require_owner(actor_id, authority)
     return await memories.reindex_embeddings(actor_id=actor_id)
+
+
+@router.get("/traces", response_model=list[MemoryRecallTrace])
+async def list_memory_recall_traces(
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+    limit: int = Query(default=50, ge=1, le=500),
+) -> list[MemoryRecallTrace]:
+    _require_owner(actor_id, authority)
+    return await memories.recall_traces(limit=limit)
+
+
+@router.get("/traces/{trace_id}", response_model=MemoryRecallTraceBundle)
+async def get_memory_recall_trace(
+    trace_id: str,
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+) -> MemoryRecallTraceBundle:
+    _require_owner(actor_id, authority)
+    try:
+        return await memories.recall_trace(trace_id)
+    except MemoryNotFoundError as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/probe", response_model=MemoryProbeResponse)
+async def probe_memory(
+    request: MemoryProbeRequest,
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    runtime: RuntimeDependency,
+) -> MemoryProbeResponse:
+    _require_owner(actor_id, authority)
+    return await runtime.probe_memory(request, actor_id=actor_id)
 
 
 @router.get("/{memory_id}", response_model=MemoryNode)

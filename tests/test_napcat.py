@@ -259,6 +259,45 @@ def test_private_message_round_trip_uses_broker_and_plain_text_segment(
     )
 
 
+def test_napcat_namespaced_identity_can_create_automatic_memory(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(
+        update={
+            "napcat_enabled": True,
+            "napcat_access_token": SecretStr(NAPCAT_TOKEN),
+            "napcat_action_timeout_seconds": 0.2,
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        with client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(
+                private_event(
+                    "我喜欢茉莉花茶。",
+                    role="owner",
+                    message_id=8110,
+                )
+            )
+            action = websocket.receive_json()
+            websocket.send_json(action_success(action))
+            wait_for_audit(
+                client,
+                lambda entry: (
+                    entry["action"] == "napcat.outbound"
+                    and entry["outcome"] == "success"
+                ),
+            )
+            close_websocket(websocket, client)
+        memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
+
+    assert len(memories) == 1
+    assert memories[0]["content"]["surface_text"] == "我喜欢茉莉花茶"
+    assert memories[0]["scope"] == "private:napcat:10001:qq:20002"
+    assert memories[0]["status"] == "active"
+
+
 def test_napcat_message_replay_and_id_conflict_are_suppressed(
     napcat_client: TestClient,
 ) -> None:

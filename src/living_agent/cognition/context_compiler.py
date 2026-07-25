@@ -32,6 +32,7 @@ class ContextKind(StrEnum):
     OWNER_REQUEST = "OWNER_REQUEST"
     SOCIAL_CHAT = "SOCIAL_CHAT"
     VISION_OBSERVATION = "VISION_OBSERVATION"
+    RETRIEVED_FACT = "RETRIEVED_FACT"
     RETRIEVED_MEMORY = "RETRIEVED_MEMORY"
     UNTRUSTED_DOCUMENT = "UNTRUSTED_DOCUMENT"
     UNTRUSTED_TOOL_RESULT = "UNTRUSTED_TOOL_RESULT"
@@ -87,6 +88,7 @@ class ContextCompiler:
         root_policy: str,
         current_task: dict[str, Any] | None = None,
         tool_results: list[dict[str, Any]] | None = None,
+        retrieved_facts: list[dict[str, Any]] | None = None,
         retrieved_memories: list[dict[str, Any]] | None = None,
         available_capabilities: list[str] | None = None,
         psyche_state: dict[str, Any] | None = None,
@@ -181,6 +183,17 @@ class ContextCompiler:
                 images=self._context_images(event.content, source_event_id=event.event_id),
             )
         )
+        for fact in retrieved_facts or []:
+            sections.append(
+                ContextSection(
+                    kind=ContextKind.RETRIEVED_FACT,
+                    content=self._serialize(fact),
+                    source_event_ids=[
+                        str(item) for item in fact.get("source_event_ids", [])
+                    ],
+                    taint_labels={"retrieved_fact"},
+                )
+            )
         for memory in retrieved_memories or []:
             sections.append(
                 ContextSection(

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "living-agent"
-version = "0.2.4"
+version = "0.2.5"
 description = "从零构建、由代码强制信任边界的持续人格 Agent 运行时。"
 readme = "README.md"
 license = "GPL-3.0-only"
