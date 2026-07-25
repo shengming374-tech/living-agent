@@ -7,6 +7,8 @@ import hashlib
 import html
 import ipaddress
 import os
+import shutil
+import signal
 import socket
 import tempfile
 from collections.abc import Iterable
@@ -26,6 +28,7 @@ from living_agent.execution.contracts import (
     TaskStepResult,
     TaskStepStatus,
 )
+from living_agent.execution.shell_contracts import ShellExecuteArguments
 from living_agent.execution.work_contracts import (
     DailyPlanReadArguments,
     DailyPlanUpdateArguments,
@@ -187,6 +190,10 @@ class WorkTaskExecutor:
         max_file_bytes: int = 1_048_576,
         max_web_bytes: int = 1_048_576,
         web_timeout_seconds: float = 15.0,
+        shell_enabled: bool = False,
+        shell_allowed_executables: Iterable[str] = (),
+        shell_timeout_seconds: float = 30.0,
+        shell_max_output_bytes: int = 262_144,
     ) -> None:
         root = workspace_root.expanduser().resolve()
         if not root.is_dir():
@@ -200,6 +207,10 @@ class WorkTaskExecutor:
         self._allow_insecure_http = allow_insecure_http
         self._max_file_bytes = max_file_bytes
         self._max_web_bytes = max_web_bytes
+        self._shell_enabled = shell_enabled
+        self._shell_allowed_executables = frozenset(shell_allowed_executables)
+        self._shell_timeout_seconds = shell_timeout_seconds
+        self._shell_max_output_bytes = shell_max_output_bytes
         self._client = http_client or httpx2.AsyncClient(
             timeout=web_timeout_seconds,
             follow_redirects=False,
@@ -269,6 +280,14 @@ class WorkTaskExecutor:
         evidence = evidence.model_copy(
             update={"data": {**evidence.data, "tool_audit_id": tool_audit.audit_id}}
         )
+        if action.handler == "shell_execute" and output.get("exit_code") != 0:
+            return TaskStepResult(
+                step_id="failed",
+                status=TaskStepStatus.FAILED,
+                output=output,
+                evidence=[evidence],
+                errors=["shell_exit_nonzero"],
+            )
         return TaskStepResult(
             step_id="completed",
             status=TaskStepStatus.COMPLETED,
@@ -311,7 +330,204 @@ class WorkTaskExecutor:
                 DailyPlanUpdateArguments.model_validate(arguments),
                 actor_id=action.capability_request.actor_id,
             )
+        if handler == "shell_execute":
+            return await self._execute_shell(ShellExecuteArguments.model_validate(arguments))
         raise WorkOperationError("work_handler_unknown")
+
+    async def _execute_shell(
+        self,
+        arguments: ShellExecuteArguments,
+    ) -> tuple[dict[str, Any], TaskEvidence]:
+        if not self._shell_enabled:
+            raise WorkOperationError("shell_disabled")
+        self._validate_shell_command(arguments)
+        target_cwd = self._resolve_workspace_path(arguments.cwd, must_exist=True)
+        if not target_cwd.is_dir():
+            raise WorkOperationError("shell_cwd_not_directory")
+
+        environment = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "LC_ALL": os.environ.get("LC_ALL", ""),
+            "NO_COLOR": "1",
+            "PYTHONUTF8": "1",
+        }
+        virtual_environment = os.environ.get("VIRTUAL_ENV")
+        if virtual_environment:
+            environment["VIRTUAL_ENV"] = virtual_environment
+        executable = shutil.which(arguments.argv[0], path=environment["PATH"])
+        if executable is None:
+            raise WorkOperationError("shell_executable_not_found")
+
+        process = await asyncio.create_subprocess_exec(
+            executable,
+            *arguments.argv[1:],
+            cwd=target_cwd,
+            env=environment,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        if process.stdout is None or process.stderr is None:
+            await self._terminate_process(process)
+            raise WorkOperationError("shell_process_pipes_missing")
+
+        total_output = [0]
+
+        async def read_pipe(stream: asyncio.StreamReader) -> bytes:
+            chunks: list[bytes] = []
+            while chunk := await stream.read(64 * 1024):
+                total_output[0] += len(chunk)
+                if total_output[0] > self._shell_max_output_bytes:
+                    raise WorkOperationError("shell_output_limit")
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+        stdout_task = asyncio.create_task(read_pipe(process.stdout))
+        stderr_task = asyncio.create_task(read_pipe(process.stderr))
+        wait_task = asyncio.create_task(process.wait())
+        try:
+            stdout, stderr, return_code = await asyncio.wait_for(
+                asyncio.gather(stdout_task, stderr_task, wait_task),
+                timeout=min(arguments.timeout_seconds, self._shell_timeout_seconds),
+            )
+        except TimeoutError as exc:
+            await self._terminate_process(process)
+            raise WorkOperationError("shell_timeout") from exc
+        except asyncio.CancelledError:
+            await self._terminate_process(process)
+            raise
+        except WorkOperationError:
+            await self._terminate_process(process)
+            raise
+        finally:
+            for task in (stdout_task, stderr_task, wait_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                stdout_task,
+                stderr_task,
+                wait_task,
+                return_exceptions=True,
+            )
+
+        stdout_text = stdout.decode("utf-8", errors="replace")
+        stderr_text = stderr.decode("utf-8", errors="replace")
+        relative_cwd = target_cwd.relative_to(self._workspace_root).as_posix() or "."
+        output = {
+            "kind": "shell_execution",
+            "argv": arguments.argv,
+            "cwd": relative_cwd,
+            "exit_code": return_code,
+            "stdout": stdout_text[: arguments.max_output_chars],
+            "stderr": stderr_text[: arguments.max_output_chars],
+            "stdout_truncated": len(stdout_text) > arguments.max_output_chars,
+            "stderr_truncated": len(stderr_text) > arguments.max_output_chars,
+            "taint_labels": ["untrusted_tool_result"],
+        }
+        evidence = TaskEvidence(
+            kind="process_exit",
+            source="host_process_runner",
+            data={
+                "argv_sha256": hashlib.sha256(
+                    "\x00".join(arguments.argv).encode("utf-8")
+                ).hexdigest(),
+                "cwd": relative_cwd,
+                "exit_code": return_code,
+                "stdout_bytes": len(stdout),
+                "stderr_bytes": len(stderr),
+                "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
+                "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
+            },
+        )
+        return output, evidence
+
+    def _validate_shell_command(self, arguments: ShellExecuteArguments) -> None:
+        argv = arguments.argv
+        executable = argv[0]
+        if executable not in self._shell_allowed_executables:
+            raise WorkOperationError("shell_executable_denied")
+        for token in argv[1:]:
+            normalized = token.replace("\\", "/")
+            candidate_path = self._workspace_root / normalized
+            if (
+                normalized.startswith(("/", "~/"))
+                or ".." in Path(normalized).parts
+                or self._is_sensitive(candidate_path)
+                or normalized.startswith(
+                    (
+                        "--directory=",
+                        "--project=",
+                        "--rootdir=",
+                        "--basetemp=",
+                        "--confcutdir=",
+                        "--git-dir=",
+                        "--work-tree=",
+                    )
+                )
+            ):
+                raise WorkOperationError("shell_argument_scope_denied")
+        blocked_options = {
+            "-C",
+            "--config-env",
+            "--directory",
+            "--exec-path",
+            "--git-dir",
+            "--hidden",
+            "--no-ignore",
+            "--no-ignore-vcs",
+            "--pre",
+            "--pre-glob",
+            "--project",
+            "--work-tree",
+            "-uu",
+            "-uuu",
+        }
+        if any(token in blocked_options for token in argv[1:]):
+            raise WorkOperationError("shell_argument_scope_denied")
+
+        if executable == "git":
+            subcommand = next((token for token in argv[1:] if not token.startswith("-")), "")
+            allowed_git = {
+                "describe",
+                "diff",
+                "grep",
+                "log",
+                "ls-files",
+                "rev-parse",
+                "show",
+                "status",
+            }
+            if subcommand not in allowed_git:
+                raise WorkOperationError("shell_git_subcommand_denied")
+        elif executable == "uv":
+            if len(argv) < 3 or argv[1] != "run" or argv[2] not in {
+                "mypy",
+                "pytest",
+                "ruff",
+            }:
+                raise WorkOperationError("shell_uv_command_denied")
+        elif executable == "pwd" and any(token not in {"-L", "-P"} for token in argv[1:]):
+            raise WorkOperationError("shell_pwd_arguments_denied")
+
+    @staticmethod
+    async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+        if process.returncode is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=0.5)
+            return
+        except TimeoutError:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        await process.wait()
 
     def _read_file(self, arguments: WorkspaceReadArguments) -> tuple[dict[str, Any], TaskEvidence]:
         target = self._resolve_workspace_path(arguments.path, must_exist=True)

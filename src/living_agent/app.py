@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -50,6 +51,11 @@ from living_agent.execution.report_contracts import (
 )
 from living_agent.execution.repository import TaskRepository
 from living_agent.execution.service import TaskService
+from living_agent.execution.shell_contracts import (
+    SHELL_EXECUTE_CAPABILITY,
+    ShellExecuteArguments,
+    shell_scope_matches,
+)
 from living_agent.execution.work import WorkTaskExecutor
 from living_agent.execution.work_contracts import (
     DAILY_PLAN_READ_CAPABILITY,
@@ -146,6 +152,8 @@ from living_agent.trust.management_auth import (
 from living_agent.users.repository import UserRepository
 from living_agent.users.service import UserService
 
+logger = logging.getLogger(__name__)
+
 
 def create_app(
     settings: Settings | None = None,
@@ -161,6 +169,7 @@ def create_app(
         owner_id=resolved_settings.owner_id,
         admin_ids=frozenset(resolved_settings.admin_ids),
     )
+    trusted_work_authorities = frozenset({AuthorityLevel.OWNER, AuthorityLevel.ADMIN})
     audit = AuditService(database.sessions)
     user_service = UserService(
         repository=UserRepository(database.sessions),
@@ -182,28 +191,28 @@ def create_app(
             operations=frozenset({"read"}),
             argument_model=WorkspaceReadArguments,
             scope_validator=workspace_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
         ),
         CapabilityDefinition(
             name=WORKSPACE_LIST_CAPABILITY,
             operations=frozenset({"list"}),
             argument_model=WorkspaceListArguments,
             scope_validator=workspace_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
         ),
         CapabilityDefinition(
             name=WORKSPACE_SEARCH_CAPABILITY,
             operations=frozenset({"search"}),
             argument_model=WorkspaceSearchArguments,
             scope_validator=workspace_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
         ),
         CapabilityDefinition(
             name=WORKSPACE_WRITE_CAPABILITY,
             operations=frozenset({"write"}),
             argument_model=WorkspaceWriteArguments,
             scope_validator=workspace_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
         ),
         CapabilityDefinition(
             name=WEB_FETCH_CAPABILITY,
@@ -222,21 +231,29 @@ def create_app(
             operations=frozenset({"read"}),
             argument_model=DailyPlanReadArguments,
             scope_validator=daily_plan_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
         ),
         CapabilityDefinition(
             name=DAILY_PLAN_WRITE_CAPABILITY,
             operations=frozenset({"write"}),
             argument_model=DailyPlanWriteArguments,
             scope_validator=daily_plan_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
         ),
         CapabilityDefinition(
             name=DAILY_PLAN_UPDATE_CAPABILITY,
             operations=frozenset({"update"}),
             argument_model=DailyPlanUpdateArguments,
             scope_validator=daily_plan_scope_matches,
-            allowed_authorities=frozenset({AuthorityLevel.OWNER}),
+            allowed_authorities=trusted_work_authorities,
+        ),
+        CapabilityDefinition(
+            name=SHELL_EXECUTE_CAPABILITY,
+            operations=frozenset({"execute"}),
+            argument_model=ShellExecuteArguments,
+            confirmation_required=True,
+            scope_validator=shell_scope_matches,
+            allowed_authorities=trusted_work_authorities,
         ),
     ):
         broker.register_capability(definition)
@@ -449,6 +466,10 @@ def create_app(
         max_file_bytes=resolved_settings.work_max_file_bytes,
         max_web_bytes=resolved_settings.work_web_max_response_bytes,
         web_timeout_seconds=resolved_settings.work_web_timeout_seconds,
+        shell_enabled=resolved_settings.work_shell_enabled,
+        shell_allowed_executables=resolved_settings.work_shell_allowed_executables,
+        shell_timeout_seconds=resolved_settings.work_shell_timeout_seconds,
+        shell_max_output_bytes=resolved_settings.work_shell_max_output_bytes,
     )
     task_repository = TaskRepository(database.sessions)
     task_kernel = TaskKernel(
@@ -557,6 +578,24 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         del application
+
+        async def append_shutdown_audit(*, action: str, outcome: str) -> None:
+            """Keep shutdown observable without making audit contention fatal."""
+
+            try:
+                await audit.append(
+                    action=action,
+                    actor_id="living-agent",
+                    outcome=outcome,
+                    details={"environment": resolved_settings.environment},
+                )
+            except Exception as exc:
+                logger.warning(
+                    "shutdown lifecycle audit %s could not be persisted: %s",
+                    action,
+                    type(exc).__name__,
+                )
+
         try:
             await asyncio.to_thread(run_migrations, resolved_settings.database_url)
             await utterance_coordinator.initialize()
@@ -584,19 +623,29 @@ def create_app(
             yield
         finally:
             try:
-                await life_scheduler.stop()
+                await append_shutdown_audit(
+                    action="runtime.stopping",
+                    outcome="started",
+                )
             finally:
                 try:
-                    if isinstance(resolved_llm_provider, ClosableLLMProvider):
-                        await resolved_llm_provider.close()
+                    await life_scheduler.stop()
                 finally:
                     try:
-                        await work_executor.close()
+                        if isinstance(resolved_llm_provider, ClosableLLMProvider):
+                            await resolved_llm_provider.close()
                     finally:
                         try:
-                            await embedding_service.close()
+                            await work_executor.close()
                         finally:
-                            await database.dispose()
+                            try:
+                                await embedding_service.close()
+                                await append_shutdown_audit(
+                                    action="runtime.stopped",
+                                    outcome="success",
+                                )
+                            finally:
+                                await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version=__version__, lifespan=lifespan)
 

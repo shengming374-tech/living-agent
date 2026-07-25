@@ -31,6 +31,14 @@ LivingAgent 独立实现后处理算法和类型化输出边界。社交 Prompt 
 
 `src/plugin_runtime/host/supervisor.py`、`host/rpc_server.py`、`runner/runner_main.py` 和 `protocol/envelope.py` 展示了宿主/运行器进程边界、类型化 RPC 信封、超时、健康检查、终止/强杀升级和能力服务。LivingAgent 独立实现更小的每插件 JSON-RPC 标准输入输出切片，并使用临时授权；不复用 MaiBot SDK 合同或代码。
 
+## 工具规格与运行生命周期
+
+`src/core/tooling.py` 把工具声明、调用上下文和结构化结果分开；`src/A_memorix/core/runtime/lifecycle_orchestrator.py` 则让后台任务启动保持幂等，并在关闭时统一取消和等待清理。LivingAgent 0.2.4 采用这两个机制思想，把 Shell 做成宿主注册的类型化能力，而不是把终端对象交给模型：自然语言只生成精确 argv 提案，能力代理再检查身份、范围和所有者确认；执行器负责输出配额、超时、进程组终止、退出证据和重启后重新确认。实现没有复制 MaiBot 的工具数据类、生命周期函数或运行时结构。
+
+## 人物事实写回与冲突审查
+
+`src/services/memory_flow_service.py` 展示了“只从目标用户原始发言取事实值、邻近消息仅帮助消歧”的证据优先原则。LivingAgent 继续使用自己的候选/来源/事实性模型：自动候选遇到等价事实时去重，遇到同主题冲突时保持 `pending`，只有所有者显式替换才会提交新节点并把旧节点写成带版本的 `superseded` 软删除。这样借鉴了重证据写回机制，同时保留更严格的人工冲突裁决。
+
 ## 视觉观察与回复分层
 
 `src/chat/image_system/image_manager.py`、`src/maisaka/visual/`、`src/config/official_configs.py` 和 `src/maisaka/reasoning_engine.py` 展示了几项可复用的架构思想：视觉识别可以先形成文字观察并供文本模型消费，也可以在模型支持时直接传递图片；识别结果应复用；图片数量、等待和上下文成本必须有界；迟到的识别结果只能刷新数据占位，不能改变权限。
@@ -46,3 +54,5 @@ LivingAgent 没有采用上游的图片数据库、文件缓存、后台任务�
 - 让召回记忆与当前用户消息在上下文中明确分离。
 - 隔离插件失败，并由宿主强制执行超时。
 - 将视觉观察与最终表达分层，并为直接多模态和文本降级保留显式、可测试的选择。
+- 工具调用使用类型化规格和统一生命周期；进程退出、超时和取消都产生宿主证据。
+- 人物事实只从目标用户证据提取；冲突不自动覆盖，必须进入显式审查。

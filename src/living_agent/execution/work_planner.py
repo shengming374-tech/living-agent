@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal
 
+from living_agent.execution.shell_contracts import (
+    SHELL_EXECUTE_CAPABILITY,
+    SHELL_EXECUTE_HANDLER,
+    ShellExecuteArguments,
+    shell_scope,
+)
 from living_agent.execution.work_contracts import (
     DAILY_PLAN_READ_CAPABILITY,
     DAILY_PLAN_UPDATE_CAPABILITY,
@@ -34,6 +41,7 @@ WorkHandler = Literal[
     "daily_plan_read",
     "daily_plan_write",
     "daily_plan_update",
+    "shell_execute",
 ]
 
 _URL = re.compile(r"https?://[^\s<>\]\[\"']+", re.IGNORECASE)
@@ -47,6 +55,21 @@ _FILE_WRITE = re.compile(
     r"(?:一个\s*)?(?:文件\s*)?[`\"'“”]?"
     r"(?P<path>[^`\"'“”\uff1a:\s]+)[`\"'“”]?\s*"
     r"(?:\uff0c?\s*内容\s*(?:为|是)?\s*|[:\uff1a]\s*)(?P<content>[\s\S]+)$",
+    re.IGNORECASE,
+)
+_SHELL_CWD_PREFIX = re.compile(
+    r"^\s*(?:请|帮我)?\s*在\s*[`\"'“”]?(?P<cwd>[^`\"'“”\s]+)"
+    r"[`\"'“”]?\s*(?:目录)?(?:中|里)\s*[,\uff0c]?\s*",
+    re.IGNORECASE,
+)
+_SHELL_FENCED = re.compile(
+    r"^\s*(?:请|帮我)?\s*(?:运行|执行|跑一下|run|execute)\s*"
+    r"(?:(?:shell|终端)\s*)?(?:命令|command)?\s*[`]\s*(?P<command>.+?)\s*[`]\s*$",
+    re.IGNORECASE,
+)
+_SHELL_EXPLICIT = re.compile(
+    r"^\s*(?:请|帮我)?\s*(?:运行|执行|run|execute)\s*"
+    r"(?:(?:shell|终端)\s*)?(?:命令|command)\s*[:\uff1a]\s*(?P<command>.+?)\s*$",
     re.IGNORECASE,
 )
 
@@ -69,7 +92,11 @@ class ParsedWorkRequest:
 
     @property
     def writes(self) -> bool:
-        return any(action.operation in {"write", "create", "update"} for action in self.actions)
+        return any(
+            action.operation in {"write", "create", "update"}
+            or action.handler == SHELL_EXECUTE_HANDLER
+            for action in self.actions
+        )
 
 
 def parse_work_request(
@@ -111,6 +138,10 @@ def parse_work_request(
                 requires_synthesis=any(item.requires_synthesis for item in completed),
             )
     target_date = _requested_date(normalized, resolved_today)
+
+    shell = _parse_shell(normalized)
+    if shell is not None:
+        return shell
 
     plan = _parse_daily_plan(normalized, target_date)
     if plan is not None:
@@ -193,6 +224,67 @@ def parse_work_request(
             goal="Read the project README and produce the requested project summary",
         )
     return None
+
+
+def _parse_shell(text: str) -> ParsedWorkRequest | None:
+    cwd = "."
+    command_text = text
+    cwd_match = _SHELL_CWD_PREFIX.match(command_text)
+    if cwd_match is not None:
+        cwd = _clean_path(cwd_match.group("cwd"))
+        command_text = command_text[cwd_match.end() :]
+
+    normalized = " ".join(command_text.casefold().split())
+    aliases: dict[str, list[str]] = {
+        "运行测试": ["uv", "run", "pytest"],
+        "执行测试": ["uv", "run", "pytest"],
+        "跑一下测试": ["uv", "run", "pytest"],
+        "跑测试": ["uv", "run", "pytest"],
+        "run tests": ["uv", "run", "pytest"],
+        "运行代码检查": ["uv", "run", "ruff", "check", "."],
+        "执行代码检查": ["uv", "run", "ruff", "check", "."],
+        "检查代码规范": ["uv", "run", "ruff", "check", "."],
+        "run lint": ["uv", "run", "ruff", "check", "."],
+        "运行类型检查": ["uv", "run", "mypy"],
+        "执行类型检查": ["uv", "run", "mypy"],
+        "run type check": ["uv", "run", "mypy"],
+        "查看 git 状态": ["git", "status", "--short"],
+        "查看git状态": ["git", "status", "--short"],
+        "git status": ["git", "status", "--short"],
+    }
+    argv = aliases.get(normalized)
+    if argv is None:
+        match = _SHELL_FENCED.fullmatch(command_text) or _SHELL_EXPLICIT.fullmatch(
+            command_text
+        )
+        if match is None:
+            return None
+        try:
+            argv = shlex.split(match.group("command"), posix=True)
+        except ValueError:
+            return None
+    try:
+        arguments = ShellExecuteArguments(
+            argv=argv,
+            cwd=cwd,
+        )
+    except ValueError:
+        return None
+    display = shlex.join(arguments.argv)
+    return ParsedWorkRequest(
+        goal=f"Run the confirmed workspace command: {display}",
+        actions=(
+            WorkActionSpec(
+                title=f"Run workspace command {display[:120]}",
+                handler="shell_execute",
+                capability=SHELL_EXECUTE_CAPABILITY,
+                operation="execute",
+                resource_scope=shell_scope(arguments),
+                arguments=arguments.model_dump(mode="json"),
+            ),
+        ),
+        requires_synthesis=False,
+    )
 
 
 def _parse_daily_plan(text: str, plan_date: date) -> ParsedWorkRequest | None:

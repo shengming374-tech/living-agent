@@ -21,6 +21,11 @@ from living_agent.execution.contracts import (
     VerifiedTaskResult,
 )
 from living_agent.execution.report_contracts import TASK_REPORT_CAPABILITY, TaskReportArguments
+from living_agent.execution.shell_contracts import (
+    SHELL_EXECUTE_CAPABILITY,
+    ShellExecuteArguments,
+    shell_scope_matches,
+)
 from living_agent.execution.work_contracts import (
     DAILY_PLAN_READ_CAPABILITY,
     DAILY_PLAN_UPDATE_CAPABILITY,
@@ -237,6 +242,7 @@ class TaskPlanVerifier:
                 "daily_plan_read": "database_read",
                 "daily_plan_write": "database_commit",
                 "daily_plan_update": "database_commit",
+                "shell_execute": "process_exit",
             }.get(step.action.handler)
             if expected_work_evidence is not None and expected_work_evidence not in evidence_kinds:
                 errors.append("work_evidence_missing")
@@ -313,6 +319,13 @@ class TaskPlanVerifier:
                 "update",
                 DailyPlanUpdateArguments,
                 daily_plan_scope_matches,
+                True,
+            ),
+            "shell_execute": (
+                SHELL_EXECUTE_CAPABILITY,
+                "execute",
+                ShellExecuteArguments,
+                shell_scope_matches,
                 True,
             ),
         }

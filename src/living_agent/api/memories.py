@@ -105,10 +105,37 @@ async def commit_candidate(
     actor_id: ActorHeader,
     authority: AuthorityDependency,
     memories: MemoryDependency,
+    replace_conflicts: bool = Query(default=False),
 ) -> MemoryCommitResult:
     _require_owner(actor_id, authority)
     try:
-        return await memories.commit_candidate(candidate_id, actor_id=actor_id)
+        return await memories.commit_candidate(
+            candidate_id,
+            actor_id=actor_id,
+            replace_conflicts=replace_conflicts,
+        )
+    except (MemoryNotFoundError, MemoryVersionConflictError) as exc:
+        raise _translate_error(exc) from exc
+
+
+@router.post("/manual", response_model=MemoryCommitResult, status_code=status.HTTP_201_CREATED)
+async def create_manual_memory(
+    candidate: MemoryCandidateCreate,
+    actor_id: ActorHeader,
+    authority: AuthorityDependency,
+    memories: MemoryDependency,
+    replace_conflicts: bool = Query(default=False),
+) -> MemoryCommitResult:
+    """Create and review an owner-authored candidate in one provenance-preserving call."""
+
+    _require_owner(actor_id, authority)
+    try:
+        created = await memories.create_candidate(candidate, proposer_id=actor_id)
+        return await memories.commit_candidate(
+            created.candidate_id,
+            actor_id=actor_id,
+            replace_conflicts=replace_conflicts,
+        )
     except (MemoryNotFoundError, MemoryVersionConflictError) as exc:
         raise _translate_error(exc) from exc
 

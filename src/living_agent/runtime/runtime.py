@@ -227,10 +227,15 @@ class AgentRuntime:
         )
         turn = self._reply_necessity.apply(preliminary_turn, schedule)
         confirmation = None
+        cancellation = None
+        status_command = None
         proposal = None
         if turn.mode != "observe":
             confirmation = self._executive.confirmation(event)
-            proposal = self._executive.propose(event) if confirmation is None else None
+            cancellation = self._executive.cancellation(event)
+            status_command = self._executive.status(event)
+            if confirmation is None and cancellation is None and status_command is None:
+                proposal = self._executive.propose(event)
         preview_impression = (
             await self._social_state.latest_impression(event.conversation_id, now=event.created_at)
             if event.conversation_id is not None
@@ -277,6 +282,8 @@ class AgentRuntime:
             would_call_model=(
                 turn.mode != "observe"
                 and confirmation is None
+                and cancellation is None
+                and status_command is None
                 and (
                     proposal is None
                     or any(
@@ -428,6 +435,54 @@ class AgentRuntime:
             except TaskConfirmationDeniedError:
                 message = self._social.render_task_confirmation_denied()
             except (TaskNotFoundError, TaskStateError):
+                message = self._social.render_task_confirmation_missing()
+            utterance = self._social.plan_utterance(message, turn)
+            messages = [unit.text for unit in utterance.units]
+            return ChatResult(
+                event=event,
+                turn=turn,
+                schedule=schedule,
+                message=messages[0],
+                messages=messages,
+                utterance=utterance,
+            )
+
+        cancellation = self._executive.cancellation(event)
+        if cancellation is not None:
+            try:
+                task_run = await self._tasks.cancel(
+                    task_id=cancellation.task_id,
+                    conversation_id=event.conversation_id,
+                    actor_id=event.source_identity or "anonymous",
+                )
+                message = self._social.render_task_run(task_run)
+            except TaskConfirmationDeniedError:
+                message = self._social.render_task_confirmation_denied()
+            except (TaskNotFoundError, TaskStateError):
+                message = self._social.render_task_confirmation_missing()
+            utterance = self._social.plan_utterance(message, turn)
+            messages = [unit.text for unit in utterance.units]
+            return ChatResult(
+                event=event,
+                turn=turn,
+                schedule=schedule,
+                message=messages[0],
+                messages=messages,
+                utterance=utterance,
+            )
+
+        status_command = self._executive.status(event)
+        if status_command is not None:
+            try:
+                task_run = await self._tasks.status(
+                    task_id=status_command.task_id,
+                    conversation_id=event.conversation_id,
+                    actor_id=event.source_identity or "anonymous",
+                )
+                message = self._social.render_task_run(task_run)
+            except TaskConfirmationDeniedError:
+                message = self._social.render_task_confirmation_denied()
+            except TaskNotFoundError:
                 message = self._social.render_task_confirmation_missing()
             utterance = self._social.plan_utterance(message, turn)
             messages = [unit.text for unit in utterance.units]

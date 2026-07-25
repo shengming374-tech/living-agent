@@ -30,6 +30,8 @@
 | `src/maisaka/memory/mid_term.py` | 紧凑摘要和召回线索 |
 | `src/maisaka/memory/heuristic_injector.py` | 带范围、有限频率的记忆召回 |
 | `src/services/memory_flow_service.py` | 人物事实回写的证据选择 |
+| `src/core/tooling.py` | 工具声明、调用上下文和结构化执行结果的分离 |
+| `src/A_memorix/core/runtime/lifecycle_orchestrator.py` | 后台任务幂等启动、统一取消和关闭等待 |
 | `src/chat/image_system/image_manager.py` | 图片描述、识别结果复用和失败降级的机制研究 |
 | `src/chat/message_receive/message.py`、`image_receive_compressor.py` | 入站图片数量与大小边界的机制研究 |
 | `src/maisaka/visual/mode_utils.py`、`message_limiter.py` | 直接多模态与文本观察模式选择、上下文图片上限 |

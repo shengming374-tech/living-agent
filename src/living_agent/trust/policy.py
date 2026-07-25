@@ -39,11 +39,13 @@ class PolicyRuleSet:
         operation: str,
         confirmed_by: str | None,
         owner_id: str,
+        force_confirmation: bool = False,
     ) -> DecisionOutcome | None:
-        if self.operation_class(operation) != "write":
+        if not force_confirmation and self.operation_class(operation) != "write":
             return None
         if (
-            operation.lower() in self.configured_system_operations
+            not force_confirmation
+            and operation.lower() in self.configured_system_operations
             and authority is AuthorityLevel.SYSTEM
         ):
             return None

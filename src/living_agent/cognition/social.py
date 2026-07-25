@@ -98,6 +98,10 @@ class SocialCognition:
         return "这次没有得到能可靠核对的计算结果"
 
     def render_task_run(self, run: TaskRun) -> str:
+        if run.status is TaskRunStatus.CANCELLED:
+            return f"任务 {run.task.task_id} 已取消, 未执行的步骤不会继续"
+        if run.status in {TaskRunStatus.PLANNED, TaskRunStatus.RUNNING}:
+            return f"任务 {run.task.task_id} 正在执行"
         if run.status is TaskRunStatus.WAITING_CONFIRMATION:
             pending = next(
                 (step for step in run.plan.steps if step.step_id == run.pending_step_id),
@@ -111,6 +115,13 @@ class SocialCognition:
                 "daily_plan_update",
             }:
                 return f"工作计划已准备好, 确认任务 {run.task.task_id} 后保存"
+            if pending is not None and pending.action.handler == "shell_execute":
+                argv = pending.action.capability_request.arguments.get("argv", [])
+                display = " ".join(str(item) for item in argv)
+                return (
+                    f"命令 {display[:100]} 已准备好, "
+                    f"确认任务 {run.task.task_id} 后执行"
+                )
             return f"内容已经核对好了\uff0c保存报告还需要所有者确认\uff0c任务是 {run.task.task_id}"
         outputs = [
             result.output
@@ -126,6 +137,16 @@ class SocialCognition:
         workspace_writes = [output for output in outputs if output.get("kind") == "workspace_write"]
         plan_writes = [output for output in outputs if output.get("kind") == "daily_plan_write"]
         plan_updates = [output for output in outputs if output.get("kind") == "daily_plan_update"]
+        shell_runs = [output for output in outputs if output.get("kind") == "shell_execution"]
+        if run.status is TaskRunStatus.COMPLETED and shell_runs:
+            shell_run = shell_runs[-1]
+            stdout = str(shell_run.get("stdout", "")).strip()
+            if stdout:
+                return f"命令执行完成, 退出码 0\n{stdout[:1000]}"
+            stderr = str(shell_run.get("stderr", "")).strip()
+            if stderr:
+                return f"命令执行完成, 退出码 0\n{stderr[:1000]}"
+            return "命令执行完成, 退出码 0"
         if run.status is TaskRunStatus.COMPLETED and workspace_writes:
             return f"文件已经写入 {workspace_writes[-1].get('path')}"
         if run.status is TaskRunStatus.COMPLETED and plan_writes:
@@ -180,6 +201,34 @@ class SocialCognition:
             return "这个文件属于敏感路径, 不能通过聊天读取或写入"
         if any(error.startswith("web_") for error in errors):
             return "网页读取没有通过网络安全检查, 任务已停止"
+        if "shell_disabled" in errors:
+            return "Shell 能力没有启用, 所以没有执行命令"
+        if "shell_executable_denied" in errors or "shell_git_subcommand_denied" in errors:
+            return "这个命令不在允许的 Shell 范围内, 所以没有执行"
+        if "shell_argument_scope_denied" in errors:
+            return "命令参数超出了工作区范围, 所以没有执行"
+        if "shell_timeout" in errors:
+            return "命令执行超时, 相关进程已经终止"
+        if "shell_exit_nonzero" in errors:
+            failed_shell = next(
+                (
+                    result.output
+                    for result in reversed(run.step_results)
+                    if result.output is not None
+                    and result.output.get("kind") == "shell_execution"
+                ),
+                None,
+            )
+            if failed_shell is not None:
+                stderr = str(failed_shell.get("stderr", "")).strip()
+                stdout = str(failed_shell.get("stdout", "")).strip()
+                detail = stderr or stdout
+                if detail:
+                    return (
+                        f"命令退出码是 {failed_shell.get('exit_code')}\n"
+                        f"{detail[:1000]}"
+                    )
+            return "命令执行失败, 已记录非零退出码"
         return "任务结果没法可靠核对\uff0c我停掉了后面的步骤"
 
     def render_task_confirmation_denied(self) -> str:

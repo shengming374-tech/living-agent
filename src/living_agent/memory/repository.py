@@ -131,8 +131,31 @@ class MemoryRepository:
             record.updated_at = _now()
         return self._candidate_schema(record)
 
-    async def has_conflict(self, candidate: MemoryCandidate) -> bool:
-        statement = select(MemoryNodeORM.id).where(
+    async def defer_candidate(self, candidate_id: str, *, reason: str) -> MemoryCandidate:
+        async with self._sessions() as session, session.begin():
+            record = await session.get(MemoryCandidateORM, candidate_id)
+            if record is None:
+                raise MemoryNotFoundError("memory candidate not found")
+            if record.status != CandidateStatus.PENDING.value:
+                raise MemoryVersionConflictError("memory candidate is no longer pending")
+            record.decision_reason = reason
+            record.updated_at = _now()
+        return self._candidate_schema(record)
+
+    async def equivalent_memory(self, candidate: MemoryCandidate) -> MemoryNode | None:
+        statement = select(MemoryNodeORM).where(
+            MemoryNodeORM.subject == candidate.subject,
+            MemoryNodeORM.memory_type == candidate.type.value,
+            MemoryNodeORM.scope == candidate.scope,
+            MemoryNodeORM.status == MemoryStatus.ACTIVE.value,
+            MemoryNodeORM.searchable_text == _searchable_text(candidate.content),
+        )
+        async with self._sessions() as session:
+            record = await session.scalar(statement.limit(1))
+        return self._node_schema(record) if record is not None else None
+
+    async def conflicts(self, candidate: MemoryCandidate) -> list[MemoryNode]:
+        statement = select(MemoryNodeORM).where(
             MemoryNodeORM.subject == candidate.subject,
             MemoryNodeORM.memory_type == candidate.type.value,
             MemoryNodeORM.scope == candidate.scope,
@@ -140,7 +163,11 @@ class MemoryRepository:
             MemoryNodeORM.searchable_text != _searchable_text(candidate.content),
         )
         async with self._sessions() as session:
-            return (await session.scalar(statement.limit(1))) is not None
+            records = list((await session.scalars(statement)).all())
+        return [self._node_schema(record) for record in records]
+
+    async def has_conflict(self, candidate: MemoryCandidate) -> bool:
+        return bool(await self.conflicts(candidate))
 
     async def commit_candidate(
         self,
@@ -148,6 +175,7 @@ class MemoryRepository:
         *,
         factuality: MemoryFactuality,
         actor_id: str,
+        supersede_memory_ids: list[str] | None = None,
     ) -> tuple[MemoryCandidate, MemoryNode]:
         async with self._sessions() as session, session.begin():
             candidate = await session.get(MemoryCandidateORM, candidate_id)
@@ -175,6 +203,33 @@ class MemoryRepository:
             )
             session.add(node)
             session.add(self._version_record(node, actor_id=actor_id, change_type="created"))
+            superseded_ids = supersede_memory_ids or []
+            if superseded_ids:
+                records = list(
+                    (
+                        await session.scalars(
+                            select(MemoryNodeORM).where(
+                                MemoryNodeORM.id.in_(superseded_ids)
+                            )
+                        )
+                    ).all()
+                )
+                if len(records) != len(set(superseded_ids)):
+                    raise MemoryNotFoundError("superseded memory not found")
+                for source in records:
+                    if source.status != MemoryStatus.ACTIVE.value:
+                        raise MemoryVersionConflictError(
+                            "superseded memory must still be active"
+                        )
+                    source.status = MemoryStatus.DELETED.value
+                    self._advance(source)
+                    session.add(
+                        self._version_record(
+                            source,
+                            actor_id=actor_id,
+                            change_type="superseded",
+                        )
+                    )
             candidate.status = CandidateStatus.COMMITTED.value
             candidate.factuality = factuality.value
             candidate.decision_reason = "committed"

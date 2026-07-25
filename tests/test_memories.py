@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from living_agent.app import create_app
+from living_agent.config import Settings
 from living_agent.memory.service import MemoryService
 
 
@@ -375,6 +377,102 @@ def test_conflicting_memory_requires_explicit_review(client: TestClient) -> None
 
     assert not result["decision"]["allowed"]
     assert result["decision"]["reason_code"] == "conflicting_memory_requires_review"
+    assert result["candidate"]["status"] == "pending"
+    assert result["candidate"]["decision_reason"] == "conflicting_memory_requires_review"
+
+
+def test_owner_can_replace_conflicting_memory_with_versioned_supersession(
+    client: TestClient,
+) -> None:
+    original = create_committed_memory(
+        client,
+        content="The release is Monday.",
+        subject="release date",
+    )
+    event_id = ingest_event(client, content="The release is Tuesday.")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="The release is Tuesday.",
+        subject="release date",
+    )
+
+    replaced = client.post(
+        f"/v1/memories/candidates/{candidate['candidate_id']}/commit"
+        "?replace_conflicts=true",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+    inventory = client.get(
+        "/v1/memories?include_deleted=true",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+    original_history = client.get(
+        f"/v1/memories/{original['id']}/versions",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+
+    assert replaced.status_code == 200
+    replacement = replaced.json()["memory"]
+    assert replacement["content"] == "The release is Tuesday."
+    by_id = {memory["id"]: memory for memory in inventory}
+    assert by_id[original["id"]]["status"] == "deleted"
+    assert by_id[replacement["id"]]["status"] == "active"
+    assert original_history[-1]["change_type"] == "superseded"
+
+
+def test_auto_memory_conflict_stays_pending_for_manual_review(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        ingest_event(client, content="我叫小明", conversation_id="auto-conflict")
+        ingest_event(client, content="我叫小李", conversation_id="auto-conflict")
+        active = client.get(
+            "/v1/memories",
+            headers={
+                "X-Actor-ID": "member-1",
+                "X-Conversation-ID": "auto-conflict",
+            },
+        ).json()
+        pending = client.get(
+            "/v1/memories/candidates?status=pending",
+            headers={"X-Actor-ID": "owner-1"},
+        ).json()
+
+    assert [memory["content"] for memory in active] == ["我叫小明"]
+    assert len(pending) == 1
+    assert pending[0]["content"] == "我叫小李"
+    assert pending[0]["decision_reason"] == "conflicting_memory_requires_review"
+
+
+def test_owner_manual_memory_endpoint_preserves_candidate_firewall(
+    client: TestClient,
+) -> None:
+    event_id = ingest_event(client, content="我正在整理手动记忆")
+    response = client.post(
+        "/v1/memories/manual",
+        headers={"X-Actor-ID": "owner-1"},
+        json={
+            "type": "semantic",
+            "content": "member-1 正在整理手动记忆",
+            "subject": "手动记忆入口",
+            "source_event_ids": [event_id],
+            "factuality": "verified",
+            "confidence": 0.9,
+            "importance": 0.7,
+            "scope": "conversation:chat-a",
+        },
+    )
+
+    assert response.status_code == 201
+    result = response.json()
+    assert result["candidate"]["status"] == "committed"
+    assert result["memory"]["factuality"] == "reported"
 
 
 def test_dream_stays_nonfactual(client: TestClient) -> None:

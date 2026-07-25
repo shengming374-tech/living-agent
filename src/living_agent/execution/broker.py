@@ -29,6 +29,7 @@ class CapabilityDefinition:
     operations: frozenset[str]
     argument_model: type[BaseModel]
     sandbox_required: bool = False
+    confirmation_required: bool = False
     scope_validator: Callable[[BaseModel, str], bool] | None = None
     allowed_authorities: frozenset[AuthorityLevel] | None = None
 
@@ -82,6 +83,7 @@ class CapabilityBroker:
                 operations=sorted(definition.operations),
                 argument_schema=definition.argument_model.__name__,
                 sandbox_required=definition.sandbox_required,
+                confirmation_required=definition.confirmation_required,
                 scope_bound=definition.scope_validator is not None,
                 allowed_authorities=(
                     sorted(item.value for item in definition.allowed_authorities)
@@ -223,6 +225,7 @@ class CapabilityBroker:
             operation=request.operation,
             confirmed_by=confirmed_by,
             owner_id=self._authority.owner_id,
+            force_confirmation=definition.confirmation_required,
         )
         if confirmation is not None:
             return CapabilityDecision(
