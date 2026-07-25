@@ -28,6 +28,7 @@ class _ActiveUtterance:
     session: UtteranceSession
     source_event_id: str
     recalled_memory_ids: tuple[str, ...]
+    memory_trace_id: str | None
     attention_cue_id: str | None
     cancelled: asyncio.Event
     started_count: int = 0
@@ -83,6 +84,7 @@ class UtteranceCoordinator:
                     session=stored.session,
                     source_event_id=stored.source_event_id,
                     recalled_memory_ids=stored.recalled_memory_ids,
+                    memory_trace_id=stored.memory_trace_id,
                     attention_cue_id=stored.attention_cue_id,
                     cancelled=asyncio.Event(),
                     started_count=stored.started_count,
@@ -99,6 +101,7 @@ class UtteranceCoordinator:
                     session=stored.session,
                     source_event_id=stored.source_event_id,
                     recalled_memory_ids=stored.recalled_memory_ids,
+                    memory_trace_id=stored.memory_trace_id,
                     attention_cue_id=stored.attention_cue_id,
                     cancelled=asyncio.Event(),
                     started_count=stored.started_count,
@@ -188,6 +191,7 @@ class UtteranceCoordinator:
                         conversation_id=turn.conversation_id,
                         source_event_id=result.event.event_id,
                         recalled_memory_ids=result.recalled_memory_ids,
+                        memory_trace_id=result.memory_trace_id,
                         attention_cue_id=result.attention_cue_id,
                         generation=turn.generation,
                         replaced_session_id=turn.replaced_session_id,
@@ -196,6 +200,7 @@ class UtteranceCoordinator:
                     session=session,
                     source_event_id=result.event.event_id,
                     recalled_memory_ids=tuple(result.recalled_memory_ids),
+                    memory_trace_id=result.memory_trace_id,
                     attention_cue_id=result.attention_cue_id,
                     cancelled=asyncio.Event(),
                 )

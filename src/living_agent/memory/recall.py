@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import math
 import re
+from dataclasses import dataclass
 
-from living_agent.models.memory import MemoryFactuality, MemoryNode
+from living_agent.models.memory import MemoryFactuality, MemoryLayer, MemoryNode
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]+", re.IGNORECASE)
 _STOP_FEATURES = {
@@ -35,6 +36,14 @@ _REALITY_FACTUALITIES = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class RankedMemory:
+    memory: MemoryNode
+    lexical_score: float
+    semantic_score: float | None
+    final_score: float
+
+
 class MemoryRecallService:
     def rank(
         self,
@@ -43,14 +52,40 @@ class MemoryRecallService:
         *,
         limit: int,
         semantic_scores: dict[str, float] | None = None,
+        min_score: float = 0.0,
+        context_bonus: float = 0.0,
     ) -> list[MemoryNode]:
+        return [
+            item.memory
+            for item in self.rank_with_scores(
+                query,
+                memories,
+                limit=limit,
+                semantic_scores=semantic_scores,
+                min_score=min_score,
+                context_bonus=context_bonus,
+            )
+        ]
+
+    def rank_with_scores(
+        self,
+        query: str,
+        memories: list[MemoryNode],
+        *,
+        limit: int,
+        semantic_scores: dict[str, float] | None = None,
+        min_score: float = 0.0,
+        context_bonus: float = 0.0,
+    ) -> list[RankedMemory]:
         query_features = self._features(query)
         if not query_features:
             return []
-        ranked: list[tuple[float, MemoryNode]] = []
+        ranked: list[RankedMemory] = []
         normalized_query = self._normalize(query)
         for memory in memories:
             if memory.factuality not in _REALITY_FACTUALITIES:
+                continue
+            if memory.memory_layer is MemoryLayer.FACT:
                 continue
             searchable = f"{memory.subject} {self._content_text(memory)}"
             memory_features = self._features(searchable)
@@ -74,9 +109,22 @@ class MemoryRecallService:
                     + memory.importance * 0.1
                     + memory.confidence * 0.05
                 )
-            ranked.append((score + exact_bonus, memory))
-        ranked.sort(key=lambda item: (item[0], item[1].updated_at), reverse=True)
-        return [memory for _score, memory in ranked[:limit]]
+            final_score = score + exact_bonus + context_bonus
+            if final_score < min_score:
+                continue
+            ranked.append(
+                RankedMemory(
+                    memory=memory,
+                    lexical_score=lexical,
+                    semantic_score=semantic,
+                    final_score=final_score,
+                )
+            )
+        ranked.sort(
+            key=lambda item: (item.final_score, item.memory.updated_at),
+            reverse=True,
+        )
+        return ranked[:limit]
 
     @classmethod
     def _features(cls, text: str) -> set[str]:

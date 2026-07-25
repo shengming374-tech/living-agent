@@ -44,6 +44,9 @@ memory_embeddings_allow_remote: false
 memory_embedding_backfill_limit: 2000
 memory_embedding_min_similarity: 0.25
 memory_recall_candidate_limit: 300
+memory_recall_mode: dual
+memory_recall_min_score: 0.4
+memory_narrative_recall_limit: 2
 audit_page_size: 100
 test_disable_delays: false
 plugin_root: plugins/examples

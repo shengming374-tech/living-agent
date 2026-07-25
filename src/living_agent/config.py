@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     memory_embedding_backfill_limit: int = Field(default=2000, ge=1, le=100000)
     memory_embedding_min_similarity: float = Field(default=0.25, ge=-1.0, le=1.0)
     memory_recall_candidate_limit: int = Field(default=300, ge=1, le=5000)
+    memory_recall_mode: Literal["legacy", "shadow", "dual"] = "dual"
+    memory_recall_min_score: float = Field(default=0.4, ge=0.0, le=1.0)
+    memory_narrative_recall_limit: int = Field(default=2, ge=1, le=8)
     audit_page_size: int = Field(default=100, ge=1, le=1000)
     test_disable_delays: bool = False
     plugin_root: Path = Path("plugins/examples")

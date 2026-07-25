@@ -17,6 +17,7 @@ from living_agent.memory.repository import MemoryNotFoundError, MemoryRepository
 from living_agent.models.memory import (
     MemoryEmbeddingStatus,
     MemoryFactuality,
+    MemoryLayer,
     MemoryNode,
     MemoryReindexResult,
     MemoryStatus,
@@ -337,6 +338,7 @@ class MemoryEmbeddingIndex:
         return (
             memory.status is MemoryStatus.ACTIVE
             and memory.factuality in _REALITY_FACTUALITIES
+            and memory.memory_layer is not MemoryLayer.FACT
         )
 
     @classmethod

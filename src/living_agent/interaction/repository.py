@@ -33,6 +33,7 @@ class StoredUtterance:
     conversation_id: str
     source_event_id: str
     recalled_memory_ids: tuple[str, ...]
+    memory_trace_id: str | None
     attention_cue_id: str | None
     started_count: int
     generation: int
@@ -65,6 +66,7 @@ class UtteranceRepository:
         conversation_id: str,
         source_event_id: str,
         recalled_memory_ids: list[str],
+        memory_trace_id: str | None,
         attention_cue_id: str | None,
         generation: int,
         replaced_session_id: str | None,
@@ -80,6 +82,7 @@ class UtteranceRepository:
             intention=session_schema.intention,
             units=[unit.model_dump(mode="json") for unit in session_schema.units],
             recalled_memory_ids=list(recalled_memory_ids),
+            memory_trace_id=memory_trace_id,
             attention_cue_id=attention_cue_id,
             sent_count=session_schema.sent_count,
             started_count=started_count,
@@ -293,6 +296,7 @@ class UtteranceRepository:
             conversation_id=record.conversation_id,
             source_event_id=record.source_event_id,
             recalled_memory_ids=tuple(record.recalled_memory_ids),
+            memory_trace_id=record.memory_trace_id,
             attention_cue_id=record.attention_cue_id,
             started_count=record.started_count,
             generation=record.generation,

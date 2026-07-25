@@ -34,6 +34,7 @@ class UtteranceSessionORM(Base):
     intention: Mapped[str] = mapped_column(Text(), nullable=False)
     units: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
     recalled_memory_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    memory_trace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     attention_cue_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     sent_count: Mapped[int] = mapped_column(Integer(), nullable=False)
     started_count: Mapped[int] = mapped_column(Integer(), nullable=False)

@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from living_agent.storage.database import Base
@@ -25,6 +35,14 @@ class MemoryCandidateORM(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     importance: Mapped[float] = mapped_column(Float, nullable=False)
     scope: Mapped[str] = mapped_column(String(512), nullable=False)
+    memory_layer: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    memory_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    valid_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    superseded_by_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
     decision_reason: Mapped[str | None] = mapped_column(String(120), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -49,6 +67,14 @@ class MemoryNodeORM(Base):
     confidence: Mapped[float] = mapped_column(Float, nullable=False)
     importance: Mapped[float] = mapped_column(Float, nullable=False)
     scope: Mapped[str] = mapped_column(String(512), nullable=False)
+    memory_layer: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    entity_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    memory_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    valid_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    superseded_by_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -80,6 +106,68 @@ class MemoryUsageORM(Base):
     response_id: Mapped[str] = mapped_column(String(255), nullable=False)
     conversation_id: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemoryRecallTraceORM(Base):
+    __tablename__ = "memory_recall_traces"
+    __table_args__ = (
+        Index(
+            "ix_memory_recall_traces_conversation_created",
+            "conversation_id",
+            "created_at",
+        ),
+        Index("ix_memory_recall_traces_event_id", "event_id"),
+        Index("ix_memory_recall_traces_response_id", "response_id"),
+    )
+
+    trace_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    response_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    conversation_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    route: Mapped[str] = mapped_column(String(40), nullable=False)
+    query_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    context_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    support_mode: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemoryRecallTraceItemORM(Base):
+    __tablename__ = "memory_recall_trace_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "trace_id",
+            "memory_id",
+            name="uq_memory_recall_trace_item",
+        ),
+        Index(
+            "ix_memory_recall_trace_items_trace_selected",
+            "trace_id",
+            "selected",
+        ),
+        Index("ix_memory_recall_trace_items_memory_id", "memory_id"),
+    )
+
+    row_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    memory_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    memory_layer: Mapped[str] = mapped_column(String(40), nullable=False)
+    selection_reason: Mapped[str] = mapped_column(String(120), nullable=False)
+    lexical_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    semantic_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    selected: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    injected: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    response_match: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    source_overlap: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class MemoryEmbeddingORM(Base):

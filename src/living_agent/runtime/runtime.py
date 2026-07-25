@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from datetime import datetime
 from typing import Any
 
@@ -27,9 +28,16 @@ from living_agent.interaction.repository import (
 from living_agent.interaction.scheduler import ReplyNecessityEvaluator
 from living_agent.interaction.social_state import SocialStateRepository
 from living_agent.interaction.utterance import UtteranceCoordinator, UtteranceTurn
+from living_agent.memory.facts import RecallRoute, extract_fact, route_recall
 from living_agent.memory.service import MemoryService
 from living_agent.models.conversation import ChatResult, TurnDecision, TurnScheduleDecision
 from living_agent.models.events import IngressEnvelope, SourceType, TrustedEvent
+from living_agent.models.memory import (
+    MemoryLayer,
+    MemoryProbeRequest,
+    MemoryProbeResponse,
+    MemoryProbeVariant,
+)
 from living_agent.providers.llm import LLMProvider, LLMProviderError
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
@@ -107,6 +115,90 @@ class AgentRuntime:
             root_policy=self._root_policy,
             current_task=current_task,
             available_capabilities=available_capabilities,
+        )
+
+    async def probe_memory(
+        self,
+        request: MemoryProbeRequest,
+        *,
+        actor_id: str,
+    ) -> MemoryProbeResponse:
+        """Run an owner-only, two-call isolation check without chat side effects."""
+
+        facts = await self._memories.exact_facts(
+            entity_id=request.subject_id,
+            fact_keys=request.fact_keys,
+            owner=True,
+        )
+        trace = await self._memories.start_probe_trace(
+            entity_id=request.subject_id,
+            prompt=request.prompt,
+            facts=facts,
+        )
+        probe_event = self._boundary.normalize(
+            IngressEnvelope(
+                content=request.prompt,
+                source_type=SourceType.DIRECT_MESSAGE,
+                source_identity=actor_id,
+                conversation_id=trace.trace.conversation_id,
+                authenticated=True,
+            )
+        )
+        with_context = self._context_compiler.compile(
+            probe_event,
+            root_policy=self._root_policy,
+            retrieved_facts=[self._memories.fact_card(fact) for fact in facts],
+        )
+        without_context = self._context_compiler.compile(
+            probe_event,
+            root_policy=self._root_policy,
+        )
+        await self._memories.mark_trace_injected(
+            trace.trace.trace_id,
+            memory_ids=[fact.id for fact in facts],
+            context_fingerprint=hashlib.sha256(
+                with_context.rendered.encode("utf-8")
+            ).hexdigest(),
+        )
+        with_response = await self._llm.generate(with_context)
+        without_response = await self._llm.generate(without_context)
+        completed = await self._memories.mark_response_supported(
+            trace.trace.trace_id,
+            response_text=with_response.text,
+            corroborating_text=without_response.text,
+        )
+        matches = [item for item in completed.items if item.response_match is True]
+        if not matches:
+            verdict = "not_used"
+        elif any(item.source_overlap for item in matches):
+            verdict = "inconclusive"
+        else:
+            verdict = "supported"
+        await self._audit.append(
+            action="memory.probe.ran",
+            actor_id=actor_id,
+            conversation_id=trace.trace.conversation_id,
+            outcome=verdict,
+            details={
+                "trace_id": trace.trace.trace_id,
+                "subject_id": request.subject_id,
+                "fact_keys": request.fact_keys,
+                "memory_ids": [fact.id for fact in facts],
+                "model_call_count": 2,
+            },
+        )
+        return MemoryProbeResponse(
+            verdict=verdict,
+            support_mode=completed.trace.support_mode,
+            with_memory=MemoryProbeVariant(
+                text=with_response.text,
+                selected_memory_ids=[fact.id for fact in facts],
+            ),
+            without_memory=MemoryProbeVariant(
+                text=without_response.text,
+                selected_memory_ids=[],
+            ),
+            trace_id=trace.trace.trace_id,
         )
 
     async def begin_utterance_turn(
@@ -335,7 +427,7 @@ class AgentRuntime:
                 "taint_labels": event.taint_labels,
             },
         )
-        await self._memories.observe(event)
+        await self._observe_memory(event)
         if TaintLabel.SUSPECTED_INSTRUCTION.value in event.taint_labels:
             await self._audit.append(
                 action="injection.detected",
@@ -523,9 +615,12 @@ class AgentRuntime:
         impression = None
         attention_cue = None
         if event.conversation_id is not None:
+            impression_events = self._impression_events(
+                [*conversation_events, event]
+            )
             impression = await self._impressions.consider(
                 event.conversation_id,
-                [*conversation_events, event],
+                impression_events,
                 now=event.created_at,
             )
             attention_cue = await self._attention.consider(
@@ -534,21 +629,40 @@ class AgentRuntime:
                 conversation_events,
             )
         recalled_memories = []
+        memory_trace_id: str | None = None
         recall_query = self._event_text(event).strip()
         if recall_query and TaintLabel.SUSPECTED_INSTRUCTION.value not in event.taint_labels:
-            recalled_memories = await self._memories.recall(
+            recall_batch = await self._memories.recall_with_trace(
                 actor_id=event.source_identity or "anonymous",
                 conversation_id=event.conversation_id,
+                event_id=event.event_id,
                 query=recall_query,
                 limit=4,
                 source_event_ids=[event.event_id],
                 taint_labels=event.taint_labels,
             )
+            recalled_memories = recall_batch.memories
+            memory_trace_id = recall_batch.trace_id
+        recalled_facts = [
+            memory
+            for memory in recalled_memories
+            if memory.memory_layer is MemoryLayer.FACT
+        ]
+        recalled_narratives = [
+            memory
+            for memory in recalled_memories
+            if memory.memory_layer is not MemoryLayer.FACT
+        ]
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
             conversation_history=conversation_history,
-            retrieved_memories=[memory.model_dump(mode="json") for memory in recalled_memories],
+            retrieved_facts=[
+                self._memories.fact_card(memory) for memory in recalled_facts
+            ],
+            retrieved_memories=[
+                memory.model_dump(mode="json") for memory in recalled_narratives
+            ],
             interaction_plan={
                 "mode": turn.mode,
                 "expected_units_min": turn.expected_units_min,
@@ -571,6 +685,14 @@ class AgentRuntime:
                 attention_cue.model_dump(mode="json") if attention_cue is not None else None
             ),
         )
+        if memory_trace_id is not None:
+            await self._memories.mark_trace_injected(
+                memory_trace_id,
+                memory_ids=[memory.id for memory in recalled_memories],
+                context_fingerprint=hashlib.sha256(
+                    context.rendered.encode("utf-8")
+                ).hexdigest(),
+            )
         try:
             model_response = await self._llm.generate(context)
         except LLMProviderError as exc:
@@ -587,6 +709,17 @@ class AgentRuntime:
                 },
             )
             failure_message = self._social.render_model_failure()
+            if memory_trace_id is not None:
+                await self._memories.mark_response_supported(
+                    memory_trace_id,
+                    response_text=failure_message,
+                    corroborating_text=self._corroborating_text(
+                        event=event,
+                        conversation_history=conversation_history,
+                        impression=impression,
+                        attention_cue=attention_cue,
+                    ),
+                )
             failure_utterance = self._social.plan_utterance(failure_message, turn)
             failure_utterance.units[0].function = "model_failure"
             failure_messages = [unit.text for unit in failure_utterance.units]
@@ -597,6 +730,7 @@ class AgentRuntime:
                 message=failure_messages[0],
                 messages=failure_messages,
                 utterance=failure_utterance,
+                memory_trace_id=memory_trace_id,
             )
         await self._audit.append(
             action="model.called",
@@ -619,6 +753,17 @@ class AgentRuntime:
             },
         )
         if planning_turn is not None and not await self._utterances.turn_is_current(planning_turn):
+            if memory_trace_id is not None:
+                await self._memories.mark_response_supported(
+                    memory_trace_id,
+                    response_text="",
+                    corroborating_text=self._corroborating_text(
+                        event=event,
+                        conversation_history=conversation_history,
+                        impression=impression,
+                        attention_cue=attention_cue,
+                    ),
+                )
             await self._audit.append(
                 action="model.result_discarded",
                 actor_id="living-agent",
@@ -636,6 +781,7 @@ class AgentRuntime:
                 schedule=schedule,
                 message=None,
                 messages=[],
+                memory_trace_id=memory_trace_id,
             )
         claim_evidence = model_response.claim_evidence.model_copy(
             update={
@@ -668,6 +814,17 @@ class AgentRuntime:
         utterance_text = (
             model_response.text if continuity.action is CriticAction.APPROVE else message
         )
+        if memory_trace_id is not None:
+            await self._memories.mark_response_supported(
+                memory_trace_id,
+                response_text=utterance_text,
+                corroborating_text=self._corroborating_text(
+                    event=event,
+                    conversation_history=conversation_history,
+                    impression=impression,
+                    attention_cue=attention_cue,
+                ),
+            )
         utterance = self._social.plan_utterance(utterance_text, turn)
         if continuity.action is not CriticAction.APPROVE:
             utterance.units[0].function = "continuity_block"
@@ -695,6 +852,7 @@ class AgentRuntime:
                 if continuity.action is CriticAction.APPROVE
                 else []
             ),
+            memory_trace_id=memory_trace_id,
             attention_cue_id=(
                 attention_cue.cue_id
                 if attention_cue is not None and continuity.action is CriticAction.APPROVE
@@ -889,14 +1047,12 @@ class AgentRuntime:
                 raise RuntimeError("persistent utterance delivery did not create an event")
             delivered = delivery.event
         if unit_index == 0:
-            response_id = session_id or result.event.event_id
-            for memory_id in result.recalled_memory_ids:
-                await self._memories.record_usage(
-                    memory_id,
-                    response_id=response_id,
-                    conversation_id=conversation_id,
+            if result.memory_trace_id is not None:
+                await self._memories.mark_trace_delivered(
+                    result.memory_trace_id,
+                    response_id=delivered.event_id,
                 )
-            await self._memories.consider_self_candidate(delivered)
+            await self._consider_self_memory(delivered)
             if result.attention_cue_id is not None:
                 await self._social_state.mark_cue_used(result.attention_cue_id)
             await self._social_state.mark_agent_spoke(
@@ -943,13 +1099,12 @@ class AgentRuntime:
         if delivery.event is None or delivery.utterance is None:
             raise RuntimeError("persistent utterance delivery returned incomplete evidence")
         if unit_index == 0:
-            for memory_id in stored.recalled_memory_ids:
-                await self._memories.record_usage(
-                    memory_id,
-                    response_id=session_id,
-                    conversation_id=conversation_id,
+            if stored.memory_trace_id is not None:
+                await self._memories.mark_trace_delivered(
+                    stored.memory_trace_id,
+                    response_id=delivery.event.event_id,
                 )
-            await self._memories.consider_self_candidate(delivery.event)
+            await self._consider_self_memory(delivery.event)
             if stored.attention_cue_id is not None:
                 await self._social_state.mark_cue_used(stored.attention_cue_id)
             await self._social_state.mark_agent_spoke(
@@ -985,6 +1140,45 @@ class AgentRuntime:
             DeliveryDisposition.UNIT_NOT_ISSUED: "delivered reply unit was not issued",
         }
         raise ValueError(reasons[delivery.disposition])
+
+    async def _observe_memory(self, event: TrustedEvent) -> None:
+        try:
+            await self._memories.observe(event)
+        except Exception as exc:
+            await self._audit_memory_side_effect_failure(
+                event,
+                operation="observe",
+                error=exc,
+            )
+
+    async def _consider_self_memory(self, event: TrustedEvent) -> None:
+        try:
+            await self._memories.consider_self_candidate(event)
+        except Exception as exc:
+            await self._audit_memory_side_effect_failure(
+                event,
+                operation="consider_self_candidate",
+                error=exc,
+            )
+
+    async def _audit_memory_side_effect_failure(
+        self,
+        event: TrustedEvent,
+        *,
+        operation: str,
+        error: Exception,
+    ) -> None:
+        await self._audit.append(
+            action="memory.side_effect",
+            actor_id="living-agent",
+            conversation_id=event.conversation_id,
+            outcome="failure",
+            details={
+                "event_id": event.event_id,
+                "operation": operation,
+                "error_code": type(error).__name__,
+            },
+        )
 
     async def _conversation_events(self, event: TrustedEvent) -> list[TrustedEvent]:
         if event.conversation_id is None:
@@ -1031,6 +1225,51 @@ class AgentRuntime:
             }
             for item in history
         ]
+
+    @classmethod
+    def _impression_events(
+        cls,
+        events: list[TrustedEvent],
+    ) -> list[TrustedEvent]:
+        """Keep structured facts out of the lossy Session Impression channel."""
+
+        filtered: list[TrustedEvent] = []
+        seen: set[str] = set()
+        for event in events:
+            if event.event_id in seen:
+                continue
+            seen.add(event.event_id)
+            text = cls._event_text(event).strip()
+            routed = route_recall(text)
+            if extract_fact(text) is not None or routed.route in {
+                RecallRoute.EXACT_FACT,
+                RecallRoute.FACT_SET,
+            }:
+                continue
+            filtered.append(event)
+        return filtered
+
+    @staticmethod
+    def _corroborating_text(
+        *,
+        event: TrustedEvent,
+        conversation_history: list[dict[str, Any]],
+        impression: Any,
+        attention_cue: Any,
+    ) -> str:
+        """Serialize only non-memory context that could independently contain a fact."""
+
+        payload = {
+            "request": event.content,
+            "recent_conversation": conversation_history,
+            "session_impression": (
+                impression.model_dump(mode="json") if impression is not None else None
+            ),
+            "attention_cue": (
+                attention_cue.model_dump(mode="json") if attention_cue is not None else None
+            ),
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
 
     @staticmethod
     def _event_text(event: TrustedEvent) -> str:

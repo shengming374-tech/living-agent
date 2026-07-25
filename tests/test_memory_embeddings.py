@@ -18,6 +18,12 @@ from living_agent.providers.llm import ModelResponse
 OWNER_HEADERS = {"X-Actor-ID": "owner-1"}
 
 
+def _surface_text(content: object) -> object:
+    if isinstance(content, dict):
+        return content.get("surface_text")
+    return content
+
+
 class SemanticEmbeddingProvider:
     name = "semantic-test"
     model = "semantic-test-v1"
@@ -147,7 +153,7 @@ def test_authenticated_self_claim_becomes_pending_candidate_only(
         memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
 
     assert len(pending) == 1
-    assert pending[0]["content"] == "我喜欢茉莉花茶"
+    assert _surface_text(pending[0]["content"]) == "我喜欢茉莉花茶"
     assert pending[0]["scope"] == "private:member-1"
     assert pending[0]["status"] == "pending"
     assert memories == []
@@ -169,6 +175,110 @@ def test_group_self_claim_candidate_keeps_conversation_scope(settings: Settings)
 
     assert len(pending) == 1
     assert pending[0]["scope"] == "conversation:group-memory"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "actor_id", "conversation_id", "expected_scope"),
+    [
+        (
+            "direct_message",
+            "napcat:10001:qq:20002",
+            "napcat:10001:private:20002",
+            "private:napcat:10001:qq:20002",
+        ),
+        (
+            "group_message",
+            "openclaw:openclaw-weixin:wechat-account:user:wechat-user",
+            "openclaw:openclaw-weixin:wechat-account:group:wechat-group",
+            "conversation:openclaw:openclaw-weixin:wechat-account:group:wechat-group",
+        ),
+    ],
+)
+def test_auto_memory_accepts_namespaced_platform_scopes(
+    settings: Settings,
+    source_type: str,
+    actor_id: str,
+    conversation_id: str,
+    expected_scope: str,
+) -> None:
+    configured = settings.model_copy(
+        update={
+            "memory_auto_candidates_enabled": True,
+            "memory_auto_approval_enabled": True,
+        }
+    )
+    with TestClient(create_app(configured)) as client:
+        _chat(
+            client,
+            "我喜欢茉莉花茶。",
+            actor_id=actor_id,
+            conversation_id=conversation_id,
+            source_type=source_type,
+        )
+        accessible = client.get(
+            "/v1/memories",
+            headers={
+                "X-Actor-ID": actor_id,
+                "X-Conversation-ID": conversation_id,
+            },
+        ).json()
+        pending = client.get(
+            "/v1/memories/candidates?status=pending",
+            headers=OWNER_HEADERS,
+        ).json()
+
+    if source_type == "group_message":
+        assert accessible == []
+        assert len(pending) == 1
+        assert pending[0]["memory_layer"] == "fact"
+        assert pending[0]["decision_reason"] == "non_private_fact_requires_review"
+        assert pending[0]["scope"] == expected_scope
+    else:
+        assert len(accessible) == 1
+        assert _surface_text(accessible[0]["content"]) == "我喜欢茉莉花茶"
+        assert accessible[0]["scope"] == expected_scope
+        assert accessible[0]["status"] == "active"
+        assert pending == []
+
+
+def test_memory_side_effect_failure_does_not_interrupt_chat(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fail_memory_side_effect(_event: TrustedEvent) -> None:
+        raise RuntimeError("test memory failure")
+
+    with TestClient(create_app(settings)) as client:
+        monkeypatch.setattr(
+            client.app.state.memory_service,
+            "observe",
+            fail_memory_side_effect,
+        )
+        monkeypatch.setattr(
+            client.app.state.memory_service,
+            "consider_self_candidate",
+            fail_memory_side_effect,
+        )
+        response = client.post(
+            "/v1/chat",
+            json={
+                "content": "你好",
+                "source_type": "direct_message",
+                "source_identity": "member-1",
+                "conversation_id": "memory-failure-chat",
+                "authenticated": True,
+            },
+        )
+        audit = client.get("/v1/audit?limit=100", headers=OWNER_HEADERS).json()
+
+    assert response.status_code == 200
+    failures = [entry for entry in audit if entry["action"] == "memory.side_effect"]
+    assert {entry["details"]["operation"] for entry in failures} == {
+        "observe",
+        "consider_self_candidate",
+    }
+    assert all(entry["outcome"] == "failure" for entry in failures)
+    assert all(entry["details"]["error_code"] == "RuntimeError" for entry in failures)
 
 
 def test_auto_approval_commits_new_extracted_candidate(settings: Settings) -> None:
@@ -193,9 +303,9 @@ def test_auto_approval_commits_new_extracted_candidate(settings: Settings) -> No
 
     assert pending == []
     assert len(committed) == 1
-    assert committed[0]["content"] == "我喜欢茉莉花茶"
+    assert _surface_text(committed[0]["content"]) == "我喜欢茉莉花茶"
     assert len(memories) == 1
-    assert memories[0]["content"] == "我喜欢茉莉花茶"
+    assert _surface_text(memories[0]["content"]) == "我喜欢茉莉花茶"
     approval = next(entry for entry in audit if entry["action"] == "memory.auto_approval")
     assert approval["outcome"] == "committed"
     assert approval["actor_id"] == "living-agent"
@@ -219,11 +329,11 @@ def test_default_memory_settings_generate_committed_memories(settings: Settings)
         ).json()
         memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
 
-    assert {candidate["content"] for candidate in committed} == {
+    assert {_surface_text(candidate["content"]) for candidate in committed} == {
         "我叫小明",
         "我养了一只猫叫豆包",
     }
-    assert {memory["content"] for memory in memories} == {
+    assert {_surface_text(memory["content"]) for memory in memories} == {
         "我叫小明",
         "我养了一只猫叫豆包",
     }
@@ -303,6 +413,19 @@ def test_auto_memory_rejects_untrusted_injection_and_credentials(settings: Setti
     assert memories == []
 
 
+def test_auto_memory_ignores_ambiguous_name_and_transient_need(
+    settings: Settings,
+) -> None:
+    configured = settings.model_copy(update={"memory_auto_candidates_enabled": True})
+    with TestClient(create_app(configured)) as client:
+        _chat(client, "我是这个意思。")
+        _chat(client, "我是把咱们没发过的内容重新整理。")
+        _chat(client, "我需要一个堵桥版。")
+        candidates = client.get("/v1/memories/candidates", headers=OWNER_HEADERS).json()
+
+    assert candidates == []
+
+
 @pytest.mark.anyio
 async def test_observing_the_same_event_twice_is_idempotent(settings: Settings) -> None:
     configured = settings.model_copy(
@@ -333,17 +456,19 @@ def test_auto_approval_defers_conflicting_extracted_candidate(settings: Settings
         }
     )
     with TestClient(create_app(configured)) as client:
-        _chat(client, "我是小明。")
-        _chat(client, "我是小红。")
+        _chat(client, "我叫小明。")
+        _chat(client, "我叫小红。")
         candidates = client.get("/v1/memories/candidates", headers=OWNER_HEADERS).json()
         memories = client.get("/v1/memories", headers=OWNER_HEADERS).json()
         audit = client.get("/v1/audit?limit=100", headers=OWNER_HEADERS).json()
 
-    by_content = {candidate["content"]: candidate for candidate in candidates}
-    assert by_content["我是小明"]["status"] == "committed"
-    assert by_content["我是小红"]["status"] == "pending"
-    assert by_content["我是小红"]["decision_reason"] == "conflicting_memory_requires_review"
-    assert [memory["content"] for memory in memories] == ["我是小明"]
+    by_content = {
+        _surface_text(candidate["content"]): candidate for candidate in candidates
+    }
+    assert by_content["我叫小明"]["status"] == "committed"
+    assert by_content["我叫小红"]["status"] == "pending"
+    assert by_content["我叫小红"]["decision_reason"] == "conflicting_memory_requires_review"
+    assert [_surface_text(memory["content"]) for memory in memories] == ["我叫小明"]
     deferred = next(
         entry
         for entry in audit

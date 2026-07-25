@@ -24,10 +24,20 @@ def test_control_studio_assets_are_bundled_with_browser_security_headers(
     assert "行为模拟器" in script.text
     assert "生活管理" in script.text
     assert "重建记忆向量" in script.text
-    assert "候选记忆已批准" in script.text
+    assert 'id="apply-memory"' in script.text
+    assert "data-apply-candidate" in script.text
+    assert 'api("/v1/memories/manual"' in script.text
+    assert (
+        "/v1/memories/candidates/"
+        "${encodeURIComponent(button.dataset.applyCandidate)}/apply"
+    ) in script.text
+    assert "候选记忆已应用" in script.text
+    assert 'committed: "已应用"' in script.text
+    assert "重新应用" in script.text
     assert "data-reject-candidate" in script.text
     assert "data-replace-candidate" in script.text
     assert 'data-view="life"' in index.text
+    assert 'formnovalidate aria-label="关闭"' in index.text
     assert ".studio-shell" in styles.text
     assert "default-src 'self'" in index.headers["content-security-policy"]
     assert index.headers["x-content-type-options"] == "nosniff"
@@ -41,6 +51,32 @@ def test_owner_can_load_memory_inventory_without_conversation_header(
 
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_control_studio_exposes_dual_layer_memory_views_and_evidence(
+    client: TestClient,
+) -> None:
+    script = client.get("/studio/app.js")
+
+    assert script.status_code == 200
+    assert 'data-memory-mode="facts"' in script.text
+    assert ">事实</button>" in script.text
+    assert 'data-memory-mode="narratives"' in script.text
+    assert ">经历与关系</button>" in script.text
+    assert 'data-memory-mode="candidates"' in script.text
+    assert ">候选队列</button>" in script.text
+    assert "memory.memory_layer === \"fact\"" in script.text
+    assert "memory.memory_key" in script.text
+    assert "content.value" in script.text
+    assert "memory.source_event_ids" in script.text
+    assert "验证这条记忆" in script.text
+    assert 'api("/v1/memories/probe"' in script.text
+    assert 'api("/v1/memories/traces?limit=20")' in script.text
+    assert '"我叫什么\uFF1F" : "这条记忆是什么\uFF1F"' in script.text
+    assert "result.with_memory?.text" in script.text
+    assert "result.without_memory?.text" in script.text
+    assert "container.replaceChildren(panel)" in script.text
+    assert "旧版召回\uFF0C是否使用未知" in script.text
 
 
 async def test_capability_center_lists_and_revokes_only_existing_grants(

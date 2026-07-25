@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import pytest
@@ -61,6 +62,21 @@ def create_candidate(
 def commit_candidate(client: TestClient, candidate_id: str) -> dict[str, Any]:
     response = client.post(
         f"/v1/memories/candidates/{candidate_id}/commit",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def apply_candidate(
+    client: TestClient,
+    candidate_id: str,
+    *,
+    replace_conflicts: bool = False,
+) -> dict[str, Any]:
+    suffix = "?replace_conflicts=true" if replace_conflicts else ""
+    response = client.post(
+        f"/v1/memories/candidates/{candidate_id}/apply{suffix}",
         headers={"X-Actor-ID": "owner-1"},
     )
     assert response.status_code == 200
@@ -158,6 +174,199 @@ def test_candidate_queue_is_owner_only_and_filterable(client: TestClient) -> Non
     assert denied.status_code == 403
     assert pending.status_code == 200
     assert [item["candidate_id"] for item in pending.json()] == [
+        candidate["candidate_id"]
+    ]
+
+
+def test_owner_apply_candidate_commits_and_is_idempotent(client: TestClient) -> None:
+    event_id = ingest_event(client, content="Apply this memory once.")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="Apply this memory once.",
+        subject="idempotent application",
+    )
+
+    first = apply_candidate(client, candidate["candidate_id"])
+    repeated = apply_candidate(client, candidate["candidate_id"])
+    inventory = client.get(
+        "/v1/memories",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+    candidates = client.get(
+        "/v1/memories/candidates",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+
+    assert first["candidate"]["status"] == "committed"
+    assert repeated["decision"] == {
+        "allowed": True,
+        "reason_code": "memory_already_active",
+        "effective_factuality": "reported",
+    }
+    assert repeated["memory"]["id"] == first["memory"]["id"]
+    assert [memory["id"] for memory in inventory] == [first["memory"]["id"]]
+    assert [item["candidate_id"] for item in candidates] == [
+        candidate["candidate_id"]
+    ]
+
+
+def test_owner_can_reapply_committed_candidate_after_memory_deletion(
+    client: TestClient,
+) -> None:
+    event_id = ingest_event(client, content="Keep this private preference.")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="Keep this private preference.",
+        subject="private reapplication",
+        scope="private:member-1",
+    )
+    first = commit_candidate(client, candidate["candidate_id"])
+    deleted = client.delete(
+        f"/v1/memories/{first['memory']['id']}?expected_version=1",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+
+    reapplied = apply_candidate(client, candidate["candidate_id"])
+    inventory = client.get(
+        "/v1/memories?include_deleted=true",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+    audit = client.get(
+        "/v1/audit?limit=100",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+
+    assert deleted.status_code == 200
+    assert reapplied["decision"]["allowed"]
+    assert reapplied["memory"]["id"] != first["memory"]["id"]
+    assert reapplied["memory"]["status"] == "active"
+    assert reapplied["candidate"]["candidate_id"] != candidate["candidate_id"]
+    assert reapplied["candidate"]["proposer_id"] == "member-1"
+    assert reapplied["candidate"]["source_event_ids"] == [event_id]
+    assert {memory["status"] for memory in inventory} == {"active", "deleted"}
+    duplicate_restore = client.post(
+        f"/v1/memories/{first['memory']['id']}/restore?expected_version=2",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+    assert duplicate_restore.status_code == 409
+    application = next(
+        entry
+        for entry in audit
+        if entry["action"] == "memory.candidate_applied"
+        and entry["details"]["candidate_id"] == candidate["candidate_id"]
+    )
+    assert application["actor_id"] == "owner-1"
+    assert application["outcome"] == "committed"
+    assert (
+        application["details"]["replay_candidate_id"]
+        == reapplied["candidate"]["candidate_id"]
+    )
+
+
+async def test_parallel_reapply_creates_only_one_active_memory(
+    client: TestClient,
+) -> None:
+    event_id = ingest_event(client, content="Apply this safely under concurrency.")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="Apply this safely under concurrency.",
+        subject="concurrent reapplication",
+    )
+    first = commit_candidate(client, candidate["candidate_id"])
+    client.delete(
+        f"/v1/memories/{first['memory']['id']}?expected_version=1",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+
+    results = await asyncio.gather(
+        *(
+            client.app.state.memory_service.apply_candidate(
+                candidate["candidate_id"],
+                actor_id="owner-1",
+            )
+            for _ in range(2)
+        )
+    )
+    inventory = client.get(
+        "/v1/memories",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+
+    assert results[0].memory is not None
+    assert results[1].memory is not None
+    assert results[0].memory.id == results[1].memory.id
+    assert [memory["id"] for memory in inventory] == [results[0].memory.id]
+
+
+def test_reapply_conflict_reuses_pending_review_before_owner_replaces(
+    client: TestClient,
+) -> None:
+    original_event = ingest_event(client, content="The venue is the library.")
+    original_candidate = create_candidate(
+        client,
+        event_id=original_event,
+        content="The venue is the library.",
+        subject="meeting venue",
+    )
+    original = commit_candidate(client, original_candidate["candidate_id"])["memory"]
+    client.delete(
+        f"/v1/memories/{original['id']}?expected_version=1",
+        headers={"X-Actor-ID": "owner-1"},
+    )
+
+    current_event = ingest_event(client, content="The venue is the cafe.")
+    current_candidate = create_candidate(
+        client,
+        event_id=current_event,
+        content="The venue is the cafe.",
+        subject="meeting venue",
+    )
+    current = commit_candidate(client, current_candidate["candidate_id"])["memory"]
+
+    deferred = apply_candidate(client, original_candidate["candidate_id"])
+    repeated = apply_candidate(client, original_candidate["candidate_id"])
+    replaced = apply_candidate(
+        client,
+        deferred["candidate"]["candidate_id"],
+        replace_conflicts=True,
+    )
+    inventory = client.get(
+        "/v1/memories?include_deleted=true",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+
+    assert deferred["decision"]["reason_code"] == "conflicting_memory_requires_review"
+    assert deferred["candidate"]["status"] == "pending"
+    assert repeated["candidate"]["candidate_id"] == deferred["candidate"]["candidate_id"]
+    assert replaced["memory"]["content"] == "The venue is the library."
+    by_id = {memory["id"]: memory for memory in inventory}
+    assert by_id[current["id"]]["status"] == "deleted"
+    assert by_id[replaced["memory"]["id"]]["status"] == "active"
+
+
+def test_rejected_candidate_cannot_be_reapplied(client: TestClient) -> None:
+    event_id = ingest_event(client, content="password: do-not-store")
+    candidate = create_candidate(
+        client,
+        event_id=event_id,
+        content="password: do-not-store",
+        subject="rejected reapplication",
+    )
+    rejected = commit_candidate(client, candidate["candidate_id"])
+
+    reapplied = apply_candidate(client, candidate["candidate_id"])
+    candidates = client.get(
+        "/v1/memories/candidates",
+        headers={"X-Actor-ID": "owner-1"},
+    ).json()
+
+    assert rejected["candidate"]["status"] == "rejected"
+    assert reapplied["decision"]["reason_code"] == "candidate_rejected"
+    assert reapplied["memory"] is None
+    assert [item["candidate_id"] for item in candidates] == [
         candidate["candidate_id"]
     ]
 
@@ -444,9 +653,9 @@ def test_auto_memory_conflict_stays_pending_for_manual_review(
             headers={"X-Actor-ID": "owner-1"},
         ).json()
 
-    assert [memory["content"] for memory in active] == ["我叫小明"]
+    assert [memory["content"]["surface_text"] for memory in active] == ["我叫小明"]
     assert len(pending) == 1
-    assert pending[0]["content"] == "我叫小李"
+    assert pending[0]["content"]["surface_text"] == "我叫小李"
     assert pending[0]["decision_reason"] == "conflicting_memory_requires_review"
 
 

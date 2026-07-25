@@ -26,7 +26,7 @@ const PROMPTS = [
 ];
 const VIEW_META = {
   overview: ["总览", "运行时与控制面状态"],
-  memories: ["记忆浏览器", "候选、记忆节点与来源"],
+  memories: ["记忆浏览器", "事实、经历与关系、候选及回答证据"],
   persona: ["人格编辑器", "分层人格的暂存工作流"],
   prompts: ["提示词实验室", "渲染、测试与版本部署"],
   plugins: ["插件中心", "发现状态与运行时开关"],
@@ -40,7 +40,7 @@ const VIEW_META = {
 };
 
 const DISPLAY_LABELS = {
-  active: "启用", completed: "已完成", success: "成功", verified: "已验证", deployed: "已部署", ok: "正常",
+  active: "启用", committed: "已应用", completed: "已完成", success: "成功", verified: "已验证", deployed: "已部署", ok: "正常",
   allow: "允许", allow_once: "单次允许", allow_in_sandbox: "仅沙箱允许", allow_read_only: "仅只读允许",
   pending: "待处理", planned: "已规划", running: "执行中", waiting: "等待中", waiting_confirmation: "等待确认",
   staged: "已暂存", ask_owner: "询问所有者", ASK_OWNER: "询问所有者", failed: "失败", failure: "失败",
@@ -59,6 +59,13 @@ const DISPLAY_LABELS = {
   superseded: "已失效", routine: "日常", project: "项目", social: "社交", creative: "创作", rest: "休息",
   remote_provider_not_allowed: "远端未授权", memory_index: "记忆索引", memory_query: "记忆查询",
   conflicting_memory_requires_review: "与现有记忆冲突，需人工审查", equivalent_memory_exists: "已有等价记忆",
+  non_private_fact_requires_review: "群聊事实需人工审查",
+  memory_already_active: "记忆已启用", candidate_rejected: "候选已被拒绝",
+  exact_fact: "精确事实", fact_set: "事实集合", hybrid: "混合召回", probe: "隔离探针",
+  memory_only: "仅长期记忆支持", corroborated: "长期记忆与上下文共同支持",
+  injected_unverified: "已注入，未证实回答采用", not_injected: "未注入",
+  supported: "已支持", inconclusive: "无法判定", not_used: "未使用长期记忆",
+  legacy: "旧版召回，是否使用未知", legacy_unknown: "旧版召回，是否使用未知",
 };
 
 const ARTIFACT_LABELS = {
@@ -77,9 +84,11 @@ const state = {
   actorId: localStorage.getItem("living-agent.actor-id") || "owner-local",
   managementToken: sessionStorage.getItem("living-agent.management-token") || "",
   conversationId: localStorage.getItem("living-agent.conversation-id") || "",
-  memoryMode: "nodes",
+  memoryMode: "facts",
   memories: [],
   memoryCandidates: [],
+  memoryTraces: [],
+  memoryProbeResults: new Map(),
   memoryEmbeddingStatus: null,
   selectedMemoryIds: new Set(),
   selectedMemory: null,
@@ -151,7 +160,7 @@ function shortId(value) {
 
 function statusClass(value) {
   const normalized = String(value || "").toLowerCase();
-  if (["active", "completed", "success", "verified", "deployed", "allow", "allow_once", "allow_in_sandbox", "allow_read_only"].includes(normalized)) return "is-ok";
+  if (["active", "committed", "completed", "success", "verified", "deployed", "allow", "allow_once", "allow_in_sandbox", "allow_read_only"].includes(normalized)) return "is-ok";
   if (["pending", "planned", "running", "waiting", "waiting_confirmation", "staged", "ask_owner"].includes(normalized)) return "is-warn";
   if (["failed", "failure", "denied", "deny", "deleted", "rejected", "cancelled"].includes(normalized)) return "is-error";
   return "is-info";
@@ -371,23 +380,40 @@ function auditTable(entries) {
 }
 
 async function renderMemories() {
-  state.memoryEmbeddingStatus = await api("/v1/memories/embedding-status");
-  if (state.memoryMode === "candidates") {
-    state.memoryCandidates = await api("/v1/memories/candidates?limit=200");
-  } else {
-    const query = document.querySelector("#memory-search")?.value || "";
-    const includeDeleted = document.querySelector("#include-deleted")?.checked || false;
-    const headers = state.conversationId ? { "X-Conversation-ID": state.conversationId } : {};
-    state.memories = await api(`/v1/memories?query=${encodeURIComponent(query)}&include_deleted=${includeDeleted}&limit=300`, { headers });
-  }
-  const list = state.memoryMode === "nodes" ? renderMemoryNodes() : renderMemoryCandidates();
+  const query = document.querySelector("#memory-search")?.value || "";
+  const includeDeleted = document.querySelector("#include-deleted")?.checked || false;
+  const headers = state.conversationId ? { "X-Conversation-ID": state.conversationId } : {};
+  const inventoryRequest = state.memoryMode === "candidates"
+    ? api("/v1/memories/candidates?limit=200")
+    : api(`/v1/memories?query=${encodeURIComponent(query)}&include_deleted=${includeDeleted}&limit=300`, { headers });
+  const [embeddingStatus, tracesPayload, inventory] = await Promise.all([
+    api("/v1/memories/embedding-status"),
+    api("/v1/memories/traces?limit=20"),
+    inventoryRequest,
+  ]);
+  state.memoryEmbeddingStatus = embeddingStatus;
+  state.memoryTraces = Array.isArray(tracesPayload)
+    ? tracesPayload
+    : Array.isArray(tracesPayload?.items)
+      ? tracesPayload.items
+      : [];
+  if (state.memoryMode === "candidates") state.memoryCandidates = inventory;
+  else state.memories = inventory;
+
+  const list = {
+    facts: renderFactMemories,
+    narratives: renderNarrativeMemories,
+    candidates: renderMemoryCandidates,
+  }[state.memoryMode]();
+  const browsingMemories = state.memoryMode !== "candidates";
   viewRoot.innerHTML = `
     <div class="toolbar">
-      <div class="segmented">
-        <button data-memory-mode="nodes" class="${state.memoryMode === "nodes" ? "is-active" : ""}">记忆节点</button>
-        <button data-memory-mode="candidates" class="${state.memoryMode === "candidates" ? "is-active" : ""}">候选队列</button>
+      <div class="segmented" role="tablist" aria-label="记忆视图">
+        <button role="tab" aria-selected="${state.memoryMode === "facts"}" data-memory-mode="facts" class="${state.memoryMode === "facts" ? "is-active" : ""}">事实</button>
+        <button role="tab" aria-selected="${state.memoryMode === "narratives"}" data-memory-mode="narratives" class="${state.memoryMode === "narratives" ? "is-active" : ""}">经历与关系</button>
+        <button role="tab" aria-selected="${state.memoryMode === "candidates"}" data-memory-mode="candidates" class="${state.memoryMode === "candidates" ? "is-active" : ""}">候选队列</button>
       </div>
-      ${state.memoryMode === "nodes" ? `
+      ${browsingMemories ? `
         <input class="field is-search" id="memory-search" placeholder="搜索内容或主题">
         <label class="check-row"><input type="checkbox" id="include-deleted">包含删除</label>
         <button class="button" id="search-memories">搜索</button>
@@ -395,9 +421,11 @@ async function renderMemories() {
         <button class="button" id="merge-memories" ${state.selectedMemoryIds.size < 2 ? "disabled" : ""}>合并 ${state.selectedMemoryIds.size || ""}</button>` : '<div class="toolbar-spacer"></div>'}
       ${badge(state.memoryEmbeddingStatus.active ? "active" : state.memoryEmbeddingStatus.reason_code)}
       <span class="badge">向量 ${state.memoryEmbeddingStatus.indexed_count}/${state.memoryEmbeddingStatus.eligible_count}</span>
+      <button class="button is-primary" id="apply-memory">应用记忆</button>
       <button class="button is-small" id="reindex-memories" ${state.memoryEmbeddingStatus.active ? "" : "disabled"}>重建向量</button>
     </div>
-    ${list}`;
+    ${list}
+    ${renderMemoryTraces()}`;
   viewRoot.querySelectorAll("[data-memory-mode]").forEach((button) => {
     button.onclick = () => {
       state.memoryMode = button.dataset.memoryMode;
@@ -409,6 +437,7 @@ async function renderMemories() {
   document.querySelector("#memory-search")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") renderMemories();
   });
+  document.querySelector("#apply-memory")?.addEventListener("click", applyManualMemory);
   document.querySelector("#merge-memories")?.addEventListener("click", mergeSelectedMemories);
   document.querySelector("#reindex-memories")?.addEventListener("click", async () => {
     if (!await confirmAction("重建记忆向量", `${state.memoryEmbeddingStatus.model} · ${state.memoryEmbeddingStatus.dimensions || "自动"} 维`, "重建")) return;
@@ -419,11 +448,48 @@ async function renderMemories() {
     } catch (error) { toast(error.message, "error"); }
   });
   bindMemoryRows();
+  renderStoredProbeResults();
 }
 
-function renderMemoryNodes() {
+function renderFactMemories() {
+  const facts = state.memories.filter((memory) => memory.memory_layer === "fact");
+  const detail = state.selectedMemory ? memoryDetail(state.selectedMemory) : '<div class="empty-state">选择一条事实记忆</div>';
+  const cards = facts.map((memory) => {
+    const content = memory.content && typeof memory.content === "object" && !Array.isArray(memory.content)
+      ? memory.content
+      : {};
+    const memoryKey = memory.memory_key || content.key || "-";
+    const value = Object.hasOwn(content, "value") ? content.value : memory.content;
+    const sourceCount = Array.isArray(memory.source_event_ids) ? memory.source_event_ids.length : 0;
+    return `
+      <article class="metric-card">
+        <div class="section-heading">
+          <label class="check-row"><input type="checkbox" data-select-memory="${esc(memory.id)}" ${state.selectedMemoryIds.has(memory.id) ? "checked" : ""}>选择</label>
+          ${badge(memory.status)}
+        </div>
+        <div class="metric-label mono">${esc(memoryKey)}</div>
+        <pre class="content-block">${esc(contentText(value))}</pre>
+        <div class="metric-note">版本 v${esc(memory.version)} · 来源 ${esc(sourceCount)} 条 · 状态 ${esc(displayLabel(memory.status))}</div>
+        <div class="toolbar">
+          <button class="button is-small" data-memory-id="${esc(memory.id)}">查看详情</button>
+          <button class="button is-small is-primary" data-probe-memory="${esc(memory.id)}">验证这条记忆</button>
+        </div>
+        <div data-memory-probe-result="${esc(memory.id)}"></div>
+      </article>`;
+  }).join("");
+  return `<div class="split-layout"><div class="split-main"><div class="metric-grid">${cards || '<div class="empty-state">没有事实记忆</div>'}</div></div><aside class="detail-pane" id="memory-detail">${detail}</aside></div>`;
+}
+
+function renderNarrativeMemories() {
+  const memories = state.memories.filter(
+    (memory) => memory.memory_layer !== "fact" && memory.status === "active",
+  );
+  return renderMemoryNodes(memories);
+}
+
+function renderMemoryNodes(memories) {
   const detail = state.selectedMemory ? memoryDetail(state.selectedMemory) : '<div class="empty-state">选择一条记忆</div>';
-  return `<div class="split-layout"><div class="split-main"><div class="table-wrap"><table><thead><tr><th></th><th>主题</th><th>类型</th><th>事实性</th><th>置信度</th><th>范围</th><th>状态</th></tr></thead><tbody>${state.memories.map((memory) => `
+  return `<div class="split-layout"><div class="split-main"><div class="table-wrap"><table><thead><tr><th></th><th>主题</th><th>类型</th><th>事实性</th><th>置信度</th><th>范围</th><th>状态</th></tr></thead><tbody>${memories.map((memory) => `
     <tr>
       <td><input type="checkbox" data-select-memory="${esc(memory.id)}" ${state.selectedMemoryIds.has(memory.id) ? "checked" : ""}></td>
       <td><button class="row-button" data-memory-id="${esc(memory.id)}"><strong>${esc(memory.subject)}</strong><span class="truncate metric-note">${esc(contentText(memory.content))}</span></button></td>
@@ -431,9 +497,64 @@ function renderMemoryNodes() {
     </tr>`).join("") || '<tr><td colspan="7"><div class="empty-state">没有匹配记忆</div></td></tr>'}</tbody></table></div></div><aside class="detail-pane" id="memory-detail">${detail}</aside></div>`;
 }
 
+function renderMemoryTraces() {
+  const rows = state.memoryTraces.map((trace) => `
+    <tr>
+      <td>${esc(formatDate(trace.created_at))}</td>
+      <td>${esc(recallRouteLabel(trace.route))}</td>
+      <td>${esc(traceSupportLabel(trace))}</td>
+      <td class="mono">${esc(shortId(trace.trace_id))}</td>
+    </tr>`).join("");
+  return `
+    <section class="band">
+      <div class="section-heading"><h2>最近验证链</h2><span class="badge">${esc(state.memoryTraces.length)} 条</span></div>
+      <div class="table-wrap"><table><thead><tr><th>时间</th><th>召回路由</th><th>回答支持</th><th>Trace ID</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4"><div class="empty-state">暂无验证链</div></td></tr>'}</tbody></table></div>
+    </section>`;
+}
+
+function recallRouteLabel(route) {
+  return {
+    exact_fact: "精确事实",
+    fact_set: "事实集合",
+    episodic: "经历召回",
+    relationship: "关系召回",
+    none: "无需记忆",
+    hybrid: "混合召回",
+    probe: "隔离探针",
+    legacy: "旧版召回",
+  }[String(route)] || displayLabel(route);
+}
+
+function traceSupportLabel(trace) {
+  if (trace.route === "legacy" || ["legacy", "legacy_unknown"].includes(trace.support_mode)) {
+    return "旧版召回，是否使用未知";
+  }
+  return displayLabel(trace.support_mode || "pending");
+}
+
+function memoryModeFor(memory) {
+  return memory?.memory_layer === "fact" ? "facts" : "narratives";
+}
+
 function renderMemoryCandidates() {
   return `<div class="table-wrap"><table><thead><tr><th>主题</th><th>类型</th><th>提议者</th><th>来源信任</th><th>事实性</th><th>范围</th><th>状态</th><th></th></tr></thead><tbody>${state.memoryCandidates.map((item) => `
-    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span>${item.decision_reason ? `<span class="metric-note">${esc(displayLabel(item.decision_reason))}</span>` : ""}</td><td>${esc(displayLabel(item.type))}</td><td class="mono">${esc(item.proposer_id)}</td><td>${esc(displayLabel(item.source_trust))}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${item.status === "pending" ? `<button class="button is-small is-primary" data-commit-candidate="${esc(item.candidate_id)}">批准</button> ${item.decision_reason === "conflicting_memory_requires_review" ? `<button class="button is-small" data-replace-candidate="${esc(item.candidate_id)}">替换旧记忆</button>` : ""} <button class="button is-small is-danger" data-reject-candidate="${esc(item.candidate_id)}">拒绝</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="8"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
+    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span>${item.decision_reason ? `<span class="metric-note">${esc(displayLabel(item.decision_reason))}</span>` : ""}</td><td>${esc(displayLabel(item.type))}</td><td class="mono">${esc(item.proposer_id)}</td><td>${esc(displayLabel(item.source_trust))}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${candidateActions(item)}</td></tr>`).join("") || '<tr><td colspan="8"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
+}
+
+function candidateActions(item) {
+  const candidateId = esc(item.candidate_id);
+  if (item.status === "committed") {
+    return `<button class="button is-small is-primary" data-apply-candidate="${candidateId}">重新应用</button>`;
+  }
+  if (item.status === "rejected") {
+    return '<span class="metric-note">已拒绝</span>';
+  }
+  const reject = `<button class="button is-small is-danger" data-reject-candidate="${candidateId}">拒绝</button>`;
+  if (item.decision_reason === "conflicting_memory_requires_review") {
+    return `<button class="button is-small is-primary" data-replace-candidate="${candidateId}">替换旧记忆</button> ${reject}`;
+  }
+  return `<button class="button is-small is-primary" data-apply-candidate="${candidateId}">应用记忆</button> ${reject}`;
 }
 
 function bindMemoryRows() {
@@ -455,23 +576,64 @@ function bindMemoryRows() {
       }
     };
   });
-  viewRoot.querySelectorAll("[data-commit-candidate]").forEach((button) => {
+  viewRoot.querySelectorAll("[data-probe-memory]").forEach((button) => {
+    button.onclick = () => probeFactMemory(button);
+  });
+  viewRoot.querySelectorAll("[data-apply-candidate]").forEach((button) => {
     button.onclick = async () => {
+      const candidate = state.memoryCandidates.find(
+        (item) => item.candidate_id === button.dataset.applyCandidate,
+      );
+      const reapplying = candidate?.status === "committed";
+      if (!candidate || !await confirmAction(
+        reapplying ? "重新应用候选记忆" : "应用候选记忆",
+        `${candidate.subject} · ${candidate.scope}`,
+        reapplying ? "重新应用" : "应用",
+      )) return;
+      button.disabled = true;
       try {
-        const result = await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.commitCandidate)}/commit`, { method: "POST" });
-        toast(result.decision.allowed ? "候选记忆已批准" : result.candidate.status === "pending" ? `候选仍需审查：${result.decision.reason_code}` : `候选被拒绝：${result.decision.reason_code}`);
+        const result = await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.applyCandidate)}/apply`, { method: "POST" });
+        if (result.memory) {
+          state.memoryMode = memoryModeFor(result.memory);
+          state.selectedMemory = result.memory;
+          toast(result.decision.reason_code === "memory_already_active" ? "记忆已经启用" : "候选记忆已应用");
+        } else {
+          state.memoryMode = "candidates";
+          state.selectedMemory = null;
+          toast(
+            result.candidate.status === "pending"
+              ? `候选仍需审查：${displayLabel(result.decision.reason_code)}`
+              : `候选未应用：${displayLabel(result.decision.reason_code)}`,
+            "error",
+          );
+        }
         renderMemories();
-      } catch (error) { toast(error.message, "error"); }
+      } catch (error) {
+        button.disabled = false;
+        toast(error.message, "error");
+      }
     };
   });
   viewRoot.querySelectorAll("[data-replace-candidate]").forEach((button) => {
     button.onclick = async () => {
       if (!await confirmAction("替换冲突记忆", button.dataset.replaceCandidate, "替换")) return;
+      button.disabled = true;
       try {
-        await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.replaceCandidate)}/commit?replace_conflicts=true`, { method: "POST" });
-        toast("新记忆已提交，旧记忆保留为已替换版本");
+        const result = await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.replaceCandidate)}/apply?replace_conflicts=true`, { method: "POST" });
+        if (result.memory) {
+          state.memoryMode = memoryModeFor(result.memory);
+          state.selectedMemory = result.memory;
+          toast("新记忆已提交，旧记忆保留为已替换版本");
+        } else {
+          state.memoryMode = "candidates";
+          state.selectedMemory = null;
+          toast(`候选未应用：${displayLabel(result.decision.reason_code)}`, "error");
+        }
         renderMemories();
-      } catch (error) { toast(error.message, "error"); }
+      } catch (error) {
+        button.disabled = false;
+        toast(error.message, "error");
+      }
     };
   });
   viewRoot.querySelectorAll("[data-reject-candidate]").forEach((button) => {
@@ -485,6 +647,141 @@ function bindMemoryRows() {
     };
   });
   bindMemoryDetail();
+}
+
+async function probeFactMemory(button) {
+  const memory = state.memories.find((item) => item.id === button.dataset.probeMemory);
+  if (!memory?.entity_id || !memory.memory_key) {
+    toast("这条事实缺少 entity_id 或 memory_key，暂时无法验证", "error");
+    return;
+  }
+  const prompt = memory.memory_key === "profile.name" ? "我叫什么？" : "这条记忆是什么？";
+  const approved = await confirmAction(
+    "验证这条记忆",
+    "这会调用模型两次：一次启用长期记忆，一次关闭长期记忆，并比较两份回答。",
+    "开始验证",
+  );
+  if (!approved) return;
+  button.disabled = true;
+  try {
+    const result = await api("/v1/memories/probe", {
+      method: "POST",
+      body: {
+        subject_id: memory.entity_id,
+        prompt,
+        fact_keys: [memory.memory_key],
+      },
+    });
+    state.memoryProbeResults.set(memory.id, result);
+    const container = button.closest("article")?.querySelector("[data-memory-probe-result]");
+    if (container) renderProbeResult(container, result);
+    toast("记忆验证已完成");
+  } catch (error) {
+    toast(error.message, "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function renderStoredProbeResults() {
+  viewRoot.querySelectorAll("[data-memory-probe-result]").forEach((container) => {
+    const result = state.memoryProbeResults.get(container.dataset.memoryProbeResult);
+    if (result) renderProbeResult(container, result);
+  });
+}
+
+function renderProbeResult(container, result) {
+  const panel = document.createElement("div");
+  panel.className = "band";
+  const heading = document.createElement("h3");
+  heading.textContent = "隔离验证结果";
+  panel.append(heading);
+
+  const details = document.createElement("dl");
+  details.className = "detail-grid";
+  appendProbeDetail(details, "判定", labeledResult(result.verdict));
+  appendProbeDetail(details, "支持方式", labeledResult(result.support_mode));
+  appendProbeDetail(details, "Trace ID", result.trace_id || "-");
+  panel.append(details);
+
+  appendProbeAnswer(panel, "启用长期记忆", result.with_memory?.text);
+  appendProbeAnswer(panel, "关闭长期记忆", result.without_memory?.text);
+  container.replaceChildren(panel);
+}
+
+function appendProbeDetail(parent, label, value) {
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const description = document.createElement("dd");
+  description.textContent = String(value ?? "-");
+  parent.append(term, description);
+}
+
+function appendProbeAnswer(parent, label, value) {
+  const heading = document.createElement("h3");
+  heading.textContent = label;
+  const content = document.createElement("pre");
+  content.className = "content-block";
+  content.textContent = String(value ?? "-");
+  parent.append(heading, content);
+}
+
+function labeledResult(value) {
+  const raw = String(value || "-");
+  const label = displayLabel(raw);
+  return label === raw ? raw : `${label}（${raw}）`;
+}
+
+async function applyManualMemory() {
+  const defaultScope = state.conversationId
+    ? `conversation:${state.conversationId}`
+    : `private:${state.actorId}`;
+  const data = await askForm({
+    title: "应用记忆",
+    body: `<div class="inline-form">
+      <div class="form-row is-full"><label>主题</label><input class="field" name="subject" placeholder="例如：用户饮品偏好" required></div>
+      <div class="form-row is-full"><label>内容</label><textarea class="textarea" name="content" placeholder="要让 LivingAgent 记住的内容" required></textarea></div>
+      <div class="form-row"><label>类型</label><select class="select" name="type">${["semantic", "episodic", "relationship", "self", "core"].map((value) => `<option value="${value}">${displayLabel(value)}</option>`).join("")}</select></div>
+      <div class="form-row"><label>事实性</label><select class="select" name="factuality">${["reported", "verified", "inferred"].map((value) => `<option value="${value}">${displayLabel(value)}</option>`).join("")}</select></div>
+      <div class="form-row is-full"><label>范围</label><input class="field mono" name="scope" value="${esc(defaultScope)}" required></div>
+      <div class="form-row is-full"><label>来源事件 ID</label><textarea class="textarea mono" name="source_event_ids" placeholder="每行一个 event_id；可从审计日志的 event.ingested 详情复制" required></textarea><span class="metric-note">应用仍经过来源、范围、冲突和敏感内容防火墙。</span></div>
+      <div class="form-row"><label>置信度</label><input class="field" name="confidence" type="number" min="0" max="1" step="0.01" value="0.9"></div>
+      <div class="form-row"><label>重要度</label><input class="field" name="importance" type="number" min="0" max="1" step="0.01" value="0.6"></div>
+    </div>`,
+    submitLabel: "应用记忆",
+  });
+  if (!data) return;
+  const sourceEventIds = String(data.get("source_event_ids"))
+    .split(/[\s,，]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  let content = String(data.get("content"));
+  try { if (content.trim().startsWith("{")) content = JSON.parse(content); } catch { /* keep text */ }
+  try {
+    const result = await api("/v1/memories/manual", {
+      method: "POST",
+      body: {
+        type: String(data.get("type")),
+        content,
+        subject: String(data.get("subject")),
+        source_event_ids: sourceEventIds,
+        factuality: String(data.get("factuality")),
+        confidence: Number(data.get("confidence")),
+        importance: Number(data.get("importance")),
+        scope: String(data.get("scope")),
+      },
+    });
+    if (result.memory) {
+      state.memoryMode = memoryModeFor(result.memory);
+      state.selectedMemory = result.memory;
+      toast("记忆已应用");
+    } else {
+      state.memoryMode = "candidates";
+      state.selectedMemory = null;
+      toast(`记忆未应用：${displayLabel(result.decision.reason_code)}`, "error");
+    }
+    renderMemories();
+  } catch (error) { toast(error.message, "error"); }
 }
 
 function memoryDetail(memory) {
@@ -565,7 +862,7 @@ async function inspectMemory(memory) {
     document.querySelector("#memory-evidence").innerHTML = `
       <div class="band"><h3>版本 ${versions.length}</h3><pre class="json-block">${esc(pretty(versions))}</pre></div>
       <div class="band"><h3>来源 ${sources.length}</h3><pre class="json-block">${esc(pretty(sources))}</pre></div>
-      <div class="band"><h3>使用记录 ${usages.length}</h3><pre class="json-block">${esc(pretty(usages))}</pre></div>`;
+      <div class="band"><h3>旧版召回记录 ${usages.length}</h3><p class="metric-note">旧版召回，是否使用未知</p><pre class="json-block">${esc(pretty(usages))}</pre></div>`;
   } catch (error) { toast(error.message, "error"); }
 }
 
