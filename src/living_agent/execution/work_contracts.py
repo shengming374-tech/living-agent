@@ -32,9 +32,12 @@ WORK_HANDLERS = frozenset(
         "daily_plan_read",
         "daily_plan_write",
         "daily_plan_update",
+        "shell_execute",
     }
 )
-WORK_WRITE_HANDLERS = frozenset({"workspace_write", "daily_plan_write", "daily_plan_update"})
+WORK_WRITE_HANDLERS = frozenset(
+    {"workspace_write", "daily_plan_write", "daily_plan_update", "shell_execute"}
+)
 
 
 class _WorkspacePathModel(BaseModel):

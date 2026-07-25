@@ -45,6 +45,16 @@ def _workspace_settings(settings: Settings, workspace: Path) -> Settings:
     return settings.model_copy(update={"work_workspace_root": workspace})
 
 
+def _shell_settings(settings: Settings, workspace: Path) -> Settings:
+    return _workspace_settings(settings, workspace).model_copy(
+        update={"work_shell_enabled": True}
+    )
+
+
+def test_shell_is_enabled_by_default() -> None:
+    assert Settings.model_fields["work_shell_enabled"].default is True
+
+
 def test_chat_reads_workspace_file_and_synthesizes_verified_result(
     settings: Settings,
     tmp_path: Path,
@@ -283,6 +293,146 @@ def test_non_owner_cannot_read_workspace_or_private_daily_plan(
     assert plan_task["step_results"][0]["errors"] == ["capability_authority_denied"]
     assert "owner-only project" not in workspace_response["message"]
     assert "工作计划" not in plan_response["message"]
+
+
+def test_trusted_admin_can_read_workspace_through_language(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    configured = _workspace_settings(settings, workspace)
+    (workspace / "README.md").write_text("trusted admin workspace", encoding="utf-8")
+
+    with TestClient(create_app(configured)) as client:
+        response = _send(
+            client,
+            "读取 README.md 并总结",
+            actor_id="admin-1",
+            conversation_id="admin-work",
+        )
+        task = _latest_task(client)
+
+    assert task["status"] == "completed"
+    assert task["task"]["requester_id"] == "admin-1"
+    assert "trusted admin workspace" in response["message"]
+
+
+def test_shell_command_waits_for_owner_and_records_process_evidence(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    configured = _shell_settings(settings, workspace)
+
+    with TestClient(create_app(configured)) as client:
+        waiting = _send(client, "运行命令 `pwd`", conversation_id="shell-work")
+        before = _latest_task(client)
+        confirmed = _send(client, "确认任务", conversation_id="shell-work")
+        completed = _latest_task(client)
+
+    assert before["status"] == "waiting_confirmation"
+    assert before["plan"]["steps"][0]["action"]["handler"] == "shell_execute"
+    assert before["step_results"][0]["attempts"] == 0
+    assert before["task"]["task_id"] in waiting["message"]
+    assert confirmed["turn"]["reason_code"] == "task_confirmation"
+    assert completed["status"] == "completed"
+    result = completed["step_results"][0]
+    assert result["output"]["exit_code"] == 0
+    assert result["output"]["stdout"].strip() == str(workspace)
+    assert result["evidence"][0]["kind"] == "process_exit"
+    assert "tool_audit_id" in result["evidence"][0]["data"]
+
+
+def test_trusted_admin_can_propose_shell_but_only_owner_can_confirm(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    configured = _shell_settings(settings, workspace)
+
+    with TestClient(create_app(configured)) as client:
+        _send(
+            client,
+            "运行命令 `pwd`",
+            actor_id="admin-1",
+            conversation_id="admin-shell",
+        )
+        denied = _send(
+            client,
+            "确认任务",
+            actor_id="admin-1",
+            conversation_id="admin-shell",
+        )
+        still_waiting = _latest_task(client)
+        _send(
+            client,
+            "确认任务",
+            actor_id="owner-1",
+            conversation_id="admin-shell",
+        )
+        completed = _latest_task(client)
+
+    assert "所有者确认" in denied["message"]
+    assert still_waiting["status"] == "waiting_confirmation"
+    assert completed["status"] == "completed"
+    assert completed["task"]["requester_id"] == "admin-1"
+
+
+def test_member_and_out_of_scope_shell_commands_are_denied(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    configured = _shell_settings(settings, workspace)
+
+    with TestClient(create_app(configured)) as client:
+        _send(
+            client,
+            "运行命令 `pwd`",
+            actor_id="member-1",
+            conversation_id="member-shell",
+        )
+        member_task = _latest_task(client)
+        _send(client, "运行命令 `git clean -fd`", conversation_id="unsafe-shell")
+        _send(client, "确认任务", conversation_id="unsafe-shell")
+        unsafe_task = _latest_task(client)
+
+    assert member_task["status"] == "failed"
+    assert member_task["step_results"][0]["errors"] == ["capability_authority_denied"]
+    assert unsafe_task["status"] == "failed"
+    assert unsafe_task["step_results"][0]["errors"] == ["shell_git_subcommand_denied"]
+
+
+def test_task_status_and_cancellation_are_available_through_language(
+    settings: Settings,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    configured = _workspace_settings(settings, workspace)
+
+    with TestClient(create_app(configured)) as client:
+        _send(
+            client,
+            "创建文件 lifecycle.txt: must not be written",
+            conversation_id="lifecycle-work",
+        )
+        status_response = _send(
+            client,
+            "查看任务",
+            conversation_id="lifecycle-work",
+        )
+        cancelled_response = _send(
+            client,
+            "取消任务",
+            conversation_id="lifecycle-work",
+        )
+        cancelled = _latest_task(client)
+
+    assert status_response["turn"]["reason_code"] == "task_status"
+    assert "确认任务" in status_response["message"]
+    assert cancelled_response["turn"]["reason_code"] == "task_cancellation"
+    assert cancelled["status"] == "cancelled"
+    assert not (workspace / "lifecycle.txt").exists()
 
 
 def test_tainted_chat_cannot_authorize_workspace_write(

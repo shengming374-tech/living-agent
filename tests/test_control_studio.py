@@ -26,6 +26,7 @@ def test_control_studio_assets_are_bundled_with_browser_security_headers(
     assert "重建记忆向量" in script.text
     assert "候选记忆已批准" in script.text
     assert "data-reject-candidate" in script.text
+    assert "data-replace-candidate" in script.text
     assert 'data-view="life"' in index.text
     assert ".studio-shell" in styles.text
     assert "default-src 'self'" in index.headers["content-security-policy"]

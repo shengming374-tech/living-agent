@@ -124,6 +124,19 @@ class TaskRepository:
                 raise TaskNotFoundError("no task is waiting for confirmation")
         return self._schema(record)
 
+    async def latest_for_conversation(self, conversation_id: str | None) -> TaskRun:
+        statement = (
+            select(TaskRunORM)
+            .where(TaskRunORM.conversation_id == conversation_id)
+            .order_by(TaskRunORM.updated_at.desc())
+            .limit(1)
+        )
+        async with self._sessions() as session:
+            record = await session.scalar(statement)
+            if record is None:
+                raise TaskNotFoundError("no task exists in this conversation")
+        return self._schema(record)
+
     async def recoverable_runs(self, *, limit: int = 100) -> list[TaskRun]:
         statement = (
             select(TaskRunORM)

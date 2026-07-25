@@ -111,6 +111,43 @@ class MemoryService:
         return created
 
     async def _auto_approve(self, candidate: MemoryCandidate) -> MemoryCandidate:
+        equivalent = await self._repository.equivalent_memory(candidate)
+        if equivalent is not None:
+            duplicate = await self._repository.reject_candidate(
+                candidate.candidate_id,
+                reason="equivalent_memory_exists",
+            )
+            await self._audit.append(
+                action="memory.auto_approval",
+                actor_id="living-agent",
+                outcome="skipped",
+                details={
+                    "candidate_id": candidate.candidate_id,
+                    "memory_id": equivalent.id,
+                    "reason_code": "equivalent_memory_exists",
+                    "source_event_ids": candidate.source_event_ids,
+                    "scope": candidate.scope,
+                },
+            )
+            return duplicate
+        if await self._repository.has_conflict(candidate):
+            deferred = await self._repository.defer_candidate(
+                candidate.candidate_id,
+                reason="conflicting_memory_requires_review",
+            )
+            await self._audit.append(
+                action="memory.auto_approval",
+                actor_id="living-agent",
+                outcome="pending_review",
+                details={
+                    "candidate_id": candidate.candidate_id,
+                    "memory_id": None,
+                    "reason_code": "conflicting_memory_requires_review",
+                    "source_event_ids": candidate.source_event_ids,
+                    "scope": candidate.scope,
+                },
+            )
+            return deferred
         result = await self.commit_candidate(
             candidate.candidate_id,
             actor_id="living-agent",
@@ -160,18 +197,37 @@ class MemoryService:
         candidate_id: str,
         *,
         actor_id: str,
+        replace_conflicts: bool = False,
     ) -> MemoryCommitResult:
         candidate = await self._repository.get_candidate(candidate_id)
         if candidate.status is not CandidateStatus.PENDING:
             decision = MemoryFirewallDecision(allowed=False, reason_code="candidate_not_pending")
             return MemoryCommitResult(candidate=candidate, decision=decision)
         source_events = await self._events.get_many(candidate.source_event_ids)
+        conflicts = await self._repository.conflicts(candidate)
         decision = self._firewall.evaluate(
             candidate,
             source_events=source_events,
-            conflict_exists=await self._repository.has_conflict(candidate),
+            conflict_exists=bool(conflicts) and not replace_conflicts,
         )
         if not decision.allowed or decision.effective_factuality is None:
+            if decision.reason_code == "conflicting_memory_requires_review":
+                pending = await self._repository.defer_candidate(
+                    candidate_id,
+                    reason=decision.reason_code,
+                )
+                await self._audit.append(
+                    action="memory.review_required",
+                    actor_id=actor_id,
+                    outcome="pending",
+                    details={
+                        "candidate_id": candidate_id,
+                        "reason_code": decision.reason_code,
+                        "conflicting_memory_ids": [memory.id for memory in conflicts],
+                        "source_event_ids": candidate.source_event_ids,
+                    },
+                )
+                return MemoryCommitResult(candidate=pending, decision=decision)
             rejected = await self._repository.reject_candidate(
                 candidate_id,
                 reason=decision.reason_code,
@@ -191,6 +247,9 @@ class MemoryService:
             candidate_id,
             factuality=decision.effective_factuality,
             actor_id=actor_id,
+            supersede_memory_ids=(
+                [memory.id for memory in conflicts] if replace_conflicts else []
+            ),
         )
         await self._audit.append(
             action="memory.created",
@@ -206,6 +265,20 @@ class MemoryService:
             },
         )
         await self._synchronize_embedding(memory)
+        if replace_conflicts:
+            for conflict in conflicts:
+                await self._remove_embedding(conflict.id)
+            if conflicts:
+                await self._audit.append(
+                    action="memory.superseded",
+                    actor_id=actor_id,
+                    outcome="success",
+                    details={
+                        "candidate_id": candidate_id,
+                        "memory_id": memory.id,
+                        "superseded_memory_ids": [item.id for item in conflicts],
+                    },
+                )
         return MemoryCommitResult(
             candidate=committed_candidate,
             decision=decision,

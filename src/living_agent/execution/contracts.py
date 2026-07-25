@@ -118,6 +118,7 @@ class PlannedAction(BaseModel):
         "daily_plan_read",
         "daily_plan_write",
         "daily_plan_update",
+        "shell_execute",
     ]
     capability_request: CapabilityRequest
     plugin_id: str | None = None
@@ -207,6 +208,18 @@ class TaskRun(BaseModel):
 
 
 class TaskConfirmationCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str | None = None
+
+
+class TaskCancellationCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str | None = None
+
+
+class TaskStatusCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     task_id: str | None = None

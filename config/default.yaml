@@ -61,6 +61,17 @@ work_web_allowed_hosts: []
 work_web_allow_insecure_http: false
 work_web_timeout_seconds: 15.0
 work_web_max_response_bytes: 1048576
+work_shell_enabled: true
+work_shell_allowed_executables:
+  - git
+  - mypy
+  - pwd
+  - pytest
+  - rg
+  - ruff
+  - uv
+work_shell_timeout_seconds: 30.0
+work_shell_max_output_bytes: 262144
 psyche_decay_half_life_hours: 12.0
 social_engage_units_min: 2
 social_engage_units_max: 3

@@ -109,6 +109,14 @@ class Settings(BaseSettings):
         ge=1024,
         le=16_777_216,
     )
+    work_shell_enabled: bool = True
+    work_shell_allowed_executables: list[str] = Field(
+        default_factory=lambda: ["git", "mypy", "pwd", "pytest", "rg", "ruff", "uv"],
+        min_length=1,
+        max_length=50,
+    )
+    work_shell_timeout_seconds: float = Field(default=30.0, ge=1.0, le=120.0)
+    work_shell_max_output_bytes: int = Field(default=262_144, ge=1024, le=4_194_304)
     psyche_decay_half_life_hours: float = Field(default=12.0, gt=0.0, le=720.0)
     social_engage_units_min: int = Field(default=2, ge=1, le=3)
     social_engage_units_max: int = Field(default=3, ge=1, le=3)
@@ -225,6 +233,26 @@ class Settings(BaseSettings):
             or parsed.fragment
         ):
             raise ValueError("work_web_search_endpoint must be an HTTP(S) URL without credentials")
+        return normalized
+
+    @field_validator("work_shell_allowed_executables")
+    @classmethod
+    def validate_shell_executables(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for executable in value:
+            candidate = executable.strip()
+            if (
+                not candidate
+                or len(candidate) > 100
+                or "/" in candidate
+                or "\\" in candidate
+                or re.fullmatch(r"[A-Za-z0-9_.+-]+", candidate) is None
+            ):
+                raise ValueError(
+                    "work_shell_allowed_executables must contain exact command names"
+                )
+            if candidate not in normalized:
+                normalized.append(candidate)
         return normalized
 
     @field_validator("root_prompt_second_factor_sha256")

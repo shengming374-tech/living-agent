@@ -80,6 +80,7 @@ class TaskService:
                 "daily_plan_read",
                 "daily_plan_write",
                 "daily_plan_update",
+                "shell_execute",
             }
         ):
             activity_kind = "work_task"
@@ -129,6 +130,30 @@ class TaskService:
     async def get(self, task_id: str) -> TaskRun:
         return await self._repository.get(task_id)
 
+    async def status(
+        self,
+        *,
+        task_id: str | None,
+        conversation_id: str | None,
+        actor_id: str,
+    ) -> TaskRun:
+        run = (
+            await self._repository.get(task_id)
+            if task_id is not None
+            else await self._repository.latest_for_conversation(conversation_id)
+        )
+        authority = self._authority.resolve(actor_id, authenticated=True)
+        if run.task.requester_id != actor_id and authority is not AuthorityLevel.OWNER:
+            await self._audit.append(
+                action="permission.denied",
+                actor_id=actor_id,
+                conversation_id=conversation_id,
+                outcome="DENY",
+                details={"reason_code": "task_status_scope_denied"},
+            )
+            raise TaskConfirmationDeniedError("task status scope denied")
+        return run
+
     async def list(
         self,
         *,
@@ -140,10 +165,21 @@ class TaskService:
     async def report(self, task_id: str) -> TaskReport:
         return await self._repository.get_report(task_id)
 
-    async def cancel(self, *, task_id: str, actor_id: str) -> TaskRun:
+    async def cancel(
+        self,
+        *,
+        task_id: str | None,
+        actor_id: str,
+        conversation_id: str | None = None,
+    ) -> TaskRun:
         if self._authority.resolve(actor_id, authenticated=True) is not AuthorityLevel.OWNER:
             raise TaskConfirmationDeniedError("owner authority required for task cancellation")
-        run = await self._kernel.cancel(task_id)
+        target_id = task_id
+        if target_id is None:
+            target_id = (
+                await self._repository.latest_for_conversation(conversation_id)
+            ).task.task_id
+        run = await self._kernel.cancel(target_id)
         await self._finish_activity_if_terminal(run)
         return run
 

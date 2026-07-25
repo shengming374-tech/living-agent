@@ -63,6 +63,7 @@ class CapabilityDefinitionView(BaseModel):
     operations: list[str]
     argument_schema: str
     sandbox_required: bool
+    confirmation_required: bool
     scope_bound: bool
     allowed_authorities: list[str] = Field(default_factory=list)
 

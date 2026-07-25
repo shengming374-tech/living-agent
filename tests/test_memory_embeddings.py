@@ -325,7 +325,7 @@ async def test_observing_the_same_event_twice_is_idempotent(settings: Settings) 
     assert len(memories) == 2
 
 
-def test_auto_approval_rejects_conflicting_extracted_candidate(settings: Settings) -> None:
+def test_auto_approval_defers_conflicting_extracted_candidate(settings: Settings) -> None:
     configured = settings.model_copy(
         update={
             "memory_auto_candidates_enabled": True,
@@ -341,15 +341,16 @@ def test_auto_approval_rejects_conflicting_extracted_candidate(settings: Setting
 
     by_content = {candidate["content"]: candidate for candidate in candidates}
     assert by_content["我是小明"]["status"] == "committed"
-    assert by_content["我是小红"]["status"] == "rejected"
+    assert by_content["我是小红"]["status"] == "pending"
     assert by_content["我是小红"]["decision_reason"] == "conflicting_memory_requires_review"
     assert [memory["content"] for memory in memories] == ["我是小明"]
-    rejected = next(
+    deferred = next(
         entry
         for entry in audit
-        if entry["action"] == "memory.auto_approval" and entry["outcome"] == "rejected"
+        if entry["action"] == "memory.auto_approval"
+        and entry["outcome"] == "pending_review"
     )
-    assert rejected["details"]["reason_code"] == "conflicting_memory_requires_review"
+    assert deferred["details"]["reason_code"] == "conflicting_memory_requires_review"
 
 
 def test_auto_approval_does_not_commit_manually_created_candidate(settings: Settings) -> None:

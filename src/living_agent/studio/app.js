@@ -52,12 +52,13 @@ const DISPLAY_LABELS = {
   direct_message: "私聊消息", group_message: "群聊消息", webpage: "网页", file: "文件", tool_result: "工具结果",
   plugin_result: "插件结果", authenticated: "已认证", unauthenticated: "未认证", mentioned: "已点名",
   observe: "观察", react: "短回应", engage: "主动参与", act: "执行", anonymous: "匿名", none: "无",
-  brokered: "经权限代理", owner: "所有者", member: "成员", trusted: "可信", untrusted: "不可信",
+  brokered: "经权限代理", owner: "所有者", admin: "管理员", member: "成员", trusted: "可信", untrusted: "不可信",
   bootstrap: "初始版本", deploy: "部署", rollback: "回滚", tool: "工具",
   paused: "已暂停", archived: "已归档", in_progress: "进行中", skipped: "已跳过",
   draft: "草稿", published: "已发布", ready: "待审批", test_failed: "测试失败",
   superseded: "已失效", routine: "日常", project: "项目", social: "社交", creative: "创作", rest: "休息",
   remote_provider_not_allowed: "远端未授权", memory_index: "记忆索引", memory_query: "记忆查询",
+  conflicting_memory_requires_review: "与现有记忆冲突，需人工审查", equivalent_memory_exists: "已有等价记忆",
 };
 
 const ARTIFACT_LABELS = {
@@ -432,7 +433,7 @@ function renderMemoryNodes() {
 
 function renderMemoryCandidates() {
   return `<div class="table-wrap"><table><thead><tr><th>主题</th><th>类型</th><th>提议者</th><th>来源信任</th><th>事实性</th><th>范围</th><th>状态</th><th></th></tr></thead><tbody>${state.memoryCandidates.map((item) => `
-    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span></td><td>${esc(displayLabel(item.type))}</td><td class="mono">${esc(item.proposer_id)}</td><td>${esc(displayLabel(item.source_trust))}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${item.status === "pending" ? `<button class="button is-small is-primary" data-commit-candidate="${esc(item.candidate_id)}">批准</button> <button class="button is-small is-danger" data-reject-candidate="${esc(item.candidate_id)}">拒绝</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="8"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
+    <tr><td><strong>${esc(item.subject)}</strong><span class="truncate metric-note">${esc(contentText(item.content))}</span>${item.decision_reason ? `<span class="metric-note">${esc(displayLabel(item.decision_reason))}</span>` : ""}</td><td>${esc(displayLabel(item.type))}</td><td class="mono">${esc(item.proposer_id)}</td><td>${esc(displayLabel(item.source_trust))}</td><td>${badge(item.factuality)}</td><td class="mono">${esc(item.scope)}</td><td>${badge(item.status)}</td><td>${item.status === "pending" ? `<button class="button is-small is-primary" data-commit-candidate="${esc(item.candidate_id)}">批准</button> ${item.decision_reason === "conflicting_memory_requires_review" ? `<button class="button is-small" data-replace-candidate="${esc(item.candidate_id)}">替换旧记忆</button>` : ""} <button class="button is-small is-danger" data-reject-candidate="${esc(item.candidate_id)}">拒绝</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="8"><div class="empty-state">没有候选记忆</div></td></tr>'}</tbody></table></div>`;
 }
 
 function bindMemoryRows() {
@@ -458,7 +459,17 @@ function bindMemoryRows() {
     button.onclick = async () => {
       try {
         const result = await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.commitCandidate)}/commit`, { method: "POST" });
-        toast(result.decision.allowed ? "候选记忆已批准" : `候选被拒绝：${result.decision.reason_code}`);
+        toast(result.decision.allowed ? "候选记忆已批准" : result.candidate.status === "pending" ? `候选仍需审查：${result.decision.reason_code}` : `候选被拒绝：${result.decision.reason_code}`);
+        renderMemories();
+      } catch (error) { toast(error.message, "error"); }
+    };
+  });
+  viewRoot.querySelectorAll("[data-replace-candidate]").forEach((button) => {
+    button.onclick = async () => {
+      if (!await confirmAction("替换冲突记忆", button.dataset.replaceCandidate, "替换")) return;
+      try {
+        await api(`/v1/memories/candidates/${encodeURIComponent(button.dataset.replaceCandidate)}/commit?replace_conflicts=true`, { method: "POST" });
+        toast("新记忆已提交，旧记忆保留为已替换版本");
         renderMemories();
       } catch (error) { toast(error.message, "error"); }
     };
@@ -769,7 +780,7 @@ async function renderCapabilities() {
   const snapshot = await api("/v1/capabilities");
   viewRoot.innerHTML = `
     <section><div class="section-heading"><h2>已注册能力</h2><span class="badge">${snapshot.definitions.length}</span></div>
-      <div class="table-wrap"><table><thead><tr><th>能力</th><th>操作</th><th>参数模式</th><th>沙箱</th><th>范围绑定</th></tr></thead><tbody>${snapshot.definitions.map((item) => `<tr><td class="mono">${esc(item.name)}</td><td>${item.operations.map((value) => `<span class="badge">${esc(value)}</span>`).join(" ")}</td><td class="mono">${esc(item.argument_schema)}</td><td>${badge(item.sandbox_required ? "required" : "host")}</td><td>${badge(item.scope_bound ? "bound" : "grant")}</td></tr>`).join("")}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>能力</th><th>操作</th><th>参数模式</th><th>沙箱</th><th>逐次确认</th><th>范围绑定</th></tr></thead><tbody>${snapshot.definitions.map((item) => `<tr><td class="mono">${esc(item.name)}</td><td>${item.operations.map((value) => `<span class="badge">${esc(value)}</span>`).join(" ")}</td><td class="mono">${esc(item.argument_schema)}</td><td>${badge(item.sandbox_required ? "required" : "host")}</td><td>${badge(item.confirmation_required ? "owner" : "policy")}</td><td>${badge(item.scope_bound ? "bound" : "grant")}</td></tr>`).join("")}</tbody></table></div>
     </section>
     <section class="band"><div class="section-heading"><h2>临时授权</h2><span class="badge ${snapshot.active_grants.length ? "is-warn" : "is-ok"}">${snapshot.active_grants.length}</span></div>
       <div class="table-wrap"><table><thead><tr><th>授权</th><th>操作者</th><th>能力</th><th>操作</th><th>范围</th><th></th></tr></thead><tbody>${snapshot.active_grants.map((grant) => `<tr><td class="mono">${esc(shortId(grant.grant_id))}</td><td>${esc(grant.actor_id)}</td><td class="mono">${esc(grant.capability)}</td><td>${esc([...grant.operations].join(", "))}</td><td><span class="truncate mono">${esc([...grant.resource_scopes].join(", "))}</span></td><td><button class="button is-small is-danger" data-revoke-grant="${esc(grant.grant_id)}">撤销</button></td></tr>`).join("") || '<tr><td colspan="6"><div class="empty-state">当前没有临时授权</div></td></tr>'}</tbody></table></div>
