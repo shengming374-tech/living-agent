@@ -83,6 +83,8 @@ const state = {
   view: "overview",
   actorId: localStorage.getItem("living-agent.actor-id") || "owner-local",
   managementToken: sessionStorage.getItem("living-agent.management-token") || "",
+  managementSession: null,
+  managementSessionKey: "",
   conversationId: localStorage.getItem("living-agent.conversation-id") || "",
   memoryMode: "facts",
   memories: [],
@@ -205,6 +207,25 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function ensureManagementSession() {
+  const key = `${state.actorId}\u0000${state.managementToken}`;
+  if (state.managementSession && state.managementSessionKey === key) {
+    return state.managementSession;
+  }
+  const session = await api("/v1/management/session");
+  state.managementSession = session;
+  state.managementSessionKey = key;
+  if (session.authority_level !== "owner") {
+    throw new ApiError("当前身份没有所有者权限", 403, session);
+  }
+  return session;
+}
+
+function invalidateManagementSession() {
+  state.managementSession = null;
+  state.managementSessionKey = "";
+}
+
 function toast(message, type = "ok") {
   const item = document.createElement("div");
   item.className = `toast ${type === "error" ? "is-error" : ""}`;
@@ -311,6 +332,7 @@ function setView(view) {
 async function renderCurrentView() {
   showLoading();
   try {
+    await ensureManagementSession();
     const renderer = {
       overview: renderOverview,
       memories: renderMemories,
@@ -327,7 +349,9 @@ async function renderCurrentView() {
     }[state.view];
     await renderer();
   } catch (error) {
-    console.error(error);
+    if (!(error instanceof ApiError && [401, 403].includes(error.status))) {
+      console.error(error);
+    }
     renderFailure(error);
   }
 }
@@ -1510,6 +1534,7 @@ async function openIdentityDialog() {
   managementTokenInput.value = state.managementToken;
   localStorage.setItem("living-agent.actor-id", state.actorId);
   sessionStorage.setItem("living-agent.management-token", state.managementToken);
+  invalidateManagementSession();
   toast("管理认证已更新");
   renderCurrentView();
 }
@@ -1522,12 +1547,14 @@ document.querySelector("#open-auth").addEventListener("click", openIdentityDialo
 document.querySelector("#save-actor").addEventListener("click", () => {
   state.actorId = actorInput.value.trim();
   localStorage.setItem("living-agent.actor-id", state.actorId);
+  invalidateManagementSession();
   toast("管理身份已应用");
   renderCurrentView();
 });
 document.querySelector("#save-token").addEventListener("click", () => {
   state.managementToken = managementTokenInput.value;
   sessionStorage.setItem("living-agent.management-token", state.managementToken);
+  invalidateManagementSession();
   toast("管理令牌已应用");
   renderCurrentView();
 });

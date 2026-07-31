@@ -10,7 +10,7 @@ def test_health_check(client: TestClient) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.2.5"}
+    assert response.json() == {"status": "ok", "version": "0.2.6"}
 
 
 def test_minimal_chat_api_creates_trusted_event_and_response(client: TestClient) -> None:

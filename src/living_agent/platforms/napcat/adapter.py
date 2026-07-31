@@ -60,6 +60,7 @@ class NapCatAdapter:
         max_message_chars: int,
         max_frame_bytes: int,
         max_in_flight_events: int,
+        max_queued_events: int,
     ) -> None:
         self._enabled = enabled
         self._access_token = access_token.get_secret_value() if access_token is not None else None
@@ -71,6 +72,9 @@ class NapCatAdapter:
         self._max_message_chars = max_message_chars
         self._max_frame_bytes = max_frame_bytes
         self._max_in_flight_events = max_in_flight_events
+        self._max_queued_events = max_queued_events
+        self._conversation_locks: dict[str, asyncio.Lock] = {}
+        self._conversation_lock_users: dict[str, int] = {}
 
     async def serve(self, websocket: WebSocket) -> None:
         self_id = websocket.headers.get("x-self-id")
@@ -98,6 +102,7 @@ class NapCatAdapter:
             action_timeout_seconds=self._action_timeout_seconds,
             max_frame_bytes=self._max_frame_bytes,
             max_in_flight_events=self._max_in_flight_events,
+            max_queued_events=self._max_queued_events,
         )
 
         async def handle(frame: dict[str, Any], active: NapCatConnection) -> None:
@@ -274,10 +279,26 @@ class NapCatAdapter:
         conversation_id = normalized.envelope.conversation_id
         if conversation_id is None:
             raise ValueError("NapCat messages require a conversation")
-        result, utterance_turn = await self._runtime.handle_platform_chat(
-            normalized.envelope,
-            platform="napcat",
+        conversation_lock = self._conversation_locks.setdefault(
+            conversation_id,
+            asyncio.Lock(),
         )
+        self._conversation_lock_users[conversation_id] = (
+            self._conversation_lock_users.get(conversation_id, 0) + 1
+        )
+        try:
+            async with conversation_lock:
+                result, utterance_turn = await self._runtime.handle_platform_chat(
+                    normalized.envelope,
+                    platform="napcat",
+                )
+        finally:
+            remaining_users = self._conversation_lock_users[conversation_id] - 1
+            if remaining_users:
+                self._conversation_lock_users[conversation_id] = remaining_users
+            else:
+                self._conversation_lock_users.pop(conversation_id, None)
+                self._conversation_locks.pop(conversation_id, None)
         if utterance_turn is None:
             return
         if not await self._runtime.activate_utterance(utterance_turn, result):
@@ -386,12 +407,22 @@ class NapCatAdapter:
             return False
 
         if response.status != "ok" or response.retcode != 0:
+            error_text = "\n".join(
+                value for value in (response.message, response.wording) if value
+            )
             await self._audit_outbound_failure(
                 conversation_id,
                 event_id,
                 action,
                 "napcat_action_failed",
                 retcode=response.retcode,
+                error_category=self._failure_category(response.retcode),
+                error_fingerprint=(
+                    hashlib.sha256(error_text.encode("utf-8")).hexdigest()
+                    if error_text
+                    else None
+                ),
+                error_text_length=len(error_text),
             )
             return False
         message_id = response.data.get("message_id") if response.data is not None else None
@@ -424,6 +455,9 @@ class NapCatAdapter:
         error_code: str,
         *,
         retcode: int | None = None,
+        error_category: str | None = None,
+        error_fingerprint: str | None = None,
+        error_text_length: int = 0,
     ) -> None:
         await self._audit.append(
             action="napcat.outbound",
@@ -435,5 +469,16 @@ class NapCatAdapter:
                 "action": action,
                 "error_code": error_code,
                 "retcode": retcode,
+                "error_category": error_category,
+                "error_fingerprint": error_fingerprint,
+                "error_text_length": error_text_length,
             },
         )
+
+    @staticmethod
+    def _failure_category(retcode: int) -> str:
+        if retcode == 1200:
+            return "napcat_internal_error"
+        if retcode == 1400:
+            return "napcat_request_invalid"
+        return "napcat_action_rejected"

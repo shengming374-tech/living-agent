@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "living-agent"
-version = "0.2.5"
+version = "0.2.6"
 description = "从零构建、由代码强制信任边界的持续人格 Agent 运行时。"
 readme = "README.md"
 license = "GPL-3.0-only"
@@ -37,6 +37,46 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/living_agent"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"config/default.yaml" = "living_agent/_assets/config/default.yaml"
+"migrations" = "living_agent/_assets/migrations"
+"personas/default" = "living_agent/_assets/personas/default"
+"plugins/examples" = "living_agent/_assets/plugins/examples"
+"prompts" = "living_agent/_assets/prompts"
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  ".env.example",
+  "LICENSE",
+  "README.md",
+  "THIRD_PARTY_NOTICES.md",
+  "alembic.ini",
+  "config",
+  "docs",
+  "integrations/openclaw/living-agent-bridge",
+  "migrations",
+  "personas",
+  "plugins/examples/calculator",
+  "prompts",
+  "pyproject.toml",
+  "references/README.md",
+  "src",
+  "tests",
+  "uv.lock",
+]
+exclude = [
+  "/.backups",
+  "/.env",
+  "/.mypy_cache",
+  "/.pytest_cache",
+  "/.ruff_cache",
+  "/.venv*",
+  "/*.db",
+  "/*.sqlite3",
+  "**/__pycache__",
+  "**/*.pyc",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"

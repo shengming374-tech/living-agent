@@ -22,6 +22,7 @@ from living_agent.api.chat import router as chat_router
 from living_agent.api.embeddings import router as embeddings_router
 from living_agent.api.health import router as health_router
 from living_agent.api.life import router as life_router
+from living_agent.api.management import router as management_router
 from living_agent.api.memories import router as memories_router
 from living_agent.api.persona import router as persona_router
 from living_agent.api.plugins import router as plugins_router
@@ -140,6 +141,7 @@ from living_agent.psyche.repository import PsycheRepository
 from living_agent.psyche.service import PsycheService
 from living_agent.runtime.event_bus import EventBus
 from living_agent.runtime.runtime import AgentRuntime
+from living_agent.runtime_assets import prepare_runtime_assets
 from living_agent.storage.database import Database
 from living_agent.storage.events import EventRepository, EventStorageQuotaError
 from living_agent.storage.migrations import run_migrations
@@ -164,6 +166,7 @@ def create_app(
 ) -> FastAPI:
     resolved_settings = settings or load_settings()
     configure_logging(resolved_settings.log_level)
+    runtime_assets = prepare_runtime_assets(resolved_settings)
     database = Database(resolved_settings.database_url)
     authority = AuthorityResolver(
         owner_id=resolved_settings.owner_id,
@@ -288,7 +291,7 @@ def create_app(
             scope_validator=napcat_reply_scope_matches,
         )
     )
-    plugin_registry = PluginRegistry(resolved_settings.plugin_root)
+    plugin_registry = PluginRegistry(runtime_assets.plugins)
     plugin_registry.discover()
     if embedding_provider is not None:
         resolved_embedding_provider = embedding_provider
@@ -366,13 +369,13 @@ def create_app(
         audit=audit,
     )
     persona_manager = PersonaManager(
-        root=resolved_settings.persona_root,
+        root=runtime_assets.persona,
         repository=artifact_repository,
         audit=audit,
         bootstrap_actor=resolved_settings.owner_id,
     )
     prompt_manager = PromptManager(
-        root=resolved_settings.prompt_root,
+        root=runtime_assets.prompts,
         repository=artifact_repository,
         audit=audit,
         bootstrap_actor=resolved_settings.owner_id,
@@ -436,6 +439,9 @@ def create_app(
             image_description_max_chars=resolved_settings.model_image_description_max_chars,
             allowed_image_hosts=resolved_settings.model_image_allowed_hosts,
             timeout_seconds=resolved_settings.model_timeout_seconds,
+            max_attempts=resolved_settings.model_max_attempts,
+            retry_base_seconds=resolved_settings.model_retry_base_seconds,
+            retry_max_seconds=resolved_settings.model_retry_max_seconds,
             max_output_tokens=resolved_settings.model_max_output_tokens,
             temperature=resolved_settings.model_temperature,
             max_context_chars=resolved_settings.model_max_context_chars,
@@ -564,6 +570,7 @@ def create_app(
         max_message_chars=resolved_settings.napcat_max_message_chars,
         max_frame_bytes=resolved_settings.napcat_max_frame_bytes,
         max_in_flight_events=resolved_settings.napcat_max_in_flight_events,
+        max_queued_events=resolved_settings.napcat_max_queued_events,
     )
     openclaw_bridge_adapter = OpenClawBridgeAdapter(
         enabled=resolved_settings.openclaw_bridge_enabled,
@@ -745,6 +752,7 @@ def create_app(
     app.state.napcat_adapter = napcat_adapter
     app.state.openclaw_bridge_adapter = openclaw_bridge_adapter
     app.include_router(health_router)
+    app.include_router(management_router)
     app.include_router(life_router)
     app.include_router(chat_router)
     app.include_router(embeddings_router)

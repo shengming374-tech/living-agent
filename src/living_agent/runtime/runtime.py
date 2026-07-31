@@ -706,13 +706,27 @@ class AgentRuntime:
                     "provider": exc.provider,
                     "model": exc.model,
                     "error_code": exc.code,
+                    "attempts": exc.attempts,
                 },
             )
-            failure_message = self._social.render_model_failure()
+            await self._audit.append(
+                action="model.reply_suppressed",
+                actor_id="living-agent",
+                conversation_id=event.conversation_id,
+                outcome="ignored",
+                details={
+                    "event_id": event.event_id,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                    "error_code": exc.code,
+                    "attempts": exc.attempts,
+                    "reason_code": "model_failure",
+                },
+            )
             if memory_trace_id is not None:
                 await self._memories.mark_response_supported(
                     memory_trace_id,
-                    response_text=failure_message,
+                    response_text="",
                     corroborating_text=self._corroborating_text(
                         event=event,
                         conversation_history=conversation_history,
@@ -720,16 +734,13 @@ class AgentRuntime:
                         attention_cue=attention_cue,
                     ),
                 )
-            failure_utterance = self._social.plan_utterance(failure_message, turn)
-            failure_utterance.units[0].function = "model_failure"
-            failure_messages = [unit.text for unit in failure_utterance.units]
             return ChatResult(
                 event=event,
                 turn=turn,
                 schedule=schedule,
-                message=failure_messages[0],
-                messages=failure_messages,
-                utterance=failure_utterance,
+                message=None,
+                messages=[],
+                utterance=None,
                 memory_trace_id=memory_trace_id,
             )
         await self._audit.append(
@@ -741,6 +752,7 @@ class AgentRuntime:
                 "event_id": event.event_id,
                 "provider": model_response.provider,
                 "model": model_response.model,
+                "attempts": model_response.attempts,
                 "prompt_tokens": model_response.usage.prompt_tokens,
                 "completion_tokens": model_response.usage.completion_tokens,
                 "total_tokens": model_response.usage.total_tokens,
@@ -948,6 +960,7 @@ class AgentRuntime:
                     "provider": exc.provider,
                     "model": exc.model,
                     "error_code": exc.code,
+                    "attempts": exc.attempts,
                     "phase": "task_result_synthesis",
                 },
             )
@@ -961,6 +974,7 @@ class AgentRuntime:
                 "event_id": event.event_id,
                 "provider": model_response.provider,
                 "model": model_response.model,
+                "attempts": model_response.attempts,
                 "prompt_tokens": model_response.usage.prompt_tokens,
                 "completion_tokens": model_response.usage.completion_tokens,
                 "total_tokens": model_response.usage.total_tokens,

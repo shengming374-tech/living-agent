@@ -6,7 +6,8 @@ import hashlib
 import hmac
 from typing import Annotated
 
-from fastapi import Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict
 
 from living_agent.config import Settings
 from living_agent.management.artifacts import (
@@ -19,6 +20,28 @@ from living_agent.trust.authority import AuthorityResolver
 
 ActorHeader = Annotated[str, Header(alias="X-Actor-ID")]
 SecondFactorHeader = Annotated[str | None, Header(alias="X-Second-Factor")]
+router = APIRouter(prefix="/v1/management", tags=["management"])
+
+
+class ManagementSessionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: str
+    authority_level: AuthorityLevel
+    management_auth_required: bool
+
+
+@router.get("/session")
+async def management_session(
+    request: Request,
+    actor_id: ActorHeader,
+) -> ManagementSessionResponse:
+    authority: AuthorityResolver = request.app.state.authority
+    return ManagementSessionResponse(
+        actor_id=actor_id,
+        authority_level=authority.resolve(actor_id, authenticated=True),
+        management_auth_required=request.app.state.management_authenticator.required,
+    )
 
 
 def require_owner(actor_id: str, authority: AuthorityResolver) -> None:

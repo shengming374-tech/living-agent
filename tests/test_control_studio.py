@@ -15,11 +15,13 @@ def test_control_studio_assets_are_bundled_with_browser_security_headers(
     index = client.get("/studio")
     script = client.get("/studio/app.js")
     styles = client.get("/studio/styles.css")
+    favicon = client.get("/favicon.ico")
     invalid = client.get("/studio/unknown.js")
 
     assert root.status_code == 307
     assert root.headers["location"] == "/studio"
     assert index.status_code == script.status_code == styles.status_code == 200
+    assert favicon.status_code == 204
     assert "LivingAgent 控制台" in index.text
     assert "行为模拟器" in script.text
     assert "生活管理" in script.text
@@ -38,6 +40,9 @@ def test_control_studio_assets_are_bundled_with_browser_security_headers(
     assert "data-replace-candidate" in script.text
     assert 'data-view="life"' in index.text
     assert 'formnovalidate aria-label="关闭"' in index.text
+    assert 'id="sidebar-auth-form"' in index.text
+    assert 'api("/v1/management/session")' in script.text
+    assert "await ensureManagementSession()" in script.text
     assert ".studio-shell" in styles.text
     assert "default-src 'self'" in index.headers["content-security-policy"]
     assert index.headers["x-content-type-options"] == "nosniff"

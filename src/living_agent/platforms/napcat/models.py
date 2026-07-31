@@ -106,6 +106,8 @@ class OneBotActionResponse(BaseModel):
     status: Literal["ok", "failed"]
     retcode: int
     data: dict[str, Any] | None = None
+    message: str | None = Field(default=None, max_length=16000)
+    wording: str | None = Field(default=None, max_length=16000)
     echo: str
 
 

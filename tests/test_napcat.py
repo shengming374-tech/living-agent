@@ -21,7 +21,7 @@ from living_agent.platforms.napcat.models import (
     OneBotMessageEvent,
     normalize_message,
 )
-from living_agent.providers.llm import ModelResponse
+from living_agent.providers.llm import LLMProviderError, ModelResponse
 
 NAPCAT_PATH = "/v1/adapters/napcat/ws"
 NAPCAT_TOKEN = "napcat-test-token"
@@ -41,6 +41,16 @@ class FixedLLMProvider:
     async def generate(self, context: CompiledContext) -> ModelResponse:
         self.contexts.append(context)
         return ModelResponse(text=self._text, provider="test")
+
+
+class FailingLLMProvider:
+    async def generate(self, context: CompiledContext) -> ModelResponse:
+        del context
+        raise LLMProviderError(
+            "model_http_400",
+            provider="openai_compatible",
+            model="test-model",
+        )
 
 
 @pytest.fixture
@@ -608,7 +618,7 @@ def test_failed_action_is_isolated_without_logging_untrusted_wording(
         websocket.send_json(
             {
                 "status": "failed",
-                "retcode": 1400,
+                "retcode": 1200,
                 "data": None,
                 "message": sentinel,
                 "wording": sentinel,
@@ -628,7 +638,10 @@ def test_failed_action_is_isolated_without_logging_untrusted_wording(
         if entry["action"] == "napcat.outbound" and entry["outcome"] == "failure"
     )
     assert failure["details"]["error_code"] == "napcat_action_failed"
-    assert failure["details"]["retcode"] == 1400
+    assert failure["details"]["retcode"] == 1200
+    assert failure["details"]["error_category"] == "napcat_internal_error"
+    assert failure["details"]["error_text_length"] == len(sentinel) * 2 + 1
+    assert len(failure["details"]["error_fingerprint"]) == 64
     assert sentinel not in repr(audit)
 
 
@@ -655,6 +668,29 @@ def test_model_cq_code_is_sent_as_plain_text_segment(settings: Settings) -> None
                 ),
             )
             close_websocket(websocket, client)
+
+
+def test_model_failure_stays_silent_without_napcat_action(settings: Settings) -> None:
+    configured = settings.model_copy(deep=True)
+    configured.napcat_enabled = True
+    configured.napcat_access_token = SecretStr(NAPCAT_TOKEN)
+    with TestClient(create_app(configured, llm_provider=FailingLLMProvider())) as client:
+        with client.websocket_connect(NAPCAT_PATH, headers=WS_HEADERS) as websocket:
+            websocket.send_json(
+                private_event(
+                    "这是一条应当参与但模型会失败的正常聊天消息",
+                    message_id=99101,
+                )
+            )
+            wait_for_audit(
+                client,
+                lambda entry: entry["action"] == "model.reply_suppressed",
+            )
+            close_websocket(websocket, client)
+
+        audit = audit_entries(client)
+
+    assert not any(entry["action"] == "napcat.outbound" for entry in audit)
 
 
 def test_out_of_order_action_responses_are_correlated_by_echo(

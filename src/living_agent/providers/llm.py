@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import OrderedDict
 from collections.abc import Sequence
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from hashlib import sha256
 from typing import Literal, Protocol, runtime_checkable
 from urllib.parse import urlsplit
@@ -23,11 +26,21 @@ from living_agent.models.events import is_safe_image_url
 
 
 class LLMProviderError(RuntimeError):
-    def __init__(self, code: str, *, provider: str, model: str) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        provider: str,
+        model: str,
+        attempts: int = 1,
+        retry_after_seconds: float | None = None,
+    ) -> None:
         super().__init__(code)
         self.code = code
         self.provider = provider
         self.model = model
+        self.attempts = attempts
+        self.retry_after_seconds = retry_after_seconds
 
 
 class ModelUsage(BaseModel):
@@ -44,6 +57,7 @@ class ModelResponse(BaseModel):
     text: str = Field(min_length=1, max_length=32000)
     provider: str = Field(min_length=1, max_length=255)
     model: str | None = Field(default=None, min_length=1, max_length=255)
+    attempts: int = Field(default=1, ge=1, le=5)
     usage: ModelUsage = Field(default_factory=ModelUsage)
     vision_model: str | None = Field(default=None, min_length=1, max_length=255)
     vision_mode: Literal["caption", "direct"] | None = None
@@ -196,6 +210,9 @@ class OpenAICompatibleLLMProvider:
         image_description_max_chars: int = 1200,
         allowed_image_hosts: Sequence[str] = (),
         timeout_seconds: float,
+        max_attempts: int,
+        retry_base_seconds: float,
+        retry_max_seconds: float,
         max_output_tokens: int,
         temperature: float,
         max_context_chars: int,
@@ -214,6 +231,9 @@ class OpenAICompatibleLLMProvider:
         )
         self._endpoint = f"{base_url.rstrip('/')}/chat/completions"
         self._api_key = api_key.get_secret_value() if api_key is not None else None
+        self._max_attempts = max_attempts
+        self._retry_base_seconds = retry_base_seconds
+        self._retry_max_seconds = retry_max_seconds
         self._max_output_tokens = max_output_tokens
         self._temperature = temperature
         self._max_context_chars = max_context_chars
@@ -283,31 +303,45 @@ class OpenAICompatibleLLMProvider:
         headers = {"accept": "application/json", "content-type": "application/json"}
         if self._api_key:
             headers["authorization"] = f"Bearer {self._api_key}"
-        try:
-            async with self._client.stream(
-                "POST",
-                self._endpoint,
-                headers=headers,
-                json=payload,
-            ) as response:
-                if response.status_code < 200 or response.status_code >= 300:
-                    raise self._error(
-                        f"model_http_{response.status_code}",
-                        model=model,
-                    )
-                raw = await self._bounded_body(response, model=model)
-        except LLMProviderError:
-            raise
-        except httpx2.TimeoutException as exc:
-            raise self._error("model_timeout", model=model) from exc
-        except httpx2.TransportError as exc:
-            raise self._error("model_unavailable", model=model) from exc
+        raw = b""
+        attempts = 0
+        for attempts in range(1, self._max_attempts + 1):
+            try:
+                async with self._client.stream(
+                    "POST",
+                    self._endpoint,
+                    headers=headers,
+                    json=payload,
+                ) as response:
+                    if response.status_code < 200 or response.status_code >= 300:
+                        raise self._error(
+                            f"model_http_{response.status_code}",
+                            model=model,
+                            retry_after_seconds=self._retry_after_seconds(response),
+                        )
+                    raw = await self._bounded_body(response, model=model)
+                break
+            except httpx2.TimeoutException as exc:
+                error = self._error("model_timeout", model=model)
+                error.__cause__ = exc
+            except httpx2.TransportError as exc:
+                error = self._error("model_unavailable", model=model)
+                error.__cause__ = exc
+            except LLMProviderError as exc:
+                error = exc
+            error.attempts = attempts
+            if attempts >= self._max_attempts or not self._is_retryable(error.code):
+                raise error
+            await asyncio.sleep(self._retry_delay(attempts, error.retry_after_seconds))
         try:
             decoded = json.loads(raw)
             upstream = _UpstreamCompletion.model_validate(decoded)
-            return self._validated_response(upstream, requested_model=model)
+            model_response = self._validated_response(upstream, requested_model=model)
+            return model_response.model_copy(update={"attempts": attempts})
         except (json.JSONDecodeError, UnicodeDecodeError, ValidationError, ValueError) as exc:
-            raise self._error("model_response_invalid", model=model) from exc
+            error = self._error("model_response_invalid", model=model)
+            error.attempts = attempts
+            raise error from exc
 
     def _resolved_image_mode(self) -> Literal["caption", "direct"]:
         if self._image_mode == "caption":
@@ -678,5 +712,52 @@ class OpenAICompatibleLLMProvider:
             )
         return total
 
-    def _error(self, code: str, *, model: str | None = None) -> LLMProviderError:
-        return LLMProviderError(code, provider=self.name, model=model or self.model)
+    @staticmethod
+    def _is_retryable(code: str) -> bool:
+        return code in {
+            "model_timeout",
+            "model_unavailable",
+            "model_http_408",
+            "model_http_429",
+            "model_http_500",
+            "model_http_502",
+            "model_http_503",
+            "model_http_504",
+        }
+
+    def _retry_delay(self, attempts: int, retry_after_seconds: float | None) -> float:
+        if retry_after_seconds is not None:
+            return min(retry_after_seconds, self._retry_max_seconds)
+        exponential = self._retry_base_seconds * float(2 ** (attempts - 1))
+        return min(exponential, self._retry_max_seconds)
+
+    @staticmethod
+    def _retry_after_seconds(response: httpx2.Response) -> float | None:
+        value = response.headers.get("retry-after")
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(value)
+            except (TypeError, ValueError):
+                return None
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=UTC)
+            parsed = (retry_at - datetime.now(UTC)).total_seconds()
+        return max(0.0, parsed)
+
+    def _error(
+        self,
+        code: str,
+        *,
+        model: str | None = None,
+        retry_after_seconds: float | None = None,
+    ) -> LLMProviderError:
+        return LLMProviderError(
+            code,
+            provider=self.name,
+            model=model or self.model,
+            retry_after_seconds=retry_after_seconds,
+        )

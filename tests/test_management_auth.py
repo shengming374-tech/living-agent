@@ -69,6 +69,34 @@ def test_management_api_requires_valid_bearer_token(settings: Settings) -> None:
     assert accepted.status_code == 200
 
 
+def test_management_session_probes_authentication_and_authority(
+    settings: Settings,
+) -> None:
+    configured = production_settings(settings)
+    token_header = {"Authorization": f"Bearer {MANAGEMENT_TOKEN}"}
+    with TestClient(create_app(configured)) as client:
+        missing = client.get(
+            "/v1/management/session",
+            headers={"X-Actor-ID": "owner-1"},
+        )
+        owner = client.get(
+            "/v1/management/session",
+            headers={"X-Actor-ID": "owner-1", **token_header},
+        )
+        member = client.get(
+            "/v1/management/session",
+            headers={"X-Actor-ID": "member-1", **token_header},
+        )
+
+    assert missing.status_code == 401
+    assert owner.json() == {
+        "actor_id": "owner-1",
+        "authority_level": "owner",
+        "management_auth_required": True,
+    }
+    assert member.json()["authority_level"] == "member"
+
+
 def test_platform_and_chat_ingress_keep_separate_auth_boundaries(settings: Settings) -> None:
     configured = production_settings(settings)
     with TestClient(create_app(configured)) as client:

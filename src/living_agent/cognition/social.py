@@ -240,9 +240,6 @@ class SocialCognition:
     def render_continuity_block(self) -> str:
         return "我没有足够的记录支持那样说"
 
-    def render_model_failure(self) -> str:
-        return "刚才没能连接到语言模型"
-
     @staticmethod
     def _semantic_units(text: str, *, maximum: int, unit_chars: int = 120) -> list[str]:
         lines = [" ".join(line.split()) for line in text.strip().splitlines() if line.strip()]
