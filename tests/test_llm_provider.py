@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Sequence
 from typing import Literal
@@ -70,6 +71,9 @@ def provider_with_client(
     image_description_cache_entries: int = 256,
     max_context_chars: int = 10000,
     max_response_bytes: int = 4096,
+    max_attempts: int = 2,
+    retry_base_seconds: float = 0.0,
+    retry_max_seconds: float = 5.0,
     allow_insecure_image_urls: bool = False,
     allowed_image_hosts: Sequence[str] = ("images.example",),
 ) -> OpenAICompatibleLLMProvider:
@@ -82,6 +86,9 @@ def provider_with_client(
         image_description_cache_entries=image_description_cache_entries,
         allowed_image_hosts=allowed_image_hosts,
         timeout_seconds=2.0,
+        max_attempts=max_attempts,
+        retry_base_seconds=retry_base_seconds,
+        retry_max_seconds=retry_max_seconds,
         max_output_tokens=321,
         temperature=0.25,
         max_context_chars=max_context_chars,
@@ -555,6 +562,83 @@ async def test_cloud_provider_normalizes_timeout_and_context_limit() -> None:
             await limited_provider.generate(compiled_context())
 
 
+async def test_cloud_provider_retries_transient_status_and_caps_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+    delays: list[float] = []
+
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx2.Response(503, headers={"Retry-After": "60"})
+        return httpx2.Response(
+            200,
+            json={
+                "model": "cloud-chat-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "recovered"},
+                    }
+                ],
+            },
+        )
+
+    async def record_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("living_agent.providers.llm.asyncio.sleep", record_sleep)
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        result = await provider_with_client(
+            client,
+            retry_base_seconds=0.5,
+            retry_max_seconds=5.0,
+        ).generate(compiled_context())
+
+    assert result.text == "recovered"
+    assert result.attempts == 2
+    assert calls == 2
+    assert delays == [5.0]
+
+
+async def test_cloud_provider_does_not_retry_permanent_failure() -> None:
+    calls = 0
+
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        nonlocal calls
+        calls += 1
+        return httpx2.Response(400, text="private invalid request details")
+
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        with pytest.raises(LLMProviderError) as raised:
+            await provider_with_client(client).generate(compiled_context())
+
+    assert raised.value.code == "model_http_400"
+    assert raised.value.attempts == 1
+    assert calls == 1
+
+
+async def test_cloud_provider_retry_backoff_is_cancellable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def handler(_request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(429)
+
+    async def cancel_sleep(_delay: float) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("living_agent.providers.llm.asyncio.sleep", cancel_sleep)
+    async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
+        with pytest.raises(asyncio.CancelledError):
+            await provider_with_client(
+                client,
+                retry_base_seconds=0.5,
+            ).generate(compiled_context())
+
+
 class _CloudSuccessProvider:
     async def generate(self, context: CompiledContext) -> ModelResponse:
         assert any(section.kind is ContextKind.SOCIAL_CHAT for section in context.sections)
@@ -663,7 +747,7 @@ def test_runtime_audits_caption_stage_metadata(settings: Settings) -> None:
         ),
         (
             _CloudFailureProvider(),
-            "刚才没能连接到语言模型",
+            None,
             "failure",
         ),
     ],
@@ -671,7 +755,7 @@ def test_runtime_audits_caption_stage_metadata(settings: Settings) -> None:
 def test_chat_runtime_uses_cloud_provider_and_isolates_failure(
     settings: Settings,
     provider: _CloudSuccessProvider | _CloudFailureProvider,
-    expected_message: str,
+    expected_message: str | None,
     expected_outcome: str,
 ) -> None:
     with TestClient(create_app(settings, llm_provider=provider)) as client:
@@ -683,6 +767,15 @@ def test_chat_runtime_uses_cloud_provider_and_isolates_failure(
     assert model_call["outcome"] == expected_outcome
     assert model_call["details"]["provider"] == "openai_compatible"
     assert "A normal cloud test message" not in repr(model_call)
+    if expected_outcome == "failure":
+        suppressed = next(
+            entry for entry in audit if entry["action"] == "model.reply_suppressed"
+        )
+        assert suppressed["outcome"] == "ignored"
+        assert suppressed["details"]["reason_code"] == "model_failure"
+        assert suppressed["details"]["error_code"] == "model_http_401"
+        assert response["messages"] == []
+        assert response["utterance"] is None
 
 
 def test_chat_runtime_does_not_call_model_for_contained_injection(settings: Settings) -> None:

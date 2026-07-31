@@ -1,4 +1,4 @@
-# ADR 0002：策略与实际影响位于模型之外
+# ADR 0002：策略与实际影响位于模型之外 / Keep Policy and Side Effects Outside the Model
 
 - 状态：已接受
 - 日期：2026-07-20

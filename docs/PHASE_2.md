@@ -1,4 +1,4 @@
-# 阶段 2 完成记录
+# 阶段 2 完成记录 / Phase 2 Completion Record
 
 于 2026-07-20 在提交 `feat(plugins): add isolated calculator plugin` 中完成。
 

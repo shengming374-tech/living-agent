@@ -1,4 +1,4 @@
-# 阶段 4 完成记录
+# 阶段 4 完成记录 / Phase 4 Completion Record
 
 于 2026-07-20 在提交 `feat(psyche): add persistent thought and continuity evidence` 中完成。
 

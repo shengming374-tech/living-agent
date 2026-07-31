@@ -1,4 +1,4 @@
-# 阶段 1 完成记录
+# 阶段 1 完成记录 / Phase 1 Completion Record
 
 于 2026-07-20 在提交 `feat(runtime): add trusted event pipeline` 中完成。
 

@@ -1,4 +1,4 @@
-# 阶段 3 完成记录
+# 阶段 3 完成记录 / Phase 3 Completion Record
 
 于 2026-07-20 在记忆控制提交和 `feat(control): add persona and prompt version workflows` 提交中完成。
 

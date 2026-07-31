@@ -1,4 +1,4 @@
-# 嵌入模型与 API 集成
+# 嵌入模型与 API 集成 / Embedding Model and API Integration
 
 LivingAgent 具有宿主持有的嵌入提供方边界，包含两个实现：
 

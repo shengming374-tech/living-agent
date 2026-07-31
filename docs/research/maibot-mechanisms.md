@@ -1,4 +1,4 @@
-# 值得研究的 MaiBot 机制
+# 值得研究的 MaiBot 机制 / MaiBot Mechanisms Worth Studying
 
 研究版本：`73ef023c9c739af5e65a44361489b48ab7a5ed23`（官方 `Mai-with-u/MaiBot`，查阅于 2026-07-20）。
 

@@ -1,4 +1,4 @@
-# 0.2.2：自动记忆与平台可靠性
+# 0.2.2：自动记忆与平台可靠性 / Automatic Memory and Platform Reliability
 
 0.2.2 修复长期记忆默认不产出的问题，并补齐 NapCat 入站幂等与 OpenClaw 群聊合同。版本不引入开放式 LLM 记忆抽取，继续使用有界、可审计的确定性规则。
 

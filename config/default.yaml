@@ -18,6 +18,9 @@ model_image_allowed_hosts: []
 model_api_base_url: null
 model_api_key: null
 model_timeout_seconds: 60.0
+model_max_attempts: 2
+model_retry_base_seconds: 0.5
+model_retry_max_seconds: 5.0
 model_max_output_tokens: 1024
 model_temperature: 0.7
 model_max_context_chars: 100000
@@ -49,6 +52,7 @@ memory_recall_min_score: 0.4
 memory_narrative_recall_limit: 2
 audit_page_size: 100
 test_disable_delays: false
+runtime_root: .
 plugin_root: plugins/examples
 enabled_plugins:
   - com.livingagent.calculator
@@ -96,6 +100,7 @@ napcat_action_timeout_seconds: 5.0
 napcat_max_message_chars: 12000
 napcat_max_frame_bytes: 1048576
 napcat_max_in_flight_events: 16
+napcat_max_queued_events: 256
 openclaw_bridge_enabled: false
 openclaw_bridge_access_token: null
 openclaw_bridge_allowed_channels:

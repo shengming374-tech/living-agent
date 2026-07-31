@@ -1,4 +1,4 @@
-# 图片理解
+# 图片理解 / Image Understanding
 
 LivingAgent 0.2.0 支持图片输入和文本回答。默认由 `gpt-5.5` 生成视觉观察，再由现有语言模型完成最终回复；确定性的 `MockLLMProvider` 不解析像素。
 

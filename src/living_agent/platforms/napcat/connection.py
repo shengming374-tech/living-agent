@@ -30,13 +30,17 @@ class NapCatConnection:
         action_timeout_seconds: float,
         max_frame_bytes: int,
         max_in_flight_events: int,
+        max_queued_events: int,
     ) -> None:
         self._websocket = websocket
         self._action_timeout_seconds = action_timeout_seconds
         self._max_frame_bytes = max_frame_bytes
-        self._max_in_flight_events = max_in_flight_events
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(
+            maxsize=max_queued_events
+        )
+        self._event_workers: list[asyncio.Task[None]] = []
+        self._worker_count = max_in_flight_events
         self._send_lock = asyncio.Lock()
         self._closed = False
 
@@ -45,6 +49,10 @@ class NapCatConnection:
         handler: FrameHandler,
         issue_handler: FrameIssueHandler,
     ) -> None:
+        self._event_workers = [
+            asyncio.create_task(self._run_event_worker(handler))
+            for _ in range(self._worker_count)
+        ]
         try:
             while True:
                 frame = await self._receive_frame(issue_handler)
@@ -59,12 +67,10 @@ class NapCatConnection:
                 if "echo" in frame and "status" in frame:
                     await issue_handler("unmatched_action_response")
                     continue
-                if len(self._tasks) >= self._max_in_flight_events:
-                    await issue_handler("too_many_in_flight_events")
-                    continue
-                task: asyncio.Task[None] = asyncio.create_task(handler(frame, self))
-                self._tasks.add(task)
-                task.add_done_callback(self._tasks.discard)
+                try:
+                    self._event_queue.put_nowait(frame)
+                except asyncio.QueueFull:
+                    await issue_handler("event_queue_full")
         except WebSocketDisconnect:
             pass
         finally:
@@ -72,13 +78,25 @@ class NapCatConnection:
             for future in self._pending.values():
                 if not future.done():
                     future.set_exception(NapCatConnectionError("NapCat disconnected"))
-            if self._tasks:
-                drain = asyncio.create_task(self._drain_tasks())
-                try:
-                    await asyncio.shield(drain)
-                except asyncio.CancelledError:
-                    await drain
-                    raise
+            discarded = self._event_queue.qsize()
+            if discarded:
+                await issue_handler("events_discarded_on_disconnect")
+                while True:
+                    try:
+                        self._event_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    self._event_queue.task_done()
+            try:
+                await asyncio.wait_for(
+                    self._event_queue.join(),
+                    timeout=self._action_timeout_seconds,
+                )
+            except TimeoutError:
+                await issue_handler("event_cleanup_timeout")
+            for task in self._event_workers:
+                task.cancel()
+            await asyncio.gather(*self._event_workers, return_exceptions=True)
 
     async def call_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
         if self._closed:
@@ -103,6 +121,14 @@ class NapCatConnection:
                 raise NapCatActionTimeoutError("NapCat action timed out") from exc
         finally:
             self._pending.pop(echo, None)
+
+    async def _run_event_worker(self, handler: FrameHandler) -> None:
+        while True:
+            frame = await self._event_queue.get()
+            try:
+                await handler(frame, self)
+            finally:
+                self._event_queue.task_done()
 
     async def _receive_frame(
         self,
@@ -131,6 +157,3 @@ class NapCatConnection:
             await issue_handler("frame_not_object")
             return None
         return value
-
-    async def _drain_tasks(self) -> None:
-        await asyncio.gather(*self._tasks, return_exceptions=True)

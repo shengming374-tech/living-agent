@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
     <title>LivingAgent 控制台</title>
+    <link rel="icon" href="/favicon.ico">
     <link rel="stylesheet" href="/studio/styles.css">
   </head>
   <body>
@@ -33,18 +34,18 @@
           <button class="nav-item" data-view="life"><span>12</span>生活</button>
         </nav>
 
-        <div class="identity-control">
+        <form class="identity-control" id="sidebar-auth-form">
           <label for="actor-id">管理身份</label>
           <div class="identity-row">
             <input id="actor-id" autocomplete="off" spellcheck="false" value="owner-local">
-            <button class="icon-button" id="save-actor" title="应用管理身份" aria-label="应用管理身份">✓</button>
+            <button class="icon-button" id="save-actor" type="button" title="应用管理身份" aria-label="应用管理身份">✓</button>
           </div>
           <label for="management-token">管理令牌</label>
           <div class="identity-row">
             <input id="management-token" type="password" autocomplete="off" spellcheck="false">
-            <button class="icon-button" id="save-token" title="应用管理令牌" aria-label="应用管理令牌">✓</button>
+            <button class="icon-button" id="save-token" type="button" title="应用管理令牌" aria-label="应用管理令牌">✓</button>
           </div>
-        </div>
+        </form>
       </aside>
 
       <main class="workspace">

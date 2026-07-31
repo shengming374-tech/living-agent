@@ -1,4 +1,4 @@
-# NapCat OneBot 11 集成
+# NapCat OneBot 11 集成 / NapCat OneBot 11 Integration
 
 LivingAgent 在 `/v1/adapters/napcat/ws` 提供宿主持有的 NapCat 平台适配器。NapCat 作为反向 WebSocket 客户端连接 LivingAgent、推送 OneBot 11 事件，并通过同一连接接收 API 操作。
 

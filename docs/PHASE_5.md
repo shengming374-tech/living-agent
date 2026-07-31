@@ -1,4 +1,4 @@
-# 阶段 5：仿生发言与中断
+# 阶段 5：仿生发言与中断 / Phase 5: Biomimetic Utterances and Interruption
 
 于 2026-07-21 完成。
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 
 router = APIRouter(include_in_schema=False)
 _STUDIO_ROOT = Path(__file__).resolve().parents[1] / "studio"
@@ -34,6 +34,11 @@ async def root_redirect() -> RedirectResponse:
 @router.get("/studio")
 async def control_studio() -> FileResponse:
     return _asset("index.html")
+
+
+@router.get("/favicon.ico")
+async def favicon() -> Response:
+    return Response(status_code=204, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/studio/{asset_name}")

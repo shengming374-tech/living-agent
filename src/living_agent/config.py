@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     model_api_base_url: str | None = None
     model_api_key: SecretStr | None = None
     model_timeout_seconds: float = Field(default=60.0, gt=0.0, le=300.0)
+    model_max_attempts: int = Field(default=2, ge=1, le=5)
+    model_retry_base_seconds: float = Field(default=0.5, ge=0.0, le=30.0)
+    model_retry_max_seconds: float = Field(default=5.0, ge=0.0, le=60.0)
     model_max_output_tokens: int = Field(default=1024, ge=1, le=32768)
     model_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     model_max_context_chars: int = Field(default=100000, ge=1000, le=1000000)
@@ -94,6 +97,7 @@ class Settings(BaseSettings):
     memory_narrative_recall_limit: int = Field(default=2, ge=1, le=8)
     audit_page_size: int = Field(default=100, ge=1, le=1000)
     test_disable_delays: bool = False
+    runtime_root: Path = Path(".")
     plugin_root: Path = Path("plugins/examples")
     enabled_plugins: list[str] = Field(default_factory=lambda: ["com.livingagent.calculator"])
     plugin_timeout_seconds: float = Field(default=2.0, gt=0.0, le=30.0)
@@ -141,6 +145,7 @@ class Settings(BaseSettings):
     napcat_max_message_chars: int = Field(default=12000, ge=1, le=100000)
     napcat_max_frame_bytes: int = Field(default=1048576, ge=1024, le=52428800)
     napcat_max_in_flight_events: int = Field(default=16, ge=1, le=256)
+    napcat_max_queued_events: int = Field(default=256, ge=1, le=10000)
     openclaw_bridge_enabled: bool = False
     openclaw_bridge_access_token: SecretStr | None = None
     openclaw_bridge_allowed_channels: list[str] = Field(default_factory=lambda: ["openclaw-weixin"])
@@ -161,7 +166,24 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        config_path = Path(os.getenv("LIVING_AGENT_CONFIG", "config/default.yaml"))
+        configured_path = os.getenv("LIVING_AGENT_CONFIG")
+        if configured_path is not None:
+            config_path = Path(configured_path).expanduser()
+            if not config_path.is_file():
+                raise FileNotFoundError(
+                    f"configured settings file does not exist: {config_path}"
+                )
+        else:
+            runtime_root = Path(
+                os.getenv("LIVING_AGENT_RUNTIME_ROOT", ".")
+            ).expanduser()
+            runtime_config = runtime_root / "config/default.yaml"
+            packaged_config = (
+                Path(__file__).resolve().parent / "_assets/config/default.yaml"
+            )
+            config_path = (
+                runtime_config if runtime_config.is_file() else packaged_config
+            )
         yaml_settings = YamlConfigSettingsSource(settings_cls, yaml_file=config_path)
         return (
             init_settings,
@@ -301,6 +323,10 @@ class Settings(BaseSettings):
             )
         if self.memory_auto_approval_enabled and not self.memory_auto_candidates_enabled:
             raise ValueError("memory_auto_approval_enabled requires memory_auto_candidates_enabled")
+        if self.model_retry_base_seconds > self.model_retry_max_seconds:
+            raise ValueError(
+                "model_retry_base_seconds cannot exceed model_retry_max_seconds"
+            )
         if self.model_provider == "openai_compatible":
             if self.model_api_base_url is None:
                 raise ValueError("model_api_base_url is required for openai_compatible provider")
