@@ -1,4 +1,4 @@
-# OpenClaw 微信集成
+# OpenClaw 微信集成 / OpenClaw WeChat Integration
 
 LivingAgent 可以把 OpenClaw 的 `openclaw-weixin` 通道用作传输层。内置 OpenClaw 插件通过类型化 `before_dispatch` Hook 接管选定入站消息，向 LivingAgent 发送严格请求，再把 LivingAgent 响应作为 OpenClaw 合成回复返回。
 

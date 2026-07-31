@@ -47,14 +47,14 @@ def test_calculator_plugin_is_registered_discovered_and_listed(client: TestClien
     registry: PluginRegistry = client.app.state.plugin_registry
     record = registry.get_enabled(CALCULATOR_PLUGIN_ID)
 
-    assert record.manifest.name == "计算器"
+    assert record.manifest.name == "计算器 / Calculator"
     assert record.manifest.capabilities["calculator.evaluate"].scopes == {"calculator/arithmetic"}
     response = client.get("/v1/plugins", headers={"X-Actor-ID": "owner-1"})
     assert response.status_code == 200
     assert response.json() == [
         {
             "id": CALCULATOR_PLUGIN_ID,
-                "name": "计算器",
+                "name": "计算器 / Calculator",
             "version": "0.1.0",
             "plugin_type": "tool",
             "risk_level": "low",

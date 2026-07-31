@@ -1,4 +1,4 @@
-# ADR 0001：从零构建独立运行时
+# ADR 0001：从零构建独立运行时 / Build an Independent Greenfield Runtime
 
 - 状态：已接受
 - 日期：2026-07-20

@@ -1,4 +1,4 @@
-# 为什么 MaiBot 的机制不足以直接满足 LivingAgent
+# 为什么 MaiBot 的机制不足以直接满足 LivingAgent / Why MaiBot Cannot Directly Satisfy LivingAgent
 
 本文只评估 MaiBot 对 LivingAgent 目标的适配度，不评价 MaiBot 的整体质量。
 

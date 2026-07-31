@@ -1,4 +1,4 @@
-# 阶段 6 完成记录
+# 阶段 6 完成记录 / Phase 6 Completion Record
 
 于 2026-07-21 完成。
 

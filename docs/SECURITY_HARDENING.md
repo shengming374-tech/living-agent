@@ -1,4 +1,4 @@
-# 安全加固记录
+# 安全加固记录 / Security Hardening Record
 
 于 2026-07-21 阶段 7 控制面审计后完成。
 

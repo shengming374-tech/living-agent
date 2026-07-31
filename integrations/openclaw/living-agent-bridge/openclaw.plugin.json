@@ -1,8 +1,8 @@
 {
   "id": "living-agent-bridge",
-  "name": "LivingAgent 通道桥接",
+  "name": "LivingAgent 通道桥接 / Channel Bridge",
   "version": "0.1.1",
-  "description": "在 OpenClaw Agent 分发前，把选定通道消息转发给 LivingAgent。",
+  "description": "在 OpenClaw Agent 分发前，把选定通道消息转发给 LivingAgent。 / Forward selected channel messages to LivingAgent before OpenClaw Agent dispatch.",
   "activation": {
     "onStartup": true
   },
@@ -12,26 +12,26 @@
     "properties": {
       "endpoint": {
         "type": "string",
-        "description": "LivingAgent OpenClaw 桥接端点。"
+        "description": "LivingAgent OpenClaw 桥接端点。 / LivingAgent OpenClaw bridge endpoint."
       },
       "token": {
         "type": "string",
-        "description": "共享的 LivingAgent 桥接令牌。受管理部署优先使用 tokenEnv。"
+        "description": "共享的 LivingAgent 桥接令牌。受管理部署优先使用 tokenEnv。 / Shared LivingAgent bridge token; managed deployments should prefer tokenEnv."
       },
       "tokenEnv": {
         "type": "string",
-        "description": "保存共享桥接令牌的环境变量。"
+        "description": "保存共享桥接令牌的环境变量。 / Environment variable containing the shared bridge token."
       },
       "channelId": {
         "type": "string",
-        "description": "需要接管的 OpenClaw 通道 ID。"
+        "description": "需要接管的 OpenClaw 通道 ID。 / OpenClaw channel ID to intercept."
       },
       "allowedAccountIds": {
         "type": "array",
         "items": {
           "type": "string"
         },
-        "description": "可选的精确 OpenClaw 账户白名单。"
+        "description": "可选的精确 OpenClaw 账户白名单。 / Optional exact allowlist of OpenClaw account IDs."
       },
       "timeoutMs": {
         "type": "integer",
@@ -42,7 +42,7 @@
         "type": "integer",
         "minimum": 100,
         "maximum": 5000,
-        "description": "LivingAgent 后续语言单元之间的延迟。"
+        "description": "LivingAgent 后续语言单元之间的延迟。 / Delay between LivingAgent follow-up speech units."
       },
       "maxMessageChars": {
         "type": "integer",
@@ -51,13 +51,13 @@
       },
       "allowRemoteEndpoint": {
         "type": "boolean",
-        "description": "允许使用非回环 HTTPS LivingAgent 端点。"
+        "description": "允许使用非回环 HTTPS LivingAgent 端点。 / Allow a non-loopback HTTPS LivingAgent endpoint."
       }
     }
   },
   "uiHints": {
     "token": {
-      "label": "桥接令牌",
+      "label": "桥接令牌 / Bridge token",
       "sensitive": true
     }
   }

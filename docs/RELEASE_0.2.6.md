@@ -2,7 +2,9 @@
 
 0.2.6 是一次全功能可靠性修复，不扩大 README 已声明的功能范围。
 
-## 修复
+Version 0.2.6 is a full-surface reliability repair. It does not expand the feature scope declared in the README.
+
+## 修复 / Fixes
 
 - Wheel 和 sdist 通过白名单构建，包含迁移、默认配置、人格、提示词、控制台和计算器插件，不包含虚拟环境、数据库、备份、缓存或本地秘密。
 - Wheel 首次启动把可编辑默认资产复制到 `LIVING_AGENT_RUNTIME_ROOT`；已有文件不覆盖，部分目录或无效自定义路径明确失败。
@@ -12,7 +14,17 @@
 - 模型最终失败时社交入口保持静默，不创建或投递发言；技术错误仅保留在脱敏审计中。
 - 控制台使用单次管理会话探测后再加载 12 个真实视图，并消除密码表单警告和 favicon 404。
 
-## 新配置
+English summary:
+
+- Wheel and sdist builds use explicit allowlists. They include migrations, default configuration, persona, prompts, console assets, and the calculator plugin, while excluding virtual environments, databases, backups, caches, and local secrets.
+- A wheel installation copies editable defaults into `LIVING_AGENT_RUNTIME_ROOT` on first startup. Existing files are not overwritten, and partial directories or invalid custom paths fail explicitly.
+- Alembic runs migrations directly from read-only package resources without depending on the current directory or the repository's `alembic.ini`.
+- NapCat uses a bounded 256-event inbound FIFO with configurable worker concurrency. Action responses are correlated first, and send actions remain at-most-once.
+- Model calls use cancellable bounded retries for connection failures, timeouts, and selected transient HTTP statuses. Audits store only safe error categories and attempt counts.
+- When the model ultimately fails, social entry points remain silent and create or deliver no utterance. Technical details remain only in redacted audit records.
+- The console performs one authenticated management-session probe before loading its 12 live views, and no longer produces the password-form warning or favicon 404.
+
+## 新配置 / New configuration
 
 - `LIVING_AGENT_RUNTIME_ROOT=.`
 - `LIVING_AGENT_NAPCAT_MAX_QUEUED_EVENTS=256`
@@ -20,6 +32,8 @@
 - `LIVING_AGENT_MODEL_RETRY_BASE_SECONDS=0.5`
 - `LIVING_AGENT_MODEL_RETRY_MAX_SECONDS=5`
 
-## 兼容性
+## 兼容性 / Compatibility
 
 现有 API、数据库表和平台消息格式保持兼容。新增受现有管理 Bearer 边界保护的 `GET /v1/management/session`。本版本不新增语音、视频、通用附件、图片生成、主动发送或开放式动作规划。
+
+Existing APIs, database tables, and platform message formats remain compatible. The new `GET /v1/management/session` endpoint is protected by the existing management Bearer boundary. This release does not add voice, video, generic attachments, image generation, proactive messaging, or open-ended action planning.

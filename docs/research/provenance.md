@@ -1,4 +1,4 @@
-# 研究来源记录
+# 研究来源记录 / Research Provenance
 
 ## 参考仓库身份
 

@@ -1,6 +1,6 @@
-# 第三方材料声明
+# 第三方材料声明 / Third-Party Materials Notice
 
-## MaiBot Prompt 摘录
+## MaiBot Prompt 摘录 / MaiBot prompt excerpts
 
 - 上游项目：`Mai-with-u/MaiBot`
 - 仓库：`https://github.com/Mai-with-u/MaiBot`
@@ -17,3 +17,5 @@
 本项目不包含这些 Prompt 周围的 MaiBot Python 代码。复制的 Prompt 材料继续按 GPL-3.0 提供；
 许可证全文见项目根目录的 `LICENSE`。详细来源和确切研究版本记录在
 `docs/research/provenance.md`。
+
+English notice: `prompts/social/reply.txt` contains selected Chinese natural-language prompt text copied from the upstream `Mai-with-u/MaiBot` revision identified above. This project does not include the surrounding MaiBot Python runtime code. The copied prompt material remains available under GPL-3.0; see the root `LICENSE` and `docs/research/provenance.md` for the exact sources and inspected revision.

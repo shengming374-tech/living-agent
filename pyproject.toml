@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "living-agent"
 version = "0.2.6"
-description = "从零构建、由代码强制信任边界的持续人格 Agent 运行时。"
+description = "从零构建、由代码强制信任边界的持续人格 Agent 运行时。 / A persistent-persona Agent runtime built from scratch with code-enforced trust boundaries."
 readme = "README.md"
 license = "GPL-3.0-only"
 requires-python = ">=3.12"
@@ -50,6 +50,7 @@ only-include = [
   ".env.example",
   "LICENSE",
   "README.md",
+  "README.en.md",
   "THIRD_PARTY_NOTICES.md",
   "alembic.ini",
   "config",

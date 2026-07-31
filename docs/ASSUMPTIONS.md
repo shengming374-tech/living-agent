@@ -1,4 +1,4 @@
-# 工程假设
+# 工程假设 / Engineering Assumptions
 
 1. 本仓库是从零开发项目，不承担与 MaiBot 的兼容契约。
 2. Python 3.12 由 `uv` 提供，不要求升级宿主系统 Python。

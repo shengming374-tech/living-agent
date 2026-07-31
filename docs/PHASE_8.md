@@ -1,4 +1,4 @@
-# 阶段 8：日常、日记、睡眠与梦境隔离
+# 阶段 8：日常、日记、睡眠与梦境隔离 / Phase 8: Daily Life, Diary, Sleep, and Dream Isolation
 
 ## 已实现
 

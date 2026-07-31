@@ -1,4 +1,4 @@
-# 云端聊天模型 API
+# 云端聊天模型 API / Cloud Chat Model API
 
 LivingAgent 支持由宿主配置的 OpenAI 兼容 Chat Completions API，路径为 `/chat/completions`。它会替代确定性聊天 Mock，但与嵌入提供方相互独立，也不会改变插件或能力权限。
 
