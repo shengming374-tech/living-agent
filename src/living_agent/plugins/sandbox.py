@@ -111,7 +111,9 @@ class PluginSandbox:
         plugin_root: Path,
     ) -> str:
         def quote(value: Path) -> str:
-            return json.dumps(str(value))
+            # Seatbelt reads UTF-8 paths; JSON's Unicode escapes are not Scheme escapes.
+            # Seatbelt 需要真实 UTF-8 路径, 无法识别 JSON 的 Unicode 转义。
+            return json.dumps(str(value), ensure_ascii=False)
 
         denied_reads = [
             Path.home().resolve(),

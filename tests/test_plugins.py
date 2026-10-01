@@ -383,7 +383,7 @@ def test_packaged_worker_inside_stdlib_site_packages_is_readable_but_neighbors_a
     from living_agent.plugins.sandbox import PluginSandbox
 
     library = tmp_path / "lib/python3.12"
-    worker = library / "site-packages/living_agent/plugins/worker.py"
+    worker = library / "site-packages/中文 worker with spaces/plugins/worker.py"
     worker.parent.mkdir(parents=True)
     original = Path(__file__).resolve().parents[1] / "src/living_agent/plugins/worker.py"
     worker.write_bytes(original.read_bytes())

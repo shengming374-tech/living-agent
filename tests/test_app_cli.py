@@ -72,7 +72,7 @@ def test_remote_connection_never_inherits_profile_credentials(
 
 def test_cli_runtime_clean_start_and_shutdown(tmp_path: Path) -> None:
     source = Path(__file__).resolve().parents[1] / "src"
-    root = tmp_path / "runtime with spaces"
+    root = tmp_path / "运行时 with spaces"
     env = {key: value for key, value in os.environ.items() if not key.startswith("LIVING_AGENT_")}
     env["PYTHONPATH"] = str(source)
     command = [sys.executable, "-m", "living_agent", "--data-dir", str(root)]

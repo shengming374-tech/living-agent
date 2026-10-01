@@ -22,7 +22,7 @@ def main() -> None:
     runtime = bundle / ("Contents/Resources/runtime" if bundle.suffix == ".app" else "runtime")
     python = runtime / ("python.exe" if sys.platform == "win32" else "bin/python3")
     with tempfile.TemporaryDirectory(prefix="living-agent-acceptance-") as temporary:
-        root = Path(temporary) / "profile with spaces"
+        root = Path(temporary) / "应用数据 with spaces"
         env = {
             key: value
             for key, value in os.environ.items()

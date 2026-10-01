@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import shutil
 import subprocess
@@ -21,11 +22,16 @@ def run(*arguments: str, cwd: Path = ROOT) -> None:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--python", default="3.12")
     parser.add_argument("--identity", default="-", help="macOS signing identity / 签名身份")
     args = parser.parse_args()
+    uv_binary = shutil.which("uv")
+    if uv_binary is None:
+        raise RuntimeError("Install uv before building / 请先安装 uv")
     system = platform.system()
     if system not in {"Darwin", "Windows"}:
         parser.error("Build on macOS or Windows / 请在目标系统构建")
@@ -72,13 +78,29 @@ def main() -> None:
             "--no-bin",
             "--no-registry",
         )
-        installs = [
-            path for path in managed.glob("cpython-*") if path.is_dir() and not path.is_symlink()
-        ]
-        if len(installs) != 1:
-            raise RuntimeError("Expected one standalone Python / Python 安装结果不唯一")
-        runtime = installs[0]
-        python = runtime / ("bin/python3" if system == "Darwin" else "python.exe")
+        # Windows aliases can be junctions, rather than symlinks. Ask uv for the interpreter.
+        # 使用 uv 定位解释器, 不依赖 Windows junction 的目录枚举结果。
+        located = subprocess.check_output(  # noqa: S603 - fixed locator, isolated install root.
+            [
+                uv_binary,
+                "python",
+                "find",
+                args.python,
+                "--system",
+                "--managed-python",
+                "--no-project",
+                "--no-config",
+                "--no-python-downloads",
+            ],
+            cwd=stage,
+            env={**os.environ, "UV_PYTHON_INSTALL_DIR": str(managed)},
+            text=True,
+            encoding="utf-8",
+        )
+        python = Path(located.strip()).resolve()
+        runtime = python.parent.parent if system == "Darwin" else python.parent
+        if not runtime.is_relative_to(managed.resolve()):
+            raise RuntimeError("Runtime must be inside the isolated build directory")
         run(
             "uv",
             "pip",
