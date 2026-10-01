@@ -28,7 +28,7 @@ def main() -> None:
             for key, value in os.environ.items()
             if not key.startswith(("LIVING_AGENT_", "PYTHON"))
         }
-        command = [str(python), "-I", "-m", "living_agent", "--data-dir", str(root)]
+        command = [str(python), "-I", "-B", "-m", "living_agent", "--data-dir", str(root)]
         with (Path(temporary) / "server.log").open("w") as log:
 
             def start() -> subprocess.Popen[Any]:
@@ -130,6 +130,11 @@ def main() -> None:
             finally:
                 if process.poll() is None:
                     stop(process)
+    if sys.platform == "darwin":
+        subprocess.run(  # noqa: S603 - fixed system verifier and the supplied app bundle.
+            ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(bundle)],
+            check=True,
+        )
 
 
 if __name__ == "__main__":

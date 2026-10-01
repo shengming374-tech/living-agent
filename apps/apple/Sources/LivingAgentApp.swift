@@ -175,7 +175,7 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate {
                 try logHandle?.seekToEnd()
                 let child = Process()
                 child.executableURL = python
-                child.arguments = ["-I", "-m", "living_agent", "--data-dir", root.path,
+                child.arguments = ["-I", "-B", "-m", "living_agent", "--data-dir", root.path,
                                    "serve", "--port", "0", "--ready-file", ready.path,
                                    "--parent-pid", String(ProcessInfo.processInfo.processIdentifier)]
                 child.currentDirectoryURL = root
