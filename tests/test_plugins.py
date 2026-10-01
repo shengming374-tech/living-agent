@@ -370,3 +370,92 @@ def test_plugin_enable_disable_requires_owner_and_is_audited(client: TestClient)
     actions = [entry["action"] for entry in audit]
     assert "plugin.disabled" in actions
     assert "plugin.enabled" in actions
+
+
+def test_packaged_worker_inside_stdlib_site_packages_is_readable_but_neighbors_are_not(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    if platform.system() != "Darwin":
+        pytest.skip("requires the macOS OS sandbox")
+    import sysconfig
+
+    from living_agent.plugins.sandbox import PluginSandbox
+
+    library = tmp_path / "lib/python3.12"
+    worker = library / "site-packages/living_agent/plugins/worker.py"
+    worker.parent.mkdir(parents=True)
+    original = Path(__file__).resolve().parents[1] / "src/living_agent/plugins/worker.py"
+    worker.write_bytes(original.read_bytes())
+    neighbor = worker.with_name("host-private.txt")
+    neighbor.write_text("not plugin-readable")
+    real_get_path = sysconfig.get_path
+    monkeypatch.setattr(
+        sysconfig,
+        "get_path",
+        lambda name, **kwargs: (
+            str(library) if name in {"stdlib", "platstdlib"} else real_get_path(name, **kwargs)
+        ),
+    )
+    plugin = Path(__file__).resolve().parent / "fixtures/plugins/sandbox_probe"
+    command = PluginSandbox(mode="required").command(
+        worker_path=worker, plugin_root=plugin, entrypoint="plugin.main"
+    )
+    request = {
+        "jsonrpc": "2.0",
+        "id": "packaged-probe",
+        "method": "invoke",
+        "params": {
+            "operation": "probe",
+            "arguments": {
+                "read_path": str(neighbor),
+                "write_path": str(tmp_path / "forbidden.txt"),
+            },
+        },
+    }
+    response = subprocess.run(  # noqa: S603 - host-generated sandbox command and fixed fixture.
+        command,
+        input=json.dumps(request) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=True,
+    )
+    assert json.loads(response.stdout)["result"] == {
+        "read_succeeded": False,
+        "write_succeeded": False,
+        "network_succeeded": False,
+        "process_succeeded": False,
+    }
+
+
+def test_relocated_python_library_uses_actual_prefix_when_libdir_is_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+    import sysconfig
+
+    from living_agent.plugins.sandbox import PluginSandbox
+
+    library = tmp_path / "lib/libpython3.12.dylib"
+    library.parent.mkdir()
+    library.write_bytes(b"fixture")
+    monkeypatch.setattr(sys, "base_prefix", str(tmp_path))
+    real_config = sysconfig.get_config_var
+    monkeypatch.setattr(
+        sysconfig,
+        "get_config_var",
+        lambda name: (
+            {"LIBDIR": "/missing/build-time-lib", "LDLIBRARY": library.name}.get(name)
+            if name in {"LIBDIR", "LDLIBRARY"}
+            else real_config(name)
+        ),
+    )
+    profile = PluginSandbox._macos_profile(
+        python_binary=tmp_path / "bin/python3",
+        worker_path=tmp_path / "worker.py",
+        plugin_root=tmp_path / "plugin",
+    )
+    assert f"(literal {json.dumps(str(library.resolve()))})" in profile
+    assert "/missing/build-time-lib" not in profile

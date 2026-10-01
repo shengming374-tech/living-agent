@@ -24,6 +24,7 @@ from living_agent.api.audit import router as audit_router
 from living_agent.api.capabilities import router as capabilities_router
 from living_agent.api.chat import router as chat_router
 from living_agent.api.embeddings import router as embeddings_router
+from living_agent.api.groups import router as groups_router
 from living_agent.api.health import router as health_router
 from living_agent.api.life import router as life_router
 from living_agent.api.management import router as management_router
@@ -86,6 +87,8 @@ from living_agent.execution.work_contracts import (
     web_search_scope_matches,
     workspace_scope_matches,
 )
+from living_agent.groups.repository import RoomRepository
+from living_agent.groups.service import GroupService
 from living_agent.interaction.impressions import AttentionCueService, SessionImpressionService
 from living_agent.interaction.repository import UtteranceRepository
 from living_agent.interaction.scheduler import ReplyNecessityEvaluator
@@ -524,6 +527,8 @@ def create_app(
         enabled=resolved_settings.agent_enabled,
     )
     social_state_repository = SocialStateRepository(database.sessions)
+    group_service = GroupService(RoomRepository(database.sessions), resolved_llm_provider, audit,
+                                 timeout=resolved_settings.agent_decision_timeout_seconds)
     utterance_coordinator = UtteranceCoordinator(
         audit=audit,
         repository=UtteranceRepository(database.sessions),
@@ -649,6 +654,7 @@ def create_app(
             )
             await task_service.initialize()
             await agent_service.initialize()
+            await group_service.initialize()
             await life_scheduler.start()
             yield
         finally:
@@ -660,6 +666,7 @@ def create_app(
             finally:
                 try:
                     await life_scheduler.stop()
+                    await group_service.close()
                 finally:
                     try:
                         if isinstance(resolved_llm_provider, ClosableLLMProvider):
@@ -726,6 +733,7 @@ def create_app(
     app.state.audit = audit
     app.state.runtime = runtime
     app.state.agent_service = agent_service
+    app.state.group_service = group_service
     app.state.event_repository = event_repository
     app.state.utterance_coordinator = utterance_coordinator
     app.state.social_state_repository = social_state_repository
@@ -766,6 +774,7 @@ def create_app(
     app.include_router(studio_router)
     app.include_router(tasks_router)
     app.include_router(agent_router)
+    app.include_router(groups_router)
     app.include_router(users_router)
     app.include_router(napcat_router)
     app.include_router(openclaw_router)

@@ -25,6 +25,8 @@ const PROMPTS = [
   ["evaluation", "critic"],
 ];
 const VIEW_META = {
+  chat: ["对话", "与 Agent 交流"],
+  groups: ["多智能体群聊", "多个角色，共同讨论"],
   overview: ["总览", "运行时与控制面状态"],
   memories: ["记忆浏览器", "事实、经历与关系、候选及回答证据"],
   persona: ["人格编辑器", "分层人格的暂存工作流"],
@@ -336,6 +338,8 @@ async function renderCurrentView() {
     await ensureManagementSession();
     const renderer = {
       overview: renderOverview,
+      chat: renderChat,
+      groups: renderGroups,
       memories: renderMemories,
       persona: () => renderArtifactEditor("persona"),
       prompts: () => renderArtifactEditor("prompt"),
@@ -1681,4 +1685,146 @@ async function renderAgent() {
       if (active()) await refreshRuns();
     }
   };
+}
+
+// 应用对话 / Application chat; rendered content is always escaped.
+async function renderChat() {
+  const conversation = state.conversationId || "app-chat";
+  const history = await api(`/v1/chat/history?conversation_id=${encodeURIComponent(conversation)}&limit=100`);
+  if (state.view !== "chat") return;
+  viewRoot.innerHTML = `<section class="conversation-panel">
+    <div id="chat-messages" class="chat-messages" aria-live="polite"></div>
+    <form id="chat-form" class="chat-composer">
+      <label for="chat-input">消息</label>
+      <textarea class="textarea" id="chat-input" required maxlength="4000" placeholder="今天想聊些什么？"></textarea>
+      <div class="toolbar"><button class="button is-primary" type="submit">发送</button><span id="chat-state" role="status"></span></div>
+    </form></section>`;
+  const messages = viewRoot.querySelector("#chat-messages");
+  const status = viewRoot.querySelector("#chat-state");
+  const form = viewRoot.querySelector("#chat-form");
+  function append(name, text, owner = false) {
+    messages.insertAdjacentHTML("beforeend", `<article class="chat-message ${owner ? "is-owner" : ""}"><strong>${esc(name)}</strong><p>${esc(text)}</p></article>`);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  history.forEach((item) => append(item.event_type === "agent.response" ? "LivingAgent" : "我", typeof item.content === "string" ? item.content : item.content.text || "", item.event_type !== "agent.response"));
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    const input = form.querySelector("textarea");
+    const button = form.querySelector("button");
+    const text = input.value.trim();
+    if (!text || button.disabled) return;
+    button.disabled = true;
+    status.textContent = "正在回复…";
+    try {
+      const result = await api("/v1/chat", {method: "POST", body: {
+        content: text, source_type: "direct_message", source_identity: state.actorId,
+        authenticated: true, conversation_id: conversation,
+      }});
+      if (!messages.isConnected) return;
+      append("我", text, true);
+      input.value = "";
+      (result.messages || []).forEach((message) => append("LivingAgent", message));
+      status.textContent = result.messages?.length ? "" : "本轮保持静默";
+      if (result.agent_run_id) {
+        status.innerHTML = `目标已创建，<button class="button is-small" id="chat-open-agent">查看进度</button>`;
+        status.querySelector("button").onclick = () => setView("agent");
+      }
+    } catch (error) { status.textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+}
+
+async function renderGroups() {
+  const rooms = await api("/v1/groups");
+  if (state.view !== "groups") return;
+  viewRoot.innerHTML = `<section class="group-layout">
+    <div class="group-list"><button class="button is-primary" id="group-create">新建群聊</button>
+      ${rooms.map((room) => `<button class="group-room button" data-room="${esc(room.room_id)}">${esc(room.name)}<small>${room.members.length} 位成员</small></button>`).join("")}
+    </div><div id="group-conversation"><div class="empty-state">选择一个群聊，或创建不同人格的成员</div></div></section>`;
+  const pane = viewRoot.querySelector("#group-conversation");
+  viewRoot.querySelector("#group-create").onclick = async () => {
+    const data = await askForm({title: "新建多智能体群聊", body: `
+      <div class="form-row"><label>群聊名称</label><input class="field" name="name" required maxlength="120" value="圆桌讨论"></div>
+      <p class="metric-note">每行一个成员：名字 | 人格。支持 2–6 位成员，使用服务当前配置的模型。</p>
+      <textarea class="textarea" name="members" rows="8" required>小麦 | 温暖、善于倾听，重视情绪和关系
+探索者 | 好奇、善于提出新想法，用具体例子解释
+审阅者 | 冷静、关注证据和可执行性，指出问题并给出改进办法</textarea>`, submitLabel: "创建"});
+    if (!data || !pane.isConnected) return;
+    const members = String(data.get("members")).split("\n").filter((line) => line.trim()).map((line) => {
+      const split = line.indexOf("|");
+      if (split < 1) return {name: "", persona: ""};
+      return {name: line.slice(0, split).trim(), persona: line.slice(split + 1).trim()};
+    });
+    if (members.length < 2 || members.length > 6 || members.some((member) => !member.name || !member.persona)) {
+      toast("请填写 2–6 行，每行使用 名字 | 人格 格式", "error"); return;
+    }
+    try {
+      const room = await api("/v1/groups", {method: "POST", body: {name: String(data.get("name")), members}});
+      state.groupRoom = room.room_id;
+      await renderGroups();
+    } catch (error) { toast(error.message, "error"); }
+  };
+  async function openRoom(roomId) {
+    state.groupRoom = roomId;
+    const room = await api(`/v1/groups/${encodeURIComponent(roomId)}`);
+    if (!pane.isConnected || state.groupRoom !== roomId) return;
+    pane.innerHTML = `<section class="conversation-panel"><div class="section-heading"><h2>${esc(room.name)}</h2><button class="button" id="group-stop">停止本轮</button></div>
+      <div class="group-members">${room.members.map((member) => `<label><input type="checkbox" value="${esc(member.member_id)}"> ${esc(member.name)}<small>${esc(member.persona)}</small></label>`).join("")}</div>
+      <p class="metric-note">不勾选时所有成员依次参与；勾选后只让指定成员回复。</p>
+      <div id="group-messages" class="chat-messages" aria-live="polite"></div>
+      <form id="group-form" class="chat-composer"><label for="group-input">群聊消息</label><textarea class="textarea" id="group-input" required maxlength="4000" placeholder="向大家提出一个话题"></textarea>
+      <div class="toolbar"><button class="button is-primary" type="submit">发送</button><span id="group-state" role="status"></span></div></form></section>`;
+    const feed = pane.querySelector("#group-messages");
+    const form = pane.querySelector("#group-form");
+    const status = pane.querySelector("#group-state");
+    const stop = pane.querySelector("#group-stop");
+    let current = room;
+    let busy = false;
+    let refreshing = false;
+    function draw() {
+      const nearBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 80;
+      feed.innerHTML = current.messages.map((message) => `<article class="chat-message ${message.role === "owner" ? "is-owner" : ""}"><strong>${esc(message.speaker_name)}</strong><p>${esc(message.content)}</p></article>`).join("");
+      if (nearBottom) feed.scrollTop = feed.scrollHeight;
+      form.querySelector("button").disabled = busy || current.status === "responding";
+      stop.disabled = current.status !== "responding";
+      status.textContent = current.status === "responding" ? "成员正在依次回复…" : current.error_code ? `本轮中断：${current.error_code}` : current.status === "stopped" ? "本轮已停止" : "";
+    }
+    const active = () => feed.isConnected && state.view === "groups" && state.groupRoom === roomId;
+    async function refresh() {
+      if (!active() || refreshing) return;
+      refreshing = true;
+      try {
+        current = await api(`/v1/groups/${encodeURIComponent(roomId)}`);
+        if (active()) draw();
+      } catch (error) { if (active()) status.textContent = error.message; }
+      finally { refreshing = false; }
+    }
+    async function poll() {
+      if (!active()) return;
+      if (current.status === "responding") await refresh();
+      if (active()) setTimeout(poll, 1000);
+    }
+    form.onsubmit = async (event) => {
+      event.preventDefault();
+      if (busy || current.status === "responding") return;
+      const content = form.querySelector("textarea").value.trim();
+      if (!content) return;
+      busy = true; draw();
+      try {
+        current = await api(`/v1/groups/${encodeURIComponent(roomId)}/messages`, {method: "POST", body: {
+          content, mentions: [...pane.querySelectorAll('.group-members input:checked')].map((input) => input.value),
+        }});
+        if (active()) { form.querySelector("textarea").value = ""; draw(); }
+      } catch (error) { toast(error.message, "error"); }
+      finally { busy = false; if (active()) draw(); }
+    };
+    stop.onclick = async () => {
+      try { current = await api(`/v1/groups/${encodeURIComponent(roomId)}/stop`, {method: "POST"}); if (active()) draw(); }
+      catch (error) { toast(error.message, "error"); }
+    };
+    draw(); setTimeout(poll, 1000);
+  }
+  viewRoot.querySelectorAll("[data-room]").forEach((button) => { button.onclick = () => openRoom(button.dataset.room).catch((error) => toast(error.message, "error")); });
+  if (state.groupRoom && rooms.some((room) => room.room_id === state.groupRoom)) await openRoom(state.groupRoom);
+  else if (rooms.length) await openRoom(rooms[0].room_id);
 }

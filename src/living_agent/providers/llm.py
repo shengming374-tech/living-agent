@@ -84,6 +84,23 @@ class MockLLMProvider:
         self._model = model
 
     async def generate(self, context: CompiledContext) -> ModelResponse:
+        for section in context.sections:
+            if section.kind is ContextKind.INTERACTION_PLAN:
+                try:
+                    plan = json.loads(section.content)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(plan, dict) and plan.get("mode") == "group_member":
+                    history = next((s for s in context.sections
+                                    if s.kind is ContextKind.RECENT_CONVERSATION), None)
+                    messages = json.loads(history.content) if history is not None else []
+                    topic = next((m["content"] for m in reversed(messages)
+                                  if m.get("role") == "owner"), "当前话题")
+                    return ModelResponse(
+                        text=f"[演示] 我是{plan['name']}。我的视角是: {plan['persona'][:100]}。"
+                             f"我们可以围绕“{topic[:120]}”讨论。真实讨论请配置模型。",
+                        provider="mock", model=self._model,
+                    )
         agent_decision = mock_agent_decision(context)
         if agent_decision is not None:
             return ModelResponse(text=agent_decision, provider="mock", model=self._model)

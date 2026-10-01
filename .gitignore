@@ -16,3 +16,11 @@ data/plugin-state.json
 
 # MaiBot is a local, read-only research checkout, never a runtime dependency.
 references/maibot/
+
+# Native application generated files / 原生应用生成文件。
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+.playwright-cli/
+output/

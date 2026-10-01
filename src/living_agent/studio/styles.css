@@ -1098,3 +1098,28 @@ pre {
     display: none;
   }
 }
+
+/* 应用对话与手机安全区域 / App conversations and mobile safe areas. */
+.conversation-panel { max-width: 960px; margin: 0 auto; min-width: 0; }
+.chat-messages { max-height: 58dvh; min-height: 140px; overflow-y: auto; overflow-wrap: anywhere; padding: 4px; }
+.chat-message { max-width: 90%; margin: 12px 0; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.chat-message.is-owner { margin-left: auto; background: var(--green-soft); }
+.chat-message p { margin: 8px 0 0; white-space: pre-wrap; line-height: 1.65; }
+.chat-composer { padding: 14px 0 max(14px, env(safe-area-inset-bottom)); }
+.chat-composer textarea { min-height: 88px; margin: 8px 0; }
+.group-layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 22px; }
+.group-list { display: flex; flex-direction: column; gap: 10px; }
+.group-room { white-space: normal; text-align: left; display: block; }
+.group-room small { display: block; color: var(--muted); margin-top: 4px; }
+.group-members { display: flex; flex-wrap: wrap; gap: 10px; }
+.group-members label { display: block; max-width: 240px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.group-members small { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+@media (max-width: 760px) {
+  .group-layout { grid-template-columns: 1fr; }
+  .group-list { flex-direction: row; overflow-x: auto; padding-bottom: 8px; }
+  .group-list > button { flex-shrink: 0; }
+  .chat-message { max-width: 96%; }
+  .field, .textarea, .select, .identity-row input { font-size: 16px; }
+  .button, .icon-button, .nav-item { min-height: 44px; }
+  .view-root { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+}
