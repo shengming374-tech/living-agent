@@ -123,6 +123,8 @@ def main() -> None:
             app = derived / "Build/Products/Release/LivingAgent.app"
             shutil.copytree(runtime, app / "Contents/Resources/runtime", symlinks=True)
             shutil.copy2(ROOT / "LICENSE", app / "Contents/Resources/LICENSE")
+            run("xattr", "-cr", str(app))
+            bundled_python = (app / "Contents/Resources/runtime/bin/python3").resolve()
             # Sign libraries before the host; no sandbox is granted to the whole Python runtime.
             # 先签内置动态库, 再签宿主; 插件继续使用独立 OS 沙箱。
             binaries = [
@@ -130,7 +132,7 @@ def main() -> None:
                 for path in (app / "Contents/Resources/runtime").rglob("*")
                 if path.is_file()
                 and not path.is_symlink()
-                and (path.suffix in {".so", ".dylib"} or path.resolve() == python.resolve())
+                and (path.suffix in {".so", ".dylib"} or path.resolve() == bundled_python)
             ]
             for binary in sorted(binaries):
                 run("codesign", "--force", "--sign", args.identity, str(binary))
@@ -143,11 +145,14 @@ def main() -> None:
                 *(["--options", "runtime", "--timestamp"] if args.identity != "-" else []),
                 str(app),
             )
+            run("codesign", "--verify", "--deep", "--strict", str(app))
             shutil.copytree(app, destination, symlinks=True)
             dmg_stage = stage / "dmg"
             dmg_stage.mkdir()
             (dmg_stage / "Applications").symlink_to("/Applications")
-            shutil.copytree(destination, dmg_stage / destination.name, symlinks=True)
+            # File Provider can attach Finder metadata to the output directory.
+            # 从已验证的临时目录制作镜像, 避免云盘元数据污染签名。
+            shutil.copytree(app, dmg_stage / destination.name, symlinks=True)
             run(
                 "hdiutil",
                 "create",
