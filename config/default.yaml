@@ -112,3 +112,8 @@ life_timezone: Asia/Shanghai
 life_nightly_enabled: false
 life_nightly_hour: 3
 life_scheduler_poll_seconds: 60.0
+
+# 持续目标循环：每轮观察后再决策。 / Persistent observe-decide-act loop.
+agent_enabled: true
+agent_max_iterations: 8
+agent_decision_timeout_seconds: 90

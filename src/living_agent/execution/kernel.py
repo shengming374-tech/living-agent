@@ -117,8 +117,10 @@ class TaskKernel:
 
     async def recover(self, run: TaskRun) -> TaskRun:
         async with self._run_lock:
+            # Another caller may have completed it while recovery awaited the lock.
+            run = await self._repository.get(run.task.task_id)
             if run.status not in {TaskRunStatus.PLANNED, TaskRunStatus.RUNNING}:
-                raise TaskStateError("only planned or running tasks can be recovered")
+                return run
             results = list(run.step_results)
             for index, result in enumerate(results):
                 if result.status is not TaskStepStatus.RUNNING:

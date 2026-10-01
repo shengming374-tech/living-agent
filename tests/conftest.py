@@ -19,6 +19,7 @@ def settings(tmp_path: Path) -> Settings:
     shutil.copytree(project_root / "prompts", prompt_root)
     return Settings(
         environment="test",
+        runtime_root=tmp_path,
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'living-agent-test.db'}",
         owner_id="owner-1",
         admin_ids=["admin-1"],

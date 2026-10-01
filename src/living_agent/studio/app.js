@@ -31,6 +31,7 @@ const VIEW_META = {
   prompts: ["提示词实验室", "渲染、测试与版本部署"],
   plugins: ["插件中心", "发现状态与运行时开关"],
   capabilities: ["能力管理器", "能力定义与临时授权"],
+  agent: ["智能体", "持续目标、行动与结果"],
   tasks: ["任务控制台", "执行计划、证据与确认"],
   users: ["用户目录", "稳定身份与展示资料"],
   audit: ["审计日志", "权限、工具与配置变更"],
@@ -42,7 +43,7 @@ const VIEW_META = {
 const DISPLAY_LABELS = {
   active: "启用", committed: "已应用", completed: "已完成", success: "成功", verified: "已验证", deployed: "已部署", ok: "正常",
   allow: "允许", allow_once: "单次允许", allow_in_sandbox: "仅沙箱允许", allow_read_only: "仅只读允许",
-  pending: "待处理", planned: "已规划", running: "执行中", waiting: "等待中", waiting_confirmation: "等待确认",
+  pending: "待处理", planned: "已规划", running: "执行中", waiting: "等待中", waiting_confirmation: "等待确认", waiting_input: "等待补充",
   staged: "已暂存", ask_owner: "询问所有者", ASK_OWNER: "询问所有者", failed: "失败", failure: "失败",
   denied: "已拒绝", deny: "拒绝", deleted: "已删除", rejected: "已驳回", cancelled: "已取消",
   disabled: "已禁用", required: "必需", host: "宿主", bound: "已绑定", grant: "按授权",
@@ -340,6 +341,7 @@ async function renderCurrentView() {
       prompts: () => renderArtifactEditor("prompt"),
       plugins: renderPlugins,
       capabilities: renderCapabilities,
+      agent: renderAgent,
       tasks: renderTasks,
       users: renderUsers,
       audit: renderAudit,
@@ -1568,3 +1570,115 @@ document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("
 [viewTitle.textContent, viewMeta.textContent] = VIEW_META[state.view];
 checkHealth();
 renderCurrentView();
+
+// 持续目标控制台 / Persistent agent goals.
+async function renderAgent() {
+  let runs = await api("/v1/agent/runs");
+  if (state.view !== "agent") return;
+  let pendingRequests = 0;
+  let refreshing = false;
+  const busyRuns = new Set();
+  viewRoot.innerHTML = `
+    <form id="agent-goal-form" class="panel">
+      <div class="section-heading"><h2>交给我一件事</h2><button class="button" type="button" id="agent-refresh">刷新进度</button></div>
+      <p class="metric-note">我会逐步查看结果、选择下一步。需要你确认或补充时，会停下来等你。</p>
+      <label for="agent-goal">目标</label>
+      <textarea class="textarea" id="agent-goal" required maxlength="1000" placeholder="检查工作区并读取 README，告诉我这个项目做什么"></textarea>
+      <button class="button is-primary" type="submit">开始</button>
+      <span id="agent-progress" role="status"></span>
+    </form>
+    <div class="band" id="agent-runs" aria-live="polite"></div>`;
+  const cards = viewRoot.querySelector("#agent-runs");
+  const progress = viewRoot.querySelector("#agent-progress");
+  const active = () => state.view === "agent" && cards.isConnected;
+  function drawRuns() {
+    cards.innerHTML = runs.map((run) => {
+      const pending = run.pending_proposal?.plan.steps[0];
+      return `<article class="item-card">
+        <div class="item-card-header"><strong>${esc(run.goal)}</strong>${badge(run.status)}</div>
+        <p>${esc(run.summary || "正在处理目标")}</p>
+        <div class="metric-note">决策 ${run.iterations}/${run.max_iterations} · ${esc(run.run_id)}</div>
+        ${run.error_code ? `<p class="status-strip">${esc(run.error_code)}</p>` : ""}
+        ${run.input_notes.length ? `<details><summary>补充信息</summary>${run.input_notes.map((note) => `<p>${esc(note)}</p>`).join("")}</details>` : ""}
+        ${pending ? `<div class="band"><h3>待执行：${esc(pending.title)}</h3><pre class="json-block">${esc(pretty(pending.action.capability_request.arguments))}</pre></div>` : ""}
+        <details><summary>行动与结果 (${run.observations.length})</summary>${run.observations.map((item) => `<div class="band"><strong>${esc(item.tool)}</strong> ${badge(item.status)}<pre class="json-block">${esc(pretty(item))}</pre></div>`).join("")}</details>
+        <div class="toolbar">
+          ${run.status === "waiting_confirmation" ? `<button class="button is-primary" data-agent-action="confirm" data-run="${esc(run.run_id)}">确认上述操作并继续</button>` : ""}
+          ${["waiting_input", "paused", "waiting_confirmation"].includes(run.status) ? `<button class="button" data-agent-action="resume" data-run="${esc(run.run_id)}">补充 / 继续</button>` : ""}
+          ${!["completed", "failed", "cancelled"].includes(run.status) ? `<button class="button is-danger" data-agent-action="cancel" data-run="${esc(run.run_id)}">取消目标</button>` : ""}
+        </div>
+      </article>`;
+    }).join("") || '<div class="empty-state">从一个具体目标开始</div>';
+    cards.querySelectorAll("[data-agent-action]").forEach((button) => {
+      const busyKey = button.dataset.agentAction === "cancel" ? `${button.dataset.run}:cancel` : button.dataset.run;
+      button.disabled = busyRuns.has(busyKey);
+      button.onclick = async () => {
+        const runId = button.dataset.run;
+        const action = button.dataset.agentAction;
+        let body;
+        if (action === "resume") {
+          const run = runs.find((item) => item.run_id === runId);
+          const data = await askForm({title: "补充信息并继续", body: `<label>补充信息</label><textarea class="textarea" name="message" maxlength="2000" ${run.status === "waiting_input" ? "required" : ""}></textarea>`, submitLabel: "继续"});
+          if (!data || !active()) return;
+          body = {message: String(data.get("message") || "").trim() || null};
+        }
+        const busyKey = action === "cancel" ? `${runId}:cancel` : runId;
+        if (busyRuns.has(busyKey)) return;
+        busyRuns.add(busyKey);
+        pendingRequests += 1;
+        drawRuns();
+        try {
+          await api(`/v1/agent/runs/${encodeURIComponent(runId)}/${action}`, {method: "POST", ...(body ? {body} : {})});
+        } catch (error) { toast(error.message, "error"); }
+        finally {
+          busyRuns.delete(busyKey);
+          pendingRequests -= 1;
+          if (active()) await refreshRuns();
+        }
+      };
+    });
+  }
+  async function refreshRuns() {
+    if (!active() || refreshing) return;
+    refreshing = true;
+    try {
+      runs = await api("/v1/agent/runs");
+      if (active()) {
+        drawRuns();
+        progress.textContent = pendingRequests || runs.some((run) => run.status === "running") ? "执行中，进度自动更新" : "";
+      }
+    } catch (error) {
+      if (active()) progress.textContent = `进度刷新失败：${error.message}`;
+    } finally { refreshing = false; }
+  }
+  // Refresh saved checkpoints without replacing the goal form or interrupting input.
+  // 刷新持久进度，保留目标表单及输入。
+  async function pollRuns() {
+    if (!active()) return;
+    if (pendingRequests || runs.some((run) => run.status === "running")) await refreshRuns();
+    if (active()) setTimeout(pollRuns, 1500);
+  }
+  drawRuns();
+  setTimeout(pollRuns, 1500);
+  viewRoot.querySelector("#agent-refresh").onclick = refreshRuns;
+  viewRoot.querySelector("#agent-goal-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const button = event.currentTarget.querySelector('[type="submit"]');
+    const goal = viewRoot.querySelector("#agent-goal").value.trim();
+    if (!goal || button.disabled) return;
+    button.disabled = true;
+    pendingRequests += 1;
+    progress.textContent = "执行中，进度自动更新";
+    try {
+      await api("/v1/agent/runs", {method: "POST", body: {
+        goal,
+        conversation_id: state.conversationId || "agent-studio",
+      }});
+    } catch (error) { toast(error.message, "error"); }
+    finally {
+      button.disabled = false;
+      pendingRequests -= 1;
+      if (active()) await refreshRuns();
+    }
+  };
+}

@@ -6,6 +6,9 @@ This index provides bilingual access to all repository documentation. The docume
 
 ## 架构与安全 / Architecture and security
 
+- [`REFACTOR_VALIDATION.md`](REFACTOR_VALIDATION.md) — Agent 重构验收记录与环境边界。 / Agent refactor validation and environment limits.
+- [`AGENT_RUNTIME.md`](AGENT_RUNTIME.md) — 人格社交与持久目标闭环、工具目录、恢复和控制台。 / Persona, persistent goal loops, tools, recovery and console.
+
 - [`ASSUMPTIONS.md`](ASSUMPTIONS.md) — 工程、运行环境和信任假设。 / Engineering, runtime, and trust assumptions.
 - [`PROJECT_PLAN.md`](PROJECT_PLAN.md) — 架构目标、阶段状态和交付标准。 / Architecture goals, phase status, and delivery criteria.
 - [`THREAT_MODEL.md`](THREAT_MODEL.md) — 资产、信任边界、注入与供应链威胁。 / Assets, trust boundaries, injection risks, and supply-chain threats.
@@ -34,6 +37,7 @@ This index provides bilingual access to all repository documentation. The docume
 
 ## 版本说明 / Release notes
 
+- [`RELEASE_0.3.0.md`](RELEASE_0.3.0.md) — 持久 Agent、人格式结果呈现、运行时拆分和断路修复。 / Persistent agents, persona outcome presentation, runtime separation, and functional repairs.
 - [`RELEASE_0.2.1.md`](RELEASE_0.2.1.md) — 社交运行时。 / Social runtime.
 - [`RELEASE_0.2.2.md`](RELEASE_0.2.2.md) — 自动记忆与平台可靠性。 / Automatic memory and platform reliability.
 - [`RELEASE_0.2.3.md`](RELEASE_0.2.3.md) — 受控工作能力。 / Controlled work capabilities.

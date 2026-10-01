@@ -21,35 +21,7 @@ from living_agent.execution.contracts import (
     VerifiedTaskResult,
 )
 from living_agent.execution.report_contracts import TASK_REPORT_CAPABILITY, TaskReportArguments
-from living_agent.execution.shell_contracts import (
-    SHELL_EXECUTE_CAPABILITY,
-    ShellExecuteArguments,
-    shell_scope_matches,
-)
-from living_agent.execution.work_contracts import (
-    DAILY_PLAN_READ_CAPABILITY,
-    DAILY_PLAN_UPDATE_CAPABILITY,
-    DAILY_PLAN_WRITE_CAPABILITY,
-    WEB_FETCH_CAPABILITY,
-    WEB_SEARCH_CAPABILITY,
-    WORKSPACE_LIST_CAPABILITY,
-    WORKSPACE_READ_CAPABILITY,
-    WORKSPACE_SEARCH_CAPABILITY,
-    WORKSPACE_WRITE_CAPABILITY,
-    DailyPlanReadArguments,
-    DailyPlanUpdateArguments,
-    DailyPlanWriteArguments,
-    WebFetchArguments,
-    WebSearchArguments,
-    WorkspaceListArguments,
-    WorkspaceReadArguments,
-    WorkspaceSearchArguments,
-    WorkspaceWriteArguments,
-    daily_plan_scope_matches,
-    web_fetch_scope,
-    web_search_scope_matches,
-    workspace_scope_matches,
-)
+from living_agent.execution.tool_catalog import TOOL_CATALOG
 from living_agent.models.tasks import TaskContract
 from living_agent.plugins.rpc import PluginInvocationResult
 
@@ -254,79 +226,8 @@ class TaskPlanVerifier:
     def _work_spec(
         handler: str,
     ) -> tuple[str, str, type[BaseModel], Callable[[BaseModel, str], bool], bool] | None:
-        specs: dict[
-            str,
-            tuple[str, str, type[BaseModel], Callable[[BaseModel, str], bool], bool],
-        ] = {
-            "workspace_read": (
-                WORKSPACE_READ_CAPABILITY,
-                "read",
-                WorkspaceReadArguments,
-                workspace_scope_matches,
-                False,
-            ),
-            "workspace_list": (
-                WORKSPACE_LIST_CAPABILITY,
-                "list",
-                WorkspaceListArguments,
-                workspace_scope_matches,
-                False,
-            ),
-            "workspace_search": (
-                WORKSPACE_SEARCH_CAPABILITY,
-                "search",
-                WorkspaceSearchArguments,
-                workspace_scope_matches,
-                False,
-            ),
-            "workspace_write": (
-                WORKSPACE_WRITE_CAPABILITY,
-                "write",
-                WorkspaceWriteArguments,
-                workspace_scope_matches,
-                True,
-            ),
-            "web_fetch": (
-                WEB_FETCH_CAPABILITY,
-                "read",
-                WebFetchArguments,
-                web_fetch_scope,
-                False,
-            ),
-            "web_search": (
-                WEB_SEARCH_CAPABILITY,
-                "search",
-                WebSearchArguments,
-                web_search_scope_matches,
-                False,
-            ),
-            "daily_plan_read": (
-                DAILY_PLAN_READ_CAPABILITY,
-                "read",
-                DailyPlanReadArguments,
-                daily_plan_scope_matches,
-                False,
-            ),
-            "daily_plan_write": (
-                DAILY_PLAN_WRITE_CAPABILITY,
-                "write",
-                DailyPlanWriteArguments,
-                daily_plan_scope_matches,
-                True,
-            ),
-            "daily_plan_update": (
-                DAILY_PLAN_UPDATE_CAPABILITY,
-                "update",
-                DailyPlanUpdateArguments,
-                daily_plan_scope_matches,
-                True,
-            ),
-            "shell_execute": (
-                SHELL_EXECUTE_CAPABILITY,
-                "execute",
-                ShellExecuteArguments,
-                shell_scope_matches,
-                True,
-            ),
-        }
-        return specs.get(handler)
+        spec = TOOL_CATALOG.get(handler)
+        if spec is None or handler == "calculator":
+            return None
+        return (spec.capability, spec.operation, spec.arguments, spec.scope_matches,
+                spec.requires_confirmation)

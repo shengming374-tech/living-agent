@@ -16,6 +16,10 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse, Response
 
 from living_agent import __version__
+from living_agent.agent.planner import AgentPlanner
+from living_agent.agent.repository import AgentRepository
+from living_agent.agent.service import AgentService
+from living_agent.api.agent import router as agent_router
 from living_agent.api.audit import router as audit_router
 from living_agent.api.capabilities import router as capabilities_router
 from living_agent.api.chat import router as chat_router
@@ -151,6 +155,7 @@ from living_agent.trust.management_auth import (
     ManagementAuthenticator,
     is_management_api_path,
 )
+from living_agent.trust.request_limits import RequestBodyLimit
 from living_agent.users.repository import UserRepository
 from living_agent.users.service import UserService
 
@@ -291,7 +296,10 @@ def create_app(
             scope_validator=napcat_reply_scope_matches,
         )
     )
-    plugin_registry = PluginRegistry(runtime_assets.plugins)
+    plugin_registry = PluginRegistry(
+        runtime_assets.plugins,
+        state_path=resolved_settings.runtime_root / "data/plugin-state.json",
+    )
     plugin_registry.discover()
     if embedding_provider is not None:
         resolved_embedding_provider = embedding_provider
@@ -506,6 +514,15 @@ def create_app(
         token=resolved_settings.management_api_token,
     )
     context_compiler = ContextCompiler()
+    agent_service = AgentService(
+        repository=AgentRepository(database.sessions),
+        planner=AgentPlanner(llm=resolved_llm_provider, compiler=context_compiler,
+                             memories=memory_service, psyche=psyche_service, audit=audit),
+        tasks=task_service, audit=audit, authority=authority,
+        max_iterations=resolved_settings.agent_max_iterations,
+        decision_timeout=resolved_settings.agent_decision_timeout_seconds,
+        enabled=resolved_settings.agent_enabled,
+    )
     social_state_repository = SocialStateRepository(database.sessions)
     utterance_coordinator = UtteranceCoordinator(
         audit=audit,
@@ -534,6 +551,7 @@ def create_app(
             TaskPlanner(today=lambda: datetime.now(life_service.timezone).date())
         ),
         tasks=task_service,
+        agent=agent_service,
         context_compiler=context_compiler,
         llm=resolved_llm_provider,
         root_policy=root_policy,
@@ -624,11 +642,13 @@ def create_app(
                     "plugin_sandbox_enforced": plugin_process.sandbox_enforced,
                 },
             )
-            for plugin_id in resolved_settings.enabled_plugins:
-                await plugin_registry.enable(
-                    plugin_id, actor_id=resolved_settings.owner_id, audit=audit
-                )
+            await plugin_registry.initialize(
+                default_enabled=resolved_settings.enabled_plugins,
+                actor_id=resolved_settings.owner_id,
+                audit=audit,
+            )
             await task_service.initialize()
+            await agent_service.initialize()
             await life_scheduler.start()
             yield
         finally:
@@ -658,6 +678,7 @@ def create_app(
                                 await database.dispose()
 
     app = FastAPI(title=resolved_settings.app_name, version=__version__, lifespan=lifespan)
+    app.add_middleware(RequestBodyLimit, max_bytes=resolved_settings.ingress_max_request_bytes)
 
     @app.exception_handler(EventStorageQuotaError)
     async def event_storage_quota_exceeded(
@@ -668,30 +689,6 @@ def create_app(
             status_code=413,
             content={"detail": "conversation_event_storage_quota_exceeded"},
         )
-
-    @app.middleware("http")
-    async def limit_chat_request_size(
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        if request.url.path == "/v1/chat":
-            raw_length = request.headers.get("content-length")
-            try:
-                content_length = int(raw_length) if raw_length is not None else None
-            except ValueError:
-                return JSONResponse(
-                    status_code=400,
-                    content={"detail": "invalid_content_length"},
-                )
-            if (
-                content_length is not None
-                and content_length > resolved_settings.ingress_max_request_bytes
-            ):
-                return JSONResponse(
-                    status_code=413,
-                    content={"detail": "request_body_too_large"},
-                )
-        return await call_next(request)
 
     @app.middleware("http")
     async def authenticate_management_request(
@@ -728,6 +725,8 @@ def create_app(
     app.state.management_authenticator = management_authenticator
     app.state.audit = audit
     app.state.runtime = runtime
+    app.state.agent_service = agent_service
+    app.state.event_repository = event_repository
     app.state.utterance_coordinator = utterance_coordinator
     app.state.social_state_repository = social_state_repository
     app.state.llm_provider = resolved_llm_provider
@@ -766,6 +765,7 @@ def create_app(
     app.include_router(simulator_router)
     app.include_router(studio_router)
     app.include_router(tasks_router)
+    app.include_router(agent_router)
     app.include_router(users_router)
     app.include_router(napcat_router)
     app.include_router(openclaw_router)

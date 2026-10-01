@@ -111,6 +111,8 @@ class LifeRepository:
                 raise LifeNotFoundError("private project not found")
             self._require_version(record.version, update.expected_version)
             changes = update.model_dump(exclude={"expected_version"}, exclude_unset=True)
+            if any(value is None for value in changes.values()):
+                raise ValueError("project update fields cannot be null")
             for field, value in changes.items():
                 setattr(record, field, value.value if isinstance(value, ProjectStatus) else value)
             record.version += 1
@@ -222,12 +224,16 @@ class LifeRepository:
             await session.commit()
         return self._activity(record)
 
-    async def running_activity_for_item(self, plan_item_id: str) -> LifeActivityLog | None:
+    async def activity_for_item(
+        self,
+        plan_id: str,
+        plan_item_id: str,
+    ) -> LifeActivityLog | None:
         statement = (
             select(LifeActivityLogORM)
             .where(
+                LifeActivityLogORM.plan_id == plan_id,
                 LifeActivityLogORM.plan_item_id == plan_item_id,
-                LifeActivityLogORM.status == LifeActivityStatus.RUNNING.value,
             )
             .order_by(LifeActivityLogORM.started_at.desc())
             .limit(1)
@@ -235,6 +241,15 @@ class LifeRepository:
         async with self._sessions() as session:
             record = await session.scalar(statement)
         return self._activity(record) if record is not None else None
+
+    async def running_plan_activities(self, plan_id: str) -> list[LifeActivityLog]:
+        statement = select(LifeActivityLogORM).where(
+            LifeActivityLogORM.plan_id == plan_id,
+            LifeActivityLogORM.status == LifeActivityStatus.RUNNING.value,
+        )
+        async with self._sessions() as session:
+            records = list((await session.scalars(statement)).all())
+        return [self._activity(record) for record in records]
 
     async def finish_activity(
         self,

@@ -8,6 +8,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from living_agent.agent.repository import AgentRunORM
 from living_agent.audit.models import AuditRecordORM
 from living_agent.execution.models import TaskReportORM, TaskRunORM
 from living_agent.interaction.models import (
@@ -48,6 +49,7 @@ from living_agent.storage.models import TrustedEventORM
 from living_agent.users.models import RegisteredUserORM
 
 _ = (
+    AgentRunORM,
     AuditRecordORM,
     AttentionCueORM,
     ArtifactStageORM,
