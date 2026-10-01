@@ -53,6 +53,7 @@ class PluginSandbox:
         worker_arguments = [
             str(python_binary),
             "-I",
+            "-B",
             "-S",
             str(worker_path),
             "--plugin-dir",

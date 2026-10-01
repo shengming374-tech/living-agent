@@ -167,7 +167,10 @@ class PluginProcess:
         if process.returncode is not None:
             return
         try:
-            os.killpg(process.pid, signal.SIGTERM)
+            if os.name == "nt":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
         try:
@@ -176,7 +179,10 @@ class PluginProcess:
         except TimeoutError:
             pass
         try:
-            os.killpg(process.pid, signal.SIGKILL)
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             return
         await process.wait()

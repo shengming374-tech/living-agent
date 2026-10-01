@@ -93,7 +93,7 @@ def main() -> None:
                         break
                     time.sleep(0.1)
                 assert room["status"] == "idle" and len(room["messages"]) == 3
-                if sys.platform == "darwin":
+                if sys.platform in {"darwin", "win32"}:
                     calculated = api(
                         "/v1/chat",
                         {
@@ -122,6 +122,7 @@ def main() -> None:
                             "tools": 11,
                             "group_replies": 2,
                             "history_after_restart": True,
+                            "calculator": 56,
                             "macos_sandbox_calculator": sys.platform == "darwin",
                         },
                         ensure_ascii=False,
