@@ -99,14 +99,16 @@ def test_cli_runtime_clean_start_and_shutdown(tmp_path: Path) -> None:
             [*command, "serve", "--port", "0"], cwd=tmp_path, env=env, stdout=log, stderr=log
         )
         try:
-            for _ in range(300):
+            # Cold Windows CI imports can take longer while antivirus scans the runtime.
+            # 允许 Windows CI 在首次扫描运行库时完成冷启动, 与安装包验收一致。
+            for _ in range(600):
                 if (root / "session.json").exists():
                     break
                 if server.poll() is not None:
                     pytest.fail((tmp_path / "server.log").read_text())
                 time.sleep(0.1)
             else:
-                pytest.fail("runtime did not start")
+                pytest.fail("runtime did not start:\n" + (tmp_path / "server.log").read_text())
             status = subprocess.run(
                 [*command, "--json", "status"],
                 env=env,
