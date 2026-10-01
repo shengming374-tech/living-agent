@@ -1,0 +1,71 @@
+name: Applications / 应用适配
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'scripts/**'
+      - 'src/**'
+      - 'tests/**'
+      - 'docs/APPS.md'
+      - 'docs/APP_VALIDATION.md'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/apps.yml'
+permissions:
+  contents: read
+jobs:
+  windows-cli:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen
+      - name: Verify restricted Windows interpreter / 验证受限解释器启动
+        run: |
+          @'
+          import os, subprocess, sys
+          result = subprocess.run(
+              [sys.executable, "-I", "-B", "-S", "-c", "import asyncio, json; print('worker runtime ready')"],
+              env={"SystemRoot": os.environ["SystemRoot"]},
+              capture_output=True, text=True,
+          )
+          print(result.stdout)
+          if result.returncode:
+              print(result.stderr)
+              raise SystemExit(result.returncode)
+          '@ | uv run python -
+      - run: uv run pytest tests/test_config.py tests/test_app_cli.py tests/test_groups.py tests/test_plugins.py -q
+      - run: uv run python scripts/build_app.py
+      - run: uv run python scripts/smoke_bundle.py dist/windows/LivingAgent-CLI
+      - run: .\dist\windows\LivingAgent-CLI\living-agent.cmd --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LivingAgent-windows-x64
+          path: |
+            dist/windows/*.zip
+            dist/windows/SHA256SUMS
+  apple:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+      - run: uv sync --frozen
+      - run: uv run pytest tests/test_config.py tests/test_app_cli.py tests/test_groups.py tests/test_plugins.py -q
+      - run: uv run python scripts/build_app.py
+      - run: uv run python scripts/smoke_bundle.py dist/macos/LivingAgent.app
+      - run: >-
+          xcodebuild -project apps/apple/LivingAgent.xcodeproj -scheme LivingAgent
+          -configuration Release -sdk iphonesimulator -derivedDataPath build/ios
+          CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LivingAgent-apple
+          path: |
+            dist/macos/*.dmg
+            dist/macos/SHA256SUMS
+            build/ios/Build/Products/Release-iphonesimulator/LivingAgent.app

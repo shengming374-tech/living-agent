@@ -23,9 +23,11 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0.41,<3",
   "structlog>=25.4,<26",
   "uvicorn[standard]>=0.35,<1",
+  "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 
 [project.scripts]
+living-agent = "living_agent.cli.main:main"
 living-agent-psyche = "living_agent.cli.psyche:main"
 
 [dependency-groups]
@@ -57,6 +59,8 @@ only-include = [
   "config",
   "docs",
   "integrations/openclaw/living-agent-bridge",
+  "apps",
+  "scripts",
   "migrations",
   "personas",
   "plugins/examples/calculator",

@@ -2,15 +2,31 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from living_agent.api.dependencies import get_runtime
+from living_agent.api.dependencies import get_authority, get_runtime
+from living_agent.api.management import ActorHeader, require_owner
 from living_agent.models.conversation import ChatResult
-from living_agent.models.events import IngressEnvelope
+from living_agent.models.events import IngressEnvelope, TrustedEvent
 from living_agent.runtime.runtime import AgentRuntime
+from living_agent.storage.events import EventRepository
+from living_agent.trust.authority import AuthorityResolver
 from living_agent.trust.management_auth import ManagementAuthenticator
 
 router = APIRouter(prefix="/v1", tags=["chat"])
+
+
+@router.get("/chat/history", response_model=list[TrustedEvent])
+async def history(
+    request: Request,
+    actor_id: ActorHeader,
+    authority: Annotated[AuthorityResolver, Depends(get_authority)],
+    conversation_id: Annotated[str, Query(min_length=1, max_length=255)],
+    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+) -> list[TrustedEvent]:
+    require_owner(actor_id, authority)
+    events: EventRepository = request.app.state.event_repository
+    return await events.recent_for_conversation(conversation_id, limit=limit)
 
 
 @router.post("/chat", response_model=ChatResult)

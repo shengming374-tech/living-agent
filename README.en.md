@@ -8,6 +8,10 @@ The current release includes trusted input handling, capability-brokered executi
 
 Voice, video, generic attachment parsing, image generation, proactive messaging, and third-party business connectors remain out of scope.
 
+## Applications and platforms
+
+Native macOS app with bundled runtime, iOS/iPadOS service client, Windows CLI, and multi-agent rooms. See [`docs/APPS.md`](docs/APPS.md) for installation, packaging, data locations and limits.
+
 ## Persona + persistent goal agent
 
 The current refactor adds an **observe → decide → act → feedback** loop alongside the existing social persona. The planner selects one registered tool at a time from real observations. Identity, capabilities, confirmation and evidence remain host-owned.

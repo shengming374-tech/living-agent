@@ -53,6 +53,7 @@ class PluginSandbox:
         worker_arguments = [
             str(python_binary),
             "-I",
+            "-B",
             "-S",
             str(worker_path),
             "--plugin-dir",
@@ -111,7 +112,9 @@ class PluginSandbox:
         plugin_root: Path,
     ) -> str:
         def quote(value: Path) -> str:
-            return json.dumps(str(value))
+            # Seatbelt reads UTF-8 paths; JSON's Unicode escapes are not Scheme escapes.
+            # Seatbelt 需要真实 UTF-8 路径, 无法识别 JSON 的 Unicode 转义。
+            return json.dumps(str(value), ensure_ascii=False)
 
         denied_reads = [
             Path.home().resolve(),
@@ -138,6 +141,12 @@ class PluginSandbox:
             library = Path(library_dir) / shared_library
             if library.is_file():
                 runtime_files.add(library.resolve())
+        if shared_library:
+            # Relocated standalone interpreters can retain their build-time LIBDIR.
+            # 便携 Python 的 LIBDIR 可能仍是打包前的路径, 只开放实际运行库。
+            library = Path(sys.base_prefix) / "lib" / shared_library
+            if library.is_file():
+                runtime_files.add(library.resolve())
         framework = sysconfig.get_config_var("PYTHONFRAMEWORK")
         if framework:
             library = Path(sys.base_prefix) / framework
@@ -154,7 +163,9 @@ class PluginSandbox:
         # Worker imports are stdlib-only, never the host's third-party packages.
         # worker 只使用标准库, 不开放宿主的第三方安装包。
         package_rules = " ".join(
-            f"(subpath {quote(path / 'site-packages')})"
+            "(require-all "
+            f"(subpath {quote(path / 'site-packages')}) "
+            f"(require-not (literal {quote(worker_path)})))"
             for path in sorted(standard_libraries)
         )
         return " ".join(

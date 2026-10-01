@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="LIVING_AGENT_",
         env_file=".env",
+        env_file_encoding="utf-8",
         extra="forbid",
         case_sensitive=False,
     )
@@ -187,7 +188,9 @@ class Settings(BaseSettings):
             config_path = (
                 runtime_config if runtime_config.is_file() else packaged_config
             )
-        yaml_settings = YamlConfigSettingsSource(settings_cls, yaml_file=config_path)
+        yaml_settings = YamlConfigSettingsSource(
+            settings_cls, yaml_file=config_path, yaml_file_encoding="utf-8"
+        )
         return (
             init_settings,
             env_settings,
