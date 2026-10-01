@@ -53,6 +53,9 @@ class Settings(BaseSettings):
         ge=1024,
         le=16 * 1024 * 1024 * 1024,
     )
+    agent_enabled: bool = True
+    agent_max_iterations: int = Field(default=8, ge=1, le=32)
+    agent_decision_timeout_seconds: float = Field(default=90, ge=1, le=300)
     model_provider: Literal["mock", "openai_compatible"] = "mock"
     model_name: str = "mock-chat-v1"
     model_vision_name: str = "gpt-5.5"

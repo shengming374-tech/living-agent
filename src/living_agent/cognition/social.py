@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from living_agent.agent.contracts import AgentRun
 from living_agent.execution.contracts import (
     TaskRun,
     TaskRunStatus,
@@ -264,3 +265,27 @@ class SocialCognition:
         head = normalized[: maximum - 1]
         tail = " ".join(normalized[maximum - 1 :])[:unit_chars].strip()
         return [*head, tail]
+
+    @staticmethod
+    def render_agent_run(run: AgentRun) -> str:
+        """Render only visible outcome and controls, never the planner's transcript."""
+        suffix = {
+            "waiting_confirmation": f"确认智能体 {run.run_id}",
+            "waiting_input": f"继续智能体 {run.run_id} 你的补充",
+            "paused": f"继续智能体 {run.run_id}",
+        }.get(run.status)
+        if run.status == "waiting_confirmation" and run.pending_proposal:
+            step = run.pending_proposal.plan.steps[0]
+            import json
+
+            action = json.dumps(step.action.capability_request.arguments, ensure_ascii=False)
+            return f"准备{step.title}: {action[:1800]}\n完整参数见控制台, 确认后执行: {suffix}"
+        return f"{run.summary}\n{suffix}" if suffix else run.summary
+
+    def render_agent_outcome(self, run: AgentRun, tasks: list[TaskRun]) -> str:
+        """Use host-verified child results if social synthesis is unavailable."""
+
+        completed = [task for task in tasks if task.status is TaskRunStatus.COMPLETED]
+        if completed:
+            return "\n".join(self.render_task_run(task) for task in completed[-3:])
+        return f"目标 {run.goal} 已结束, 没有执行工具操作"

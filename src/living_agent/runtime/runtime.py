@@ -1,4 +1,4 @@
-"""Phase 1 trusted-message vertical slice."""
+"""Coordinate trusted ingress, social scheduling and cognition handoffs."""
 
 from __future__ import annotations
 
@@ -8,20 +8,23 @@ import json
 from datetime import datetime
 from typing import Any
 
+from living_agent.agent.conversation import AgentConversation
+from living_agent.agent.repository import AgentConflictError, AgentNotFoundError
+from living_agent.agent.service import AgentService
 from living_agent.audit.service import AuditService
 from living_agent.cognition.context_compiler import CompiledContext, ContextCompiler
 from living_agent.cognition.executive import ExecutiveCognition
+from living_agent.cognition.model_calls import ModelCalls
+from living_agent.cognition.outcomes import OutcomePresenter
 from living_agent.cognition.social import SocialCognition
-from living_agent.evaluation.continuity_critic import ContinuityCritic, CriticAction
+from living_agent.evaluation.continuity_critic import ContinuityCritic
 from living_agent.evaluation.simulator import BehaviorSimulation, SimulatedTaskStep
-from living_agent.execution.contracts import TaskRun, TaskRunStatus, TaskStepStatus
-from living_agent.execution.repository import TaskNotFoundError, TaskStateError
-from living_agent.execution.service import TaskConfirmationDeniedError, TaskService
+from living_agent.execution.conversation import TaskConversation
+from living_agent.execution.service import TaskService
 from living_agent.execution.work_contracts import is_work_write_handler
 from living_agent.interaction.impressions import AttentionCueService, SessionImpressionService
 from living_agent.interaction.momentum import ConversationMomentum
 from living_agent.interaction.repository import (
-    DeliveryDisposition,
     DeliveryResult,
     StoredUtterance,
 )
@@ -36,11 +39,12 @@ from living_agent.models.memory import (
     MemoryLayer,
     MemoryProbeRequest,
     MemoryProbeResponse,
-    MemoryProbeVariant,
 )
 from living_agent.providers.llm import LLMProvider, LLMProviderError
 from living_agent.psyche.service import PsycheService
+from living_agent.runtime.delivery import DeliveryRecorder
 from living_agent.runtime.event_bus import EventBus
+from living_agent.runtime.memory_probe import MemoryProbeRunner
 from living_agent.storage.events import EventRepository
 from living_agent.trust.boundary import TrustBoundary
 from living_agent.trust.taint import TaintLabel
@@ -73,19 +77,19 @@ class AgentRuntime:
         social_scheduler_enabled: bool,
         social_focus_idle_exit_cycles: int,
         social_cooldown_seconds: float,
+        agent: AgentService | None = None,
     ) -> None:
+        self._agent_conversation = AgentConversation(agent) if agent else None
         self._boundary = boundary
         self._events = events
         self._audit = audit
         self._event_bus = event_bus
         self._social = social
         self._executive = executive
-        self._tasks = tasks
+        self._task_conversation = TaskConversation(executive, tasks)
         self._context_compiler = context_compiler
-        self._llm = llm
         self._root_policy = root_policy
         self._psyche = psyche
-        self._continuity_critic = continuity_critic
         self._memories = memories
         self._users = users
         self._utterances = utterances
@@ -95,8 +99,69 @@ class AgentRuntime:
         self._attention = attention
         self._social_scheduler_enabled = social_scheduler_enabled
         self._social_focus_idle_exit_cycles = social_focus_idle_exit_cycles
-        self._social_cooldown_seconds = social_cooldown_seconds
+        self._models = ModelCalls(llm=llm, audit=audit, critic=continuity_critic)
+        self._outcomes = OutcomePresenter(
+            compiler=context_compiler, models=self._models, social=social, tasks=tasks,
+            audit=audit, root_policy=root_policy,
+        )
         self._social_schedule_lock = asyncio.Lock()
+        self._memory_probe = MemoryProbeRunner(
+            boundary=boundary, compiler=context_compiler, llm=llm, memories=memories,
+            audit=audit, root_policy=root_policy,
+        )
+        self._delivery = DeliveryRecorder(
+            events=events, audit=audit, memories=memories, utterances=utterances,
+            social_state=social_state, cooldown_seconds=social_cooldown_seconds,
+        )
+
+    async def _handle_agent(
+        self, event: TrustedEvent, turn: TurnDecision, schedule: TurnScheduleDecision,
+        *, history: list[dict[str, Any]], psyche: dict[str, Any],
+        planning_turn: UtteranceTurn | None, fallback: bool = False,
+    ) -> ChatResult | None:
+        if self._agent_conversation is None:
+            return None
+        turn = turn.model_copy(update={
+            "mode": "act", "reason_code": "agent_goal",
+            "expected_units_min": 1, "expected_units_max": 3,
+        })
+        try:
+            run = await self._agent_conversation.handle(event, fallback=fallback)
+            if run is None:
+                return None
+            message = await self._outcomes.agent(
+                run, event, turn, history=history, psyche=psyche,
+            )
+            run_id = run.run_id
+        except (AgentConflictError, AgentNotFoundError, PermissionError, ValueError):
+            message = "这个智能体请求暂时无法执行, 请检查目标状态与当前会话"
+            run_id = None
+        return await self._visible_result(
+            event, turn, schedule, message, planning_turn=planning_turn, agent_run_id=run_id,
+        )
+
+    async def _visible_result(
+        self, event: TrustedEvent, turn: TurnDecision, schedule: TurnScheduleDecision,
+        message: str, *, planning_turn: UtteranceTurn | None,
+        agent_run_id: str | None = None,
+    ) -> ChatResult:
+        if planning_turn is not None and not await self._utterances.turn_is_current(planning_turn):
+            await self._audit.append(
+                action="model.result_discarded", actor_id="living-agent",
+                conversation_id=event.conversation_id, outcome="stale",
+                details={"event_id": event.event_id, "generation": planning_turn.generation,
+                         "reason_code": "superseded_during_planning", "phase": "execution_result"},
+            )
+            return ChatResult(
+                event=event, turn=turn, schedule=schedule, message=None, messages=[],
+                agent_run_id=agent_run_id,
+            )
+        utterance = self._social.plan_utterance(message, turn)
+        messages = [unit.text for unit in utterance.units]
+        return ChatResult(
+            event=event, turn=turn, schedule=schedule, message=messages[0], messages=messages,
+            utterance=utterance, agent_run_id=agent_run_id,
+        )
 
     @property
     def root_policy_checksum(self) -> str:
@@ -118,88 +183,9 @@ class AgentRuntime:
         )
 
     async def probe_memory(
-        self,
-        request: MemoryProbeRequest,
-        *,
-        actor_id: str,
+        self, request: MemoryProbeRequest, *, actor_id: str,
     ) -> MemoryProbeResponse:
-        """Run an owner-only, two-call isolation check without chat side effects."""
-
-        facts = await self._memories.exact_facts(
-            entity_id=request.subject_id,
-            fact_keys=request.fact_keys,
-            owner=True,
-        )
-        trace = await self._memories.start_probe_trace(
-            entity_id=request.subject_id,
-            prompt=request.prompt,
-            facts=facts,
-        )
-        probe_event = self._boundary.normalize(
-            IngressEnvelope(
-                content=request.prompt,
-                source_type=SourceType.DIRECT_MESSAGE,
-                source_identity=actor_id,
-                conversation_id=trace.trace.conversation_id,
-                authenticated=True,
-            )
-        )
-        with_context = self._context_compiler.compile(
-            probe_event,
-            root_policy=self._root_policy,
-            retrieved_facts=[self._memories.fact_card(fact) for fact in facts],
-        )
-        without_context = self._context_compiler.compile(
-            probe_event,
-            root_policy=self._root_policy,
-        )
-        await self._memories.mark_trace_injected(
-            trace.trace.trace_id,
-            memory_ids=[fact.id for fact in facts],
-            context_fingerprint=hashlib.sha256(
-                with_context.rendered.encode("utf-8")
-            ).hexdigest(),
-        )
-        with_response = await self._llm.generate(with_context)
-        without_response = await self._llm.generate(without_context)
-        completed = await self._memories.mark_response_supported(
-            trace.trace.trace_id,
-            response_text=with_response.text,
-            corroborating_text=without_response.text,
-        )
-        matches = [item for item in completed.items if item.response_match is True]
-        if not matches:
-            verdict = "not_used"
-        elif any(item.source_overlap for item in matches):
-            verdict = "inconclusive"
-        else:
-            verdict = "supported"
-        await self._audit.append(
-            action="memory.probe.ran",
-            actor_id=actor_id,
-            conversation_id=trace.trace.conversation_id,
-            outcome=verdict,
-            details={
-                "trace_id": trace.trace.trace_id,
-                "subject_id": request.subject_id,
-                "fact_keys": request.fact_keys,
-                "memory_ids": [fact.id for fact in facts],
-                "model_call_count": 2,
-            },
-        )
-        return MemoryProbeResponse(
-            verdict=verdict,
-            support_mode=completed.trace.support_mode,
-            with_memory=MemoryProbeVariant(
-                text=with_response.text,
-                selected_memory_ids=[fact.id for fact in facts],
-            ),
-            without_memory=MemoryProbeVariant(
-                text=without_response.text,
-                selected_memory_ids=[],
-            ),
-            trace_id=trace.trace.trace_id,
-        )
+        return await self._memory_probe.run(request, actor_id=actor_id)
 
     async def begin_utterance_turn(
         self,
@@ -322,12 +308,26 @@ class AgentRuntime:
         cancellation = None
         status_command = None
         proposal = None
+        agent_goal = None
         if turn.mode != "observe":
-            confirmation = self._executive.confirmation(event)
-            cancellation = self._executive.cancellation(event)
-            status_command = self._executive.status(event)
-            if confirmation is None and cancellation is None and status_command is None:
-                proposal = self._executive.propose(event)
+            try:
+                if self._agent_conversation is not None:
+                    agent_goal = self._agent_conversation.preview_goal(event)
+                if agent_goal is None:
+                    confirmation = self._executive.confirmation(event)
+                    cancellation = self._executive.cancellation(event)
+                    status_command = self._executive.status(event)
+                    if confirmation is None and cancellation is None and status_command is None:
+                        proposal = self._executive.propose(event)
+                        if proposal is None and self._agent_conversation is not None:
+                            agent_goal = self._agent_conversation.preview_goal(event, fallback=True)
+            except PermissionError:
+                agent_goal = None
+        if agent_goal is not None:
+            turn = turn.model_copy(update={
+                "mode": "act", "reason_code": "agent_goal",
+                "expected_units_min": 1, "expected_units_max": 3,
+            })
         preview_impression = (
             await self._social_state.latest_impression(event.conversation_id, now=event.created_at)
             if event.conversation_id is not None
@@ -336,7 +336,11 @@ class AgentRuntime:
         context = self._context_compiler.compile(
             event,
             root_policy=self._root_policy,
-            current_task=(proposal.task.model_dump(mode="json") if proposal is not None else None),
+            current_task=(
+                {"goal": agent_goal, "status": "preview", "tools_selected_at_runtime": True}
+                if agent_goal is not None
+                else proposal.task.model_dump(mode="json") if proposal is not None else None
+            ),
             available_capabilities=(
                 proposal.task.allowed_capabilities if proposal is not None else []
             ),
@@ -369,7 +373,7 @@ class AgentRuntime:
             momentum=momentum,
             schedule=schedule,
             context_sections=[section.kind.value for section in context.sections],
-            task_goal=proposal.task.goal if proposal is not None else None,
+            task_goal=agent_goal or (proposal.task.goal if proposal is not None else None),
             task_steps=task_steps,
             would_call_model=(
                 turn.mode != "observe"
@@ -392,7 +396,7 @@ class AgentRuntime:
                     )
                 )
             ),
-            would_execute_tools=proposal is not None,
+            would_execute_tools=agent_goal is not None or proposal is not None,
         )
 
     async def handle_chat(
@@ -515,101 +519,38 @@ class AgentRuntime:
                 messages=[],
             )
 
-        confirmation = self._executive.confirmation(event)
-        if confirmation is not None:
-            try:
-                task_run = await self._tasks.confirm(
-                    task_id=confirmation.task_id,
-                    conversation_id=event.conversation_id,
-                    actor_id=event.source_identity or "anonymous",
-                )
-                message = self._social.render_task_run(task_run)
-            except TaskConfirmationDeniedError:
-                message = self._social.render_task_confirmation_denied()
-            except (TaskNotFoundError, TaskStateError):
-                message = self._social.render_task_confirmation_missing()
-            utterance = self._social.plan_utterance(message, turn)
-            messages = [unit.text for unit in utterance.units]
-            return ChatResult(
-                event=event,
-                turn=turn,
-                schedule=schedule,
-                message=messages[0],
-                messages=messages,
-                utterance=utterance,
-            )
+        history = self._conversation_history(conversation_events[-8:])
+        psyche = psyche_state.model_dump(mode="json")
+        agent_result = await self._handle_agent(
+            event, turn, schedule, history=history, psyche=psyche, planning_turn=planning_turn,
+        )
+        if agent_result is not None:
+            return agent_result
 
-        cancellation = self._executive.cancellation(event)
-        if cancellation is not None:
-            try:
-                task_run = await self._tasks.cancel(
-                    task_id=cancellation.task_id,
-                    conversation_id=event.conversation_id,
-                    actor_id=event.source_identity or "anonymous",
-                )
-                message = self._social.render_task_run(task_run)
-            except TaskConfirmationDeniedError:
+        task_result = await self._task_conversation.handle(event)
+        if task_result is not None:
+            task_run = task_result.run
+            if task_result.error == "denied":
                 message = self._social.render_task_confirmation_denied()
-            except (TaskNotFoundError, TaskStateError):
+            elif task_result.error == "missing":
                 message = self._social.render_task_confirmation_missing()
-            utterance = self._social.plan_utterance(message, turn)
-            messages = [unit.text for unit in utterance.units]
-            return ChatResult(
-                event=event,
-                turn=turn,
-                schedule=schedule,
-                message=messages[0],
-                messages=messages,
-                utterance=utterance,
-            )
-
-        status_command = self._executive.status(event)
-        if status_command is not None:
-            try:
-                task_run = await self._tasks.status(
-                    task_id=status_command.task_id,
-                    conversation_id=event.conversation_id,
-                    actor_id=event.source_identity or "anonymous",
-                )
-                message = self._social.render_task_run(task_run)
-            except TaskConfirmationDeniedError:
-                message = self._social.render_task_confirmation_denied()
-            except TaskNotFoundError:
-                message = self._social.render_task_confirmation_missing()
-            utterance = self._social.plan_utterance(message, turn)
-            messages = [unit.text for unit in utterance.units]
-            return ChatResult(
-                event=event,
-                turn=turn,
-                schedule=schedule,
-                message=messages[0],
-                messages=messages,
-                utterance=utterance,
-            )
-
-        proposal = self._executive.propose(event)
-        if proposal is not None:
-            task_run = await self._tasks.submit(proposal)
-            if self._task_requires_synthesis(task_run):
-                message = await self._synthesize_task_run(
-                    event,
-                    turn,
-                    task_run,
-                    conversation_events=conversation_events,
-                    psyche_state=psyche_state.model_dump(mode="json"),
+            elif task_run is not None:
+                message = await self._outcomes.task(
+                    task_run, event, turn, history=history, psyche=psyche,
+                    synthesize=task_result.synthesize,
                 )
             else:
-                message = self._social.render_task_run(task_run)
-            utterance = self._social.plan_utterance(message, turn)
-            messages = [unit.text for unit in utterance.units]
-            return ChatResult(
-                event=event,
-                turn=turn,
-                schedule=schedule,
-                message=messages[0],
-                messages=messages,
-                utterance=utterance,
+                raise RuntimeError("task conversation returned no outcome")
+            return await self._visible_result(
+                event, turn, schedule, message, planning_turn=planning_turn,
             )
+
+        agent_result = await self._handle_agent(
+            event, turn, schedule, history=history, psyche=psyche,
+            planning_turn=planning_turn, fallback=True,
+        )
+        if agent_result is not None:
+            return agent_result
 
         conversation_history = self._conversation_history(conversation_events[-8:])
         impression = None
@@ -694,21 +635,8 @@ class AgentRuntime:
                 ).hexdigest(),
             )
         try:
-            model_response = await self._llm.generate(context)
+            model_response = await self._models.generate(context, event)
         except LLMProviderError as exc:
-            await self._audit.append(
-                action="model.called",
-                actor_id="living-agent",
-                conversation_id=event.conversation_id,
-                outcome="failure",
-                details={
-                    "event_id": event.event_id,
-                    "provider": exc.provider,
-                    "model": exc.model,
-                    "error_code": exc.code,
-                    "attempts": exc.attempts,
-                },
-            )
             await self._audit.append(
                 action="model.reply_suppressed",
                 actor_id="living-agent",
@@ -743,27 +671,6 @@ class AgentRuntime:
                 utterance=None,
                 memory_trace_id=memory_trace_id,
             )
-        await self._audit.append(
-            action="model.called",
-            actor_id="living-agent",
-            conversation_id=event.conversation_id,
-            outcome="success",
-            details={
-                "event_id": event.event_id,
-                "provider": model_response.provider,
-                "model": model_response.model,
-                "attempts": model_response.attempts,
-                "prompt_tokens": model_response.usage.prompt_tokens,
-                "completion_tokens": model_response.usage.completion_tokens,
-                "total_tokens": model_response.usage.total_tokens,
-                "image_count": sum(len(section.images) for section in context.sections),
-                "vision_model": model_response.vision_model,
-                "vision_mode": model_response.vision_mode,
-                "vision_cache_hits": model_response.vision_cache_hits,
-                "vision_prompt_tokens": model_response.vision_usage.prompt_tokens,
-                "vision_completion_tokens": model_response.vision_usage.completion_tokens,
-            },
-        )
         if planning_turn is not None and not await self._utterances.turn_is_current(planning_turn):
             if memory_trace_id is not None:
                 await self._memories.mark_response_supported(
@@ -803,28 +710,9 @@ class AgentRuntime:
                 )
             }
         )
-        continuity = await self._continuity_critic.evaluate(
-            model_response.text,
-            claim_evidence,
-            conversation_id=event.conversation_id,
-            actor_id=event.source_identity or "anonymous",
-        )
-        if continuity.action is CriticAction.APPROVE:
-            message = self._social.render_model_text(model_response.text)
-        else:
-            message = self._social.render_continuity_block()
-            await self._audit.append(
-                action="continuity.blocked",
-                actor_id="living-agent",
-                conversation_id=event.conversation_id,
-                outcome="blocked",
-                details={
-                    "event_id": event.event_id,
-                    "reason_codes": continuity.reason_codes,
-                },
-            )
+        approved = await self._models.approve(model_response.text, claim_evidence, event)
         utterance_text = (
-            model_response.text if continuity.action is CriticAction.APPROVE else message
+            model_response.text if approved else self._social.render_continuity_block()
         )
         if memory_trace_id is not None:
             await self._memories.mark_response_supported(
@@ -838,7 +726,7 @@ class AgentRuntime:
                 ),
             )
         utterance = self._social.plan_utterance(utterance_text, turn)
-        if continuity.action is not CriticAction.APPROVE:
+        if not approved:
             utterance.units[0].function = "continuity_block"
         messages = [unit.text for unit in utterance.units]
         await self._audit.append(
@@ -861,299 +749,32 @@ class AgentRuntime:
             utterance=utterance,
             recalled_memory_ids=(
                 [memory.id for memory in recalled_memories]
-                if continuity.action is CriticAction.APPROVE
+                if approved
                 else []
             ),
             memory_trace_id=memory_trace_id,
             attention_cue_id=(
                 attention_cue.cue_id
-                if attention_cue is not None and continuity.action is CriticAction.APPROVE
+                if attention_cue is not None and approved
                 else None
             ),
         )
 
-    @staticmethod
-    def _task_requires_synthesis(run: TaskRun) -> bool:
-        synthesis_handlers = {
-            "workspace_read",
-            "workspace_list",
-            "workspace_search",
-            "web_fetch",
-            "web_search",
-            "daily_plan_read",
-        }
-        return run.status is TaskRunStatus.COMPLETED and any(
-            step.action.handler in synthesis_handlers for step in run.plan.steps
-        )
-
-    async def _synthesize_task_run(
-        self,
-        event: TrustedEvent,
-        turn: TurnDecision,
-        run: TaskRun,
-        *,
-        conversation_events: list[TrustedEvent],
-        psyche_state: dict[str, Any],
-    ) -> str:
-        steps_by_id = {step.step_id: step for step in run.plan.steps}
-        tool_results = []
-        tool_audit_ids = []
-        for result in run.step_results:
-            if result.status is not TaskStepStatus.COMPLETED or result.output is None:
-                continue
-            step = steps_by_id[result.step_id]
-            taint_labels = result.output.get("taint_labels", ["untrusted_tool_result"])
-            tool_results.append(
-                {
-                    "handler": step.action.handler,
-                    "output": result.output,
-                    "source_event_ids": run.source_event_ids,
-                    "taint_labels": taint_labels,
-                }
-            )
-            for evidence in result.evidence:
-                audit_id = evidence.data.get("tool_audit_id")
-                if isinstance(audit_id, str):
-                    tool_audit_ids.append(audit_id)
-        context = self._context_compiler.compile(
-            event,
-            root_policy=self._root_policy,
-            current_task={
-                "task_id": run.task.task_id,
-                "goal": run.task.goal,
-                "status": run.status.value,
-                "steps": [
-                    {
-                        "title": step.title,
-                        "handler": step.action.handler,
-                        "status": next(
-                            result.status.value
-                            for result in run.step_results
-                            if result.step_id == step.step_id
-                        ),
-                    }
-                    for step in run.plan.steps
-                ],
-            },
-            tool_results=tool_results,
-            available_capabilities=run.task.allowed_capabilities,
-            conversation_history=self._conversation_history(conversation_events[-8:]),
-            interaction_plan={
-                "mode": turn.mode,
-                "expected_units_min": turn.expected_units_min,
-                "expected_units_max": turn.expected_units_max,
-                "task_result": True,
-                "format": "plain_text_grounded_in_tool_results",
-            },
-            psyche_state=psyche_state,
-        )
-        try:
-            model_response = await self._llm.generate(context)
-        except LLMProviderError as exc:
-            await self._audit.append(
-                action="model.called",
-                actor_id="living-agent",
-                conversation_id=event.conversation_id,
-                outcome="failure",
-                details={
-                    "event_id": event.event_id,
-                    "provider": exc.provider,
-                    "model": exc.model,
-                    "error_code": exc.code,
-                    "attempts": exc.attempts,
-                    "phase": "task_result_synthesis",
-                },
-            )
-            return self._social.render_task_run(run)
-        await self._audit.append(
-            action="model.called",
-            actor_id="living-agent",
-            conversation_id=event.conversation_id,
-            outcome="success",
-            details={
-                "event_id": event.event_id,
-                "provider": model_response.provider,
-                "model": model_response.model,
-                "attempts": model_response.attempts,
-                "prompt_tokens": model_response.usage.prompt_tokens,
-                "completion_tokens": model_response.usage.completion_tokens,
-                "total_tokens": model_response.usage.total_tokens,
-                "phase": "task_result_synthesis",
-            },
-        )
-        claim_evidence = model_response.claim_evidence.model_copy(
-            update={
-                "activity_ids": sorted(
-                    set(model_response.claim_evidence.activity_ids)
-                    | ({run.activity_id} if run.activity_id is not None else set())
-                ),
-                "tool_audit_ids": sorted(
-                    set(model_response.claim_evidence.tool_audit_ids) | set(tool_audit_ids)
-                ),
-            }
-        )
-        continuity = await self._continuity_critic.evaluate(
-            model_response.text,
-            claim_evidence,
-            conversation_id=event.conversation_id,
-            actor_id=event.source_identity or "anonymous",
-        )
-        if continuity.action is not CriticAction.APPROVE:
-            await self._audit.append(
-                action="continuity.blocked",
-                actor_id="living-agent",
-                conversation_id=event.conversation_id,
-                outcome="blocked",
-                details={
-                    "event_id": event.event_id,
-                    "reason_codes": continuity.reason_codes,
-                    "phase": "task_result_synthesis",
-                },
-            )
-            return self._social.render_continuity_block()
-        await self._audit.append(
-            action="response.generated",
-            actor_id="living-agent",
-            conversation_id=event.conversation_id,
-            outcome="success",
-            details={
-                "event_id": event.event_id,
-                "provider": model_response.provider,
-                "context_sections": [section.kind.value for section in context.sections],
-                "task_id": run.task.task_id,
-            },
-        )
-        return self._social.render_model_text(model_response.text)
-
     async def record_delivery(
-        self,
-        result: ChatResult,
-        *,
-        unit_index: int,
-        platform: str,
+        self, result: ChatResult, *, unit_index: int, platform: str,
     ) -> TrustedEvent:
-        conversation_id = result.event.conversation_id
-        messages = result.messages or ([result.message] if result.message is not None else [])
-        if conversation_id is None or not messages:
-            raise ValueError("delivered replies require a conversation and visible message")
-        if unit_index < 0 or unit_index >= len(messages):
-            raise ValueError("delivered reply unit index is outside the generated utterance")
-        session_id = result.utterance.session_id if result.utterance is not None else None
-        if result.utterance is None:
-            delivered = await self._events.add_agent_message(
-                conversation_id=conversation_id,
-                content=messages[unit_index],
-                source_event_id=result.event.event_id,
-                utterance_session_id=None,
-                unit_index=unit_index,
-                delivery_platform=platform,
-            )
-        else:
-            assert session_id is not None
-            delivery = await self._utterances.record_delivery(
-                conversation_id=conversation_id,
-                platform=platform,
-                session_id=session_id,
-                unit_index=unit_index,
-            )
-            self._require_recorded_delivery(delivery)
-            if delivery.event is None:
-                raise RuntimeError("persistent utterance delivery did not create an event")
-            delivered = delivery.event
-        if unit_index == 0:
-            if result.memory_trace_id is not None:
-                await self._memories.mark_trace_delivered(
-                    result.memory_trace_id,
-                    response_id=delivered.event_id,
-                )
-            await self._consider_self_memory(delivered)
-            if result.attention_cue_id is not None:
-                await self._social_state.mark_cue_used(result.attention_cue_id)
-            await self._social_state.mark_agent_spoke(
-                conversation_id,
-                now=delivered.created_at,
-                cooldown_seconds=self._social_cooldown_seconds,
-            )
-        await self._audit.append(
-            action="response.delivered",
-            actor_id="living-agent",
-            conversation_id=conversation_id,
-            outcome="success",
-            details={
-                "event_id": result.event.event_id,
-                "utterance_session_id": session_id,
-                "unit_index": unit_index,
-                "platform": platform,
-            },
+        return await self._delivery.record_delivery(
+            result, unit_index=unit_index, platform=platform,
         )
-        return delivered
 
     async def record_persisted_utterance_delivery(
-        self,
-        *,
-        session_id: str,
-        platform: str,
-        conversation_id: str,
-        unit_index: int,
-        recovered_after_restart: bool,
+        self, *, session_id: str, platform: str, conversation_id: str,
+        unit_index: int, recovered_after_restart: bool,
     ) -> DeliveryResult:
-        """Record a transport receipt for a Session recovered after restart."""
-
-        stored = await self._utterances.stored_session(session_id)
-        if stored is None:
-            return DeliveryResult(DeliveryDisposition.SESSION_NOT_FOUND, None)
-        delivery = await self._utterances.record_delivery(
-            conversation_id=conversation_id,
-            platform=platform,
-            session_id=session_id,
-            unit_index=unit_index,
+        return await self._delivery.record_persisted_utterance_delivery(
+            session_id=session_id, platform=platform, conversation_id=conversation_id,
+            unit_index=unit_index, recovered_after_restart=recovered_after_restart,
         )
-        if delivery.disposition is not DeliveryDisposition.RECORDED:
-            return delivery
-        if delivery.event is None or delivery.utterance is None:
-            raise RuntimeError("persistent utterance delivery returned incomplete evidence")
-        if unit_index == 0:
-            if stored.memory_trace_id is not None:
-                await self._memories.mark_trace_delivered(
-                    stored.memory_trace_id,
-                    response_id=delivery.event.event_id,
-                )
-            await self._consider_self_memory(delivery.event)
-            if stored.attention_cue_id is not None:
-                await self._social_state.mark_cue_used(stored.attention_cue_id)
-            await self._social_state.mark_agent_spoke(
-                conversation_id,
-                now=delivery.event.created_at,
-                cooldown_seconds=self._social_cooldown_seconds,
-            )
-        await self._audit.append(
-            action="response.delivered",
-            actor_id="living-agent",
-            conversation_id=conversation_id,
-            outcome="success",
-            details={
-                "event_id": stored.source_event_id,
-                "utterance_session_id": session_id,
-                "unit_index": unit_index,
-                "platform": platform,
-                "recovered_after_restart": recovered_after_restart,
-            },
-        )
-        return delivery
-
-    @staticmethod
-    def _require_recorded_delivery(delivery: DeliveryResult) -> None:
-        if delivery.disposition is DeliveryDisposition.RECORDED:
-            return
-        reasons = {
-            DeliveryDisposition.ALREADY_RECORDED: "delivered reply was already recorded",
-            DeliveryDisposition.OUT_OF_ORDER: "delivered reply units must be recorded in order",
-            DeliveryDisposition.INTERRUPTED: "utterance session was interrupted",
-            DeliveryDisposition.SCOPE_MISMATCH: "utterance session scope mismatch",
-            DeliveryDisposition.SESSION_NOT_FOUND: "utterance session was not found",
-            DeliveryDisposition.UNIT_NOT_ISSUED: "delivered reply unit was not issued",
-        }
-        raise ValueError(reasons[delivery.disposition])
 
     async def _observe_memory(self, event: TrustedEvent) -> None:
         try:
@@ -1162,16 +783,6 @@ class AgentRuntime:
             await self._audit_memory_side_effect_failure(
                 event,
                 operation="observe",
-                error=exc,
-            )
-
-    async def _consider_self_memory(self, event: TrustedEvent) -> None:
-        try:
-            await self._memories.consider_self_candidate(event)
-        except Exception as exc:
-            await self._audit_memory_side_effect_failure(
-                event,
-                operation="consider_self_candidate",
                 error=exc,
             )
 

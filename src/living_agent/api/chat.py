@@ -2,12 +2,13 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from living_agent.api.dependencies import get_runtime
 from living_agent.models.conversation import ChatResult
 from living_agent.models.events import IngressEnvelope
 from living_agent.runtime.runtime import AgentRuntime
+from living_agent.trust.management_auth import ManagementAuthenticator
 
 router = APIRouter(prefix="/v1", tags=["chat"])
 
@@ -15,8 +16,25 @@ router = APIRouter(prefix="/v1", tags=["chat"])
 @router.post("/chat", response_model=ChatResult)
 async def chat(
     envelope: IngressEnvelope,
+    request: Request,
     runtime: Annotated[AgentRuntime, Depends(get_runtime)],
 ) -> ChatResult:
+    if envelope.authenticated:
+        authenticator: ManagementAuthenticator = request.app.state.management_authenticator
+        reason_code = authenticator.rejection_reason(request.headers.get("Authorization"))
+        if reason_code is not None:
+            await request.app.state.audit.append(
+                action="chat.auth",
+                actor_id=envelope.source_identity,
+                outcome="rejected",
+                details={"reason_code": reason_code},
+            )
+            status_code = 401 if reason_code.endswith("missing") else 403
+            raise HTTPException(
+                status_code=status_code,
+                detail=reason_code,
+                headers={"WWW-Authenticate": "Bearer"} if status_code == 401 else None,
+            )
     result, utterance_turn = await runtime.handle_platform_chat(
         envelope,
         platform="chat_api",

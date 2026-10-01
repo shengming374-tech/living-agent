@@ -6,7 +6,15 @@ LivingAgent is a persistent digital-persona runtime designed from scratch for na
 
 The current release includes trusted input handling, capability-brokered execution, provenance-preserving long-term memory, managed persona and prompt versions, persistent psyche evidence, a multi-step execution kernel, image understanding, conversation scheduling, automatic memory proposals, controlled workspace and web tools, confirmation-gated shell execution, dual-layer factual and narrative memory, installable runtime assets, bounded NapCat event queues, transient model-failure recovery, and authenticated management-console loading.
 
-Voice, video, generic attachment parsing, image generation, proactive messaging, arbitrary natural-language action planning, and third-party business connectors remain out of scope.
+Voice, video, generic attachment parsing, image generation, proactive messaging, and third-party business connectors remain out of scope.
+
+## Persona + persistent goal agent
+
+The current refactor adds an **observe → decide → act → feedback** loop alongside the existing social persona. The planner selects one registered tool at a time from real observations. Identity, capabilities, confirmation and evidence remain host-owned.
+
+Open `/studio#agent` or send `agent: 检查工作区并读取 README` in authenticated chat. The default Mock runs this real workspace demo; open-ended goals need the configured OpenAI-compatible model. Set the workspace with `LIVING_AGENT_WORK_WORKSPACE_ROOT`.
+
+The loop provides 11 tools, exact-action confirmation, input requests, cancellation, durable checkpoints and lifetime decision budgets. See [Agent runtime](docs/AGENT_RUNTIME.md) for APIs, recovery, single-worker operation and validation limits.
 
 ## Project goals / 项目目标
 
@@ -145,25 +153,27 @@ Persistent `PsycheState`, safe `ThoughtRecord` entries, topics, and activities p
 
 Persistent `TaskContract`, `ExecutionPlan`, step result, and evidence records support bounded arithmetic, UTF-8 workspace files, public web reads/search, daily plans, and confirmation-gated processes. Each step receives a precise one-shot capability grant and independently verified evidence.
 
-The responsive `/studio` console contains 12 live views backed by real management APIs, including runtime overview, memory review, persona and prompt workflows, plugin management, users, tasks, audit, psyche, daily life, model status, and isolation probes. It first authenticates through `GET /v1/management/session`; protected views are loaded only after credentials and authority are confirmed.
+The responsive `/studio` console includes a persistent-agent view with automatic progress updates alongside runtime overview, memory review, persona and prompt workflows, plugin management, users, tasks, audit, psyche, daily life, model status, and isolation probes. It first authenticates through `GET /v1/management/session`; protected views are loaded only after credentials and authority are confirmed.
 
 ## Implementation status / 实现状态
 
-Implemented through version 0.2.6:
+Implemented through version 0.3.0:
 
 - trusted runtime, plugin isolation, memory/persona/prompt management, persistent psyche, social scheduling, multi-step execution, management console, life/diary/sleep/dream isolation, and image input;
 - automatic and dual-layer memory, exact fact recall, causal trace evidence, and isolation probes;
 - controlled workspace, public-web, daily-plan, and confirmation-gated argv execution;
 - bounded NapCat FIFO processing with response-first correlation and fail-closed OpenClaw bridging;
 - installable runtime assets, package-resource migrations, bounded model retries, silent final model failures, and console authentication gating.
+- persistent observe/decide/act goals using 11 controlled tools, clarification and exact confirmation, cancellation and checkpoint recovery;
+- shared persona presentation for task and agent outcomes, separated runtime modules, persistent plugin choices, and daily-plan/activity synchronization.
 
 Partially implemented: owner-managed daily plans do not yet include autonomous priority scheduling; workspace tools handle bounded UTF-8 text only; search uses configurable HTML providers; diary and dream generation is deterministic; self-modification proposals are staged and tested but not autonomously generated; continuity checks verify evidence boundaries but do not prove arbitrary semantic entailment.
 
-Not implemented: open-ended LLM memory extraction, `pgvector` acceleration, arbitrary natural-language action planning, shell interpreters or pipelines, file deletion, third-party business sends, arbitrary third-party plugin installation, multi-instance nightly leases, OpenClaw media or proactive messages, speech, audio/video processing, generic attachments, image generation, or image replies.
+Not implemented: open-ended LLM memory extraction, `pgvector` acceleration, shell interpreters or pipelines, file deletion, third-party business sends, arbitrary third-party plugin installation, multi-instance nightly leases, OpenClaw media or proactive messages, speech, audio/video processing, generic attachments, image generation, or image replies.
 
 ## Documentation / 文档
 
-The bilingual documentation index is [`docs/README.md`](docs/README.md). The 0.2.6 release notes are in [`docs/RELEASE_0.2.6.md`](docs/RELEASE_0.2.6.md).
+The bilingual documentation index is [`docs/README.md`](docs/README.md). See [`docs/RELEASE_0.3.0.md`](docs/RELEASE_0.3.0.md) for changes and [`docs/REFACTOR_VALIDATION.md`](docs/REFACTOR_VALIDATION.md) for validation.
 
 ## License / 许可证
 

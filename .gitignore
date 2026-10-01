@@ -1,6 +1,7 @@
 .env
 .DS_Store
 .venv/
+.venv-agent/
 __pycache__/
 .pytest_cache/
 .mypy_cache/
@@ -11,6 +12,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+data/plugin-state.json
 
 # MaiBot is a local, read-only research checkout, never a runtime dependency.
 references/maibot/

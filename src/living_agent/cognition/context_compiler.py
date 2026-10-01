@@ -76,6 +76,7 @@ class CompiledContext(BaseModel):
 
     sections: list[ContextSection]
     rendered: str
+    response_mode: Literal["text", "json"] = "text"
 
 
 class ContextCompiler:
@@ -86,6 +87,7 @@ class ContextCompiler:
         event: TrustedEvent,
         *,
         root_policy: str,
+        response_mode: Literal["text", "json"] = "text",
         current_task: dict[str, Any] | None = None,
         tool_results: list[dict[str, Any]] | None = None,
         retrieved_facts: list[dict[str, Any]] | None = None,
@@ -237,7 +239,7 @@ class ContextCompiler:
             )
         )
         rendered = "\n\n".join(self._render_section(section) for section in sections)
-        return CompiledContext(sections=sections, rendered=rendered)
+        return CompiledContext(sections=sections, rendered=rendered, response_mode=response_mode)
 
     @staticmethod
     def _event_kind(event: TrustedEvent) -> ContextKind:

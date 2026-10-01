@@ -29,6 +29,7 @@ from living_agent.execution.contracts import (
     TaskStepStatus,
 )
 from living_agent.execution.shell_contracts import ShellExecuteArguments
+from living_agent.execution.web_transport import PINNED_ADDRESSES_EXTENSION, PinnedWebTransport
 from living_agent.execution.work_contracts import (
     DailyPlanReadArguments,
     DailyPlanUpdateArguments,
@@ -212,6 +213,7 @@ class WorkTaskExecutor:
         self._shell_timeout_seconds = shell_timeout_seconds
         self._shell_max_output_bytes = shell_max_output_bytes
         self._client = http_client or httpx2.AsyncClient(
+            transport=PinnedWebTransport(),
             timeout=web_timeout_seconds,
             follow_redirects=False,
             trust_env=False,
@@ -449,10 +451,18 @@ class WorkTaskExecutor:
             raise WorkOperationError("shell_executable_denied")
         for token in argv[1:]:
             normalized = token.replace("\\", "/")
-            candidate_path = self._workspace_root / normalized
+            # Tools interpret --option=path as a path, not one opaque token.
+            # 工具会解析选项中的路径, 校验实际值及符号链接的最终范围。
+            value = (
+                normalized.split("=", 1)[1]
+                if normalized.startswith("--") and "=" in normalized
+                else normalized
+            )
+            candidate_path = self._workspace_root / value
             if (
-                normalized.startswith(("/", "~/"))
-                or ".." in Path(normalized).parts
+                value.startswith(("/", "~/"))
+                or ".." in Path(value).parts
+                or not candidate_path.resolve().is_relative_to(self._workspace_root)
                 or self._is_sensitive(candidate_path)
                 or normalized.startswith(
                     (
@@ -895,8 +905,12 @@ class WorkTaskExecutor:
     async def _fetch_bytes(self, initial_url: str) -> tuple[str, str, bytes]:
         current = normalize_web_url(initial_url)
         for _redirect in range(4):
-            await self._validate_remote_url(current)
+            addresses = await self._validate_remote_url(current)
             request = self._client.build_request("GET", current)
+            request.extensions[PINNED_ADDRESSES_EXTENSION] = addresses
+            transport = self._client._transport_for_url(request.url)
+            if not isinstance(transport, (PinnedWebTransport, httpx2.MockTransport)):
+                raise WorkOperationError("web_unpinned_transport_denied")
             response = await self._client.send(request, stream=True)
             try:
                 if 300 <= response.status_code < 400:
@@ -930,7 +944,7 @@ class WorkTaskExecutor:
                 await response.aclose()
         raise WorkOperationError("web_redirect_limit")
 
-    async def _validate_remote_url(self, url: str) -> None:
+    async def _validate_remote_url(self, url: str) -> tuple[str, ...]:
         parsed = urlsplit(url)
         hostname = (parsed.hostname or "").rstrip(".").casefold()
         if parsed.scheme != "https" and not self._allow_insecure_http:
@@ -956,8 +970,11 @@ class WorkTaskExecutor:
             addresses = {ipaddress.ip_address(record[4][0]) for record in records}
         else:
             addresses = {literal}
-        if not addresses or any(not self._is_public_address(item) for item in addresses):
+        if not addresses or any(
+            not item.is_global or not self._is_public_address(item) for item in addresses
+        ):
             raise WorkOperationError("web_private_address_denied")
+        return tuple(sorted(str(item) for item in addresses))
 
     def _resolve_workspace_path(self, raw_path: str, *, must_exist: bool) -> Path:
         candidate = Path(raw_path)

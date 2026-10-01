@@ -56,6 +56,7 @@ class LifeService:
         self._audit = audit
         self._timezone = timezone
         self._sleep_lock = asyncio.Lock()
+        self._plan_lock = asyncio.Lock()
 
     @property
     def timezone(self) -> ZoneInfo:
@@ -137,7 +138,9 @@ class LifeService:
                 project = await self._repository.get_project(item.project_id)
                 if project.status.value == "archived":
                     raise ValueError("daily plan cannot reference an archived project")
-        plan = await self._repository.upsert_plan(plan_date, request)
+        async with self._plan_lock:
+            plan = await self._repository.upsert_plan(plan_date, request)
+            await self._sync_plan_activities(plan, actor_id=actor_id)
         await self._audit.append(
             action="life.plan_saved",
             actor_id=actor_id,
@@ -173,47 +176,14 @@ class LifeService:
         *,
         actor_id: str,
     ) -> DailyPlan:
-        plan, item = await self._repository.transition_plan_item(
-            plan_date,
-            item_id,
-            expected_version=update.expected_version,
-            status=update.status,
-        )
-        running = await self._repository.running_activity_for_item(item_id)
-        if update.status is PlanItemStatus.IN_PROGRESS and running is None:
-            running = await self._repository.start_activity(
-                LifeActivityCreate(
-                    kind=f"plan:{item.kind.value}",
-                    title=item.title,
-                    project_id=item.project_id,
-                    plan_id=plan.plan_id,
-                    plan_item_id=item.item_id,
-                )
+        async with self._plan_lock:
+            plan, _item = await self._repository.transition_plan_item(
+                plan_date,
+                item_id,
+                expected_version=update.expected_version,
+                status=update.status,
             )
-            await self._audit_activity_started(running, actor_id="living-agent")
-        elif update.status in {PlanItemStatus.COMPLETED, PlanItemStatus.SKIPPED}:
-            if running is None and update.status is PlanItemStatus.COMPLETED:
-                running = await self._repository.start_activity(
-                    LifeActivityCreate(
-                        kind=f"plan:{item.kind.value}",
-                        title=item.title,
-                        project_id=item.project_id,
-                        plan_id=plan.plan_id,
-                        plan_item_id=item.item_id,
-                    )
-                )
-                await self._audit_activity_started(running, actor_id="living-agent")
-            if running is not None:
-                finish_status = (
-                    LifeActivityStatus.COMPLETED
-                    if update.status is PlanItemStatus.COMPLETED
-                    else LifeActivityStatus.CANCELLED
-                )
-                finished = await self._repository.finish_activity(
-                    running.activity_id,
-                    LifeActivityFinish(status=finish_status),
-                )
-                await self._audit_activity_finished(finished, actor_id="living-agent")
+            await self._sync_plan_activities(plan, actor_id=actor_id)
         await self._audit.append(
             action="life.plan_item_transitioned",
             actor_id=actor_id,
@@ -226,6 +196,53 @@ class LifeService:
             },
         )
         return plan
+
+    async def _sync_plan_activities(self, plan: DailyPlan, *, actor_id: str) -> None:
+        """Keep replacements and status edits attached to this plan's activity history."""
+
+        items = {item.item_id: item for item in plan.items}
+        running = await self._repository.running_plan_activities(plan.plan_id)
+        active_items: set[str] = set()
+        for activity in running:
+            item = items.get(activity.plan_item_id or "")
+            if item is not None and item.status is PlanItemStatus.IN_PROGRESS:
+                active_items.add(item.item_id)
+                continue
+            finish_status = (
+                LifeActivityStatus.COMPLETED
+                if item is not None and item.status is PlanItemStatus.COMPLETED
+                else LifeActivityStatus.CANCELLED
+            )
+            finished = await self._repository.finish_activity(
+                activity.activity_id,
+                LifeActivityFinish(status=finish_status),
+            )
+            await self._audit_activity_finished(finished, actor_id=actor_id)
+        for item in plan.items:
+            if item.status not in {PlanItemStatus.IN_PROGRESS, PlanItemStatus.COMPLETED}:
+                continue
+            if item.item_id in active_items:
+                continue
+            if item.status is PlanItemStatus.COMPLETED:
+                latest = await self._repository.activity_for_item(plan.plan_id, item.item_id)
+                if latest is not None and latest.status is LifeActivityStatus.COMPLETED:
+                    continue
+            activity = await self._repository.start_activity(
+                LifeActivityCreate(
+                    kind=f"plan:{item.kind.value}",
+                    title=item.title,
+                    project_id=item.project_id,
+                    plan_id=plan.plan_id,
+                    plan_item_id=item.item_id,
+                )
+            )
+            await self._audit_activity_started(activity, actor_id=actor_id)
+            if item.status is PlanItemStatus.COMPLETED:
+                finished = await self._repository.finish_activity(
+                    activity.activity_id,
+                    LifeActivityFinish(status=LifeActivityStatus.COMPLETED),
+                )
+                await self._audit_activity_finished(finished, actor_id=actor_id)
 
     async def start_activity(
         self,

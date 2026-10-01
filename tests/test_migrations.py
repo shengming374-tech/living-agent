@@ -52,6 +52,7 @@ async def test_initial_migration_creates_runtime_tables(tmp_path: Path) -> None:
         "activity_records",
         "registered_users",
         "task_runs",
+        "agent_runs",
         "task_reports",
         "utterance_sessions",
         "conversation_runtime_states",

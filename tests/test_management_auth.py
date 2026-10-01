@@ -108,7 +108,7 @@ def test_platform_and_chat_ingress_keep_separate_auth_boundaries(settings: Setti
                 "source_type": "direct_message",
                 "source_identity": "member-1",
                 "conversation_id": "conversation-1",
-                "authenticated": True,
+                "authenticated": False,
             },
         )
         adapter = client.post("/v1/adapters/openclaw/messages", json={})

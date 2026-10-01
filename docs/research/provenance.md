@@ -61,3 +61,9 @@ LivingAgent 没有复制 MaiBot 的 Python/JavaScript 源代码、模式、运�
 这些摘录来自固定版本的 `prompts/zh-CN/maisaka_replyer.prompt`，以及嵌入 `src/config/official_configs.py` 和 `src/chat/replyer/maisaka_generator_base.py` 的 Prompt 字符串值。只复制了自然语言字符串，没有复制周围的 Python 控制流程。
 
 MaiBot 使用 GPL-3.0。复制的 Prompt 摘录仍受该许可证约束，并在 `THIRD_PARTY_NOTICES.md` 中标明；`LICENSES/MaiBot-GPL-3.0.txt` 随项目提供 GPL-3.0 全文。本来源记录不会因为 Prompt 不是可执行代码，就声称其不受著作权保护。
+
+## 2026-09-30 架构重构 / Architecture refactor
+
+再次查阅 [MaiBot 官方首页](https://github.com/Mai-with-u/MaiBot)，参考其自然交流、参与时机、持续了解用户的公开设计目标。新增目标循环、共享工具目录、持久检查点及状态 API 为 LivingAgent 独立实现；此次未复制新的上游代码或提示词。旧机制研究仍绑定上文所列的固定修订，不声称代表当前所有上游实现。
+
+The official overview was revisited for social design goals. The new agent loop and checkpoints are original implementations. Earlier source studies remain pinned to their recorded revision.

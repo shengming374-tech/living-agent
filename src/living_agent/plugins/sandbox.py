@@ -6,6 +6,7 @@ import json
 import platform
 import shutil
 import sys
+import sysconfig
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -52,6 +53,7 @@ class PluginSandbox:
         worker_arguments = [
             str(python_binary),
             "-I",
+            "-S",
             str(worker_path),
             "--plugin-dir",
             str(plugin_root),
@@ -123,6 +125,38 @@ class PluginSandbox:
         denied_rules = " ".join(
             f"(subpath {quote(path)})" for path in denied_reads
         )
+        standard_libraries = {
+            Path(sysconfig.get_path("stdlib")).resolve(),
+            Path(
+                sysconfig.get_path("platstdlib", vars={"platbase": sys.base_exec_prefix})
+            ).resolve(),
+        }
+        runtime_files = {python_binary.resolve()}
+        library_dir = sysconfig.get_config_var("LIBDIR")
+        shared_library = sysconfig.get_config_var("LDLIBRARY")
+        if library_dir and shared_library:
+            library = Path(library_dir) / shared_library
+            if library.is_file():
+                runtime_files.add(library.resolve())
+        framework = sysconfig.get_config_var("PYTHONFRAMEWORK")
+        if framework:
+            library = Path(sys.base_prefix) / framework
+            if library.is_file():
+                runtime_files.add(library.resolve())
+        version = f"{sys.version_info.major}{sys.version_info.minor}"
+        stdlib_zip = Path(sys.base_prefix) / "lib" / f"python{version}.zip"
+        if stdlib_zip.is_file():
+            runtime_files.add(stdlib_zip.resolve())
+        runtime_rules = " ".join(
+            [f"(subpath {quote(path)})" for path in sorted(standard_libraries)]
+            + [f"(literal {quote(path)})" for path in sorted(runtime_files)]
+        )
+        # Worker imports are stdlib-only, never the host's third-party packages.
+        # worker 只使用标准库, 不开放宿主的第三方安装包。
+        package_rules = " ".join(
+            f"(subpath {quote(path / 'site-packages')})"
+            for path in sorted(standard_libraries)
+        )
         return " ".join(
             [
                 "(version 1)",
@@ -135,7 +169,8 @@ class PluginSandbox:
                 f"(deny file-read* {denied_rules})",
                 "(allow file-read* "
                 f"(subpath {quote(worker_path.parent)}) "
-                f"(subpath {quote(plugin_root)}))",
+                f"(subpath {quote(plugin_root)}) {runtime_rules})",
+                f"(deny file-read* {package_rules})",
             ]
         )
 

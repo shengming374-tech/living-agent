@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from living_agent.audit.service import AuditService
 from living_agent.execution.contracts import (
     TaskPlanProposal,
@@ -93,7 +95,7 @@ class TaskService:
         )
         try:
             run = await self._kernel.submit(proposal, activity_id=activity.activity_id)
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             await self._psyche.finish_activity(
                 activity.activity_id,
                 success=False,
@@ -129,6 +131,13 @@ class TaskService:
 
     async def get(self, task_id: str) -> TaskRun:
         return await self._repository.get(task_id)
+
+    async def recover(self, task_id: str) -> TaskRun:
+        """Resume one interrupted child through the existing recovery rules."""
+        run = await self._repository.get(task_id)
+        recovered = await self._kernel.recover(run)
+        await self._finish_activity_if_terminal(recovered)
+        return recovered
 
     async def status(
         self,
