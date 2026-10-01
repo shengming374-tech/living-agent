@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: uv sync --frozen
-      - run: uv run pytest tests/test_app_cli.py tests/test_groups.py -q
+      - run: uv run pytest tests/test_config.py tests/test_app_cli.py tests/test_groups.py -q
       - run: uv run python scripts/build_app.py
       - run: uv run python scripts/smoke_bundle.py dist/windows/LivingAgent-CLI
       - run: .\dist\windows\LivingAgent-CLI\living-agent.cmd --version
@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: uv sync --frozen
-      - run: uv run pytest tests/test_app_cli.py tests/test_groups.py -q
+      - run: uv run pytest tests/test_config.py tests/test_app_cli.py tests/test_groups.py -q
       - run: uv run python scripts/build_app.py
       - run: uv run python scripts/smoke_bundle.py dist/macos/LivingAgent.app
       - run: >-

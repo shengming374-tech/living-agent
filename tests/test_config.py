@@ -22,7 +22,10 @@ def test_config_and_dotenv_decode_utf8_on_non_utf8_hosts(
 
     def non_utf8_open(file, *args, **kwargs):
         if not isinstance(file, int) and Path(file) in {config, dotenv}:
-            kwargs["encoding"] = kwargs.get("encoding") or "cp1252"
+            if len(args) >= 3:
+                args = (*args[:2], args[2] or "cp1252", *args[3:])
+            else:
+                kwargs["encoding"] = kwargs.get("encoding") or "cp1252"
         return original(file, *args, **kwargs)
 
     monkeypatch.setattr(io, "open", non_utf8_open)
