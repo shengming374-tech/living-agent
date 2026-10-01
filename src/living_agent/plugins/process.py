@@ -85,6 +85,10 @@ class PluginProcess:
             "PYTHONDONTWRITEBYTECODE": "1",
             "LIVING_AGENT_PLUGIN_ID": record.manifest.id,
         }
+        if os.name == "nt" and "SystemRoot" in os.environ:
+            # Windows needs its system directory for runtime assembly loading.
+            # 仅保留 Windows 运行库加载所需目录, 不继承用户密钥。
+            environment["SystemRoot"] = os.environ["SystemRoot"]
         command = self._sandbox.command(
             worker_path=self._worker_path,
             plugin_root=record.root,

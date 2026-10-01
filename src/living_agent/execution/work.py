@@ -354,6 +354,8 @@ class WorkTaskExecutor:
             "NO_COLOR": "1",
             "PYTHONUTF8": "1",
         }
+        if os.name == "nt" and "SystemRoot" in os.environ:
+            environment["SystemRoot"] = os.environ["SystemRoot"]
         virtual_environment = os.environ.get("VIRTUAL_ENV")
         if virtual_environment:
             environment["VIRTUAL_ENV"] = virtual_environment

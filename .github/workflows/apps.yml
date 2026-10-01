@@ -23,6 +23,20 @@ jobs:
         with:
           python-version: '3.12'
       - run: uv sync --frozen
+      - name: Verify restricted Windows interpreter / 验证受限解释器启动
+        run: |
+          @'
+          import os, subprocess, sys
+          result = subprocess.run(
+              [sys.executable, "-I", "-B", "-S", "-c", "import asyncio, json; print('worker runtime ready')"],
+              env={"SystemRoot": os.environ["SystemRoot"]},
+              capture_output=True, text=True,
+          )
+          print(result.stdout)
+          if result.returncode:
+              print(result.stderr)
+              raise SystemExit(result.returncode)
+          '@ | uv run python -
       - run: uv run pytest tests/test_config.py tests/test_app_cli.py tests/test_groups.py tests/test_plugins.py -q
       - run: uv run python scripts/build_app.py
       - run: uv run python scripts/smoke_bundle.py dist/windows/LivingAgent-CLI
