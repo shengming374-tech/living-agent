@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # ruff: noqa: S603 - all subprocess commands use the test interpreter and fixed entry point.
+import asyncio
 import json
 import os
 import subprocess
@@ -12,6 +13,7 @@ import pytest
 
 from living_agent.cli.main import main, validate_url
 from living_agent.cli.profile import ProfileLock, default_profile, initialize_profile
+from living_agent.execution.work import WorkTaskExecutor
 
 
 def test_profile_preserves_credentials_and_separates_workspace(tmp_path: Path) -> None:
@@ -26,6 +28,22 @@ def test_profile_preserves_credentials_and_separates_workspace(tmp_path: Path) -
     (root / "credentials.json").write_text("broken")
     with pytest.raises(ValueError):
         initialize_profile(root)
+
+
+async def test_work_cancellation_terminates_real_process() -> None:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import time; time.sleep(60)",
+        start_new_session=True,
+    )
+    try:
+        await asyncio.wait_for(WorkTaskExecutor._terminate_process(process), timeout=5)
+        assert process.returncode is not None
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
 
 
 def test_windows_and_macos_profile_locations(

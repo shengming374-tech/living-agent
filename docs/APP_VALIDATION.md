@@ -10,9 +10,9 @@ Cross-platform apps and rooms built on 0.3.0. Bundles exclude checkout credentia
 | iOS/iPadOS | Xcode iOS Simulator 构建、模拟器安装启动；HTTPS 服务连接客户端。 / Simulator build and launch; HTTPS runtime client. |
 | Windows x64 | GitHub Actions Windows runner 构建与便携运行时验收，见下方工作流。 / Portable build and runtime acceptance on the Windows CI runner linked below. |
 
-源码回归：514 项 Python 测试通过，有一条 SQLAlchemy 连接回收警告；33 项配置、CLI、群聊和插件专项测试通过；14 项 Node bridge 测试通过。Ruff、Mypy（167 个源文件）和锁文件检查通过。移动网页已验证对话、点名、群聊和 390px 宽度，无横向溢出或控制台错误。
+源码回归：515 项 Python 测试通过，有一条 SQLAlchemy 连接回收警告；34 项配置、CLI、群聊和插件专项测试通过；14 项 Node bridge 测试通过。Ruff、Mypy（167 个源文件）和锁文件检查通过。移动网页已验证对话、点名、群聊和 390px 宽度，无横向溢出或控制台错误。
 
-Source validation: 514 Python tests pass with one SQLAlchemy connection cleanup warning; 33 focused tests and 14 Node bridge tests pass. Ruff, Mypy and lock checks pass. Mobile Studio chat, mentions, rooms and 390px layout are verified without overflow or console errors.
+Source validation: 515 Python tests pass with one SQLAlchemy connection cleanup warning; 34 focused tests and 14 Node bridge tests pass. Ruff, Mypy and lock checks pass. Mobile Studio chat, mentions, rooms and 390px layout are verified without overflow or console errors.
 
 尚无 iPhone/iPad 真机、TestFlight/App Store、Developer ID 公证、真实云模型讨论或 QQ/微信发送证据。iOS 端不在设备上运行 Python；默认 mock 回复明确标记为演示。Windows 没有本项目的 OS 插件沙箱，平台专用能力边界详见 [APPS.md](APPS.md)。
 
